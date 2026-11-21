@@ -11,7 +11,7 @@ exec'd at import time into its own module object, because the components define 
 
 The generated file also embeds the official validator's replay (`vendor/pushquantum_validator/
 errors.py`, `spec.py`, `_validation.py`, imports adapted, default architecture JSON inlined) and a
-copy of bench's transversal-CZ `physics_check`, so every component result is replayed exactly as
+copy of bench's transversal-CZ `physics_check` and zone-span check (ADR 0010), so every component result is replayed exactly as
 the scorer would replay it and scored with the exact metric formula before one is chosen.
 
 The output is a single self-contained file (ADR 0006): stdlib + qiskit + numpy imports only.
@@ -233,6 +233,24 @@ def _physics_check(compiled, loading, trace):
     close(len(compiled.data))
 
 
+def _zonespan_check(trace):
+    """Copy of bench.py `zonespan_check` (ADR 0010): a move selecting >= 2 rows keeps its picked-up
+    rows within one zone and its target rows within one zone."""
+    zones = _V.load_trusted_spec()["zones"]
+
+    def zone_of(row):
+        for name, z in zones.items():
+            if z["y"][0] <= row <= z["y"][1]:
+                return name
+        return None
+
+    for rec in trace:
+        mv = rec.move
+        for lines in (mv.rows, mv.new_rows):
+            if len(lines) >= 2 and len({zone_of(r) for r in lines}) > 1:
+                raise PortfolioReject(f"zone span violated at instruction {rec.index}: rows {tuple(lines)}")
+
+
 def _interaction_pairs(circuit):
     index = {bit: i for i, bit in enumerate(circuit.qubits)}
     return {
@@ -295,6 +313,7 @@ def _evaluate(reference, output, ref_pairs):
     loading = {int(q): (int(s[0]), int(s[1])) for q, s in raw.items()}
     replay = _V.ValidationArchitecture.from_loading(loading, None)  # always the trusted spec, like the scorer
     trace = replay.run(compiled, log_file=os.devnull)
+    _zonespan_check(trace)
     _physics_check(compiled, loading, trace)
     gates = _strip_moves(compiled)
     required, allowed = ref_pairs

@@ -16,11 +16,13 @@ Read before working: `docs/scoring.md` (what counts), `docs/harness.md` (how to 
    equivalence above 19 qubits (ADR 0003).
 4. **Transversal CZ:** between two moves, every occupied interaction pair gets the same number of
    `cz` (ADR 0007). `bench` enforces this.
-5. **One self-contained file per compiler:** `compilers/<idea>/compiler.py`, importing only the
+5. **Zone span:** a move selecting ≥ 2 rows keeps its picked-up rows in one zone and its target
+   rows in one zone; single-row moves may cross (ADR 0010). `bench` enforces this.
+6. **One self-contained file per compiler:** `compilers/<idea>/compiler.py`, importing only the
    stdlib, qiskit, numpy and scipy. It defines top-level `compile_circuit(circuit, spec)`. Copy the
    `Move` and `Architecture` plumbing from `compilers/naive/compiler.py` (ADR 0006).
-6. **Compile time:** at most about 60 s per circuit locally (the hard limit is 300 s).
-7. Don't edit `vendor/` or `bench/` without the orchestrator's approval. If you think the harness is
+7. **Compile time:** at most about 60 s per circuit locally (the hard limit is 300 s).
+8. Don't edit `vendor/` or `bench/` without the orchestrator's approval. If you think the harness is
    wrong, say so in your report.
 
 ## Workflow

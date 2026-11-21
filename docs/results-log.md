@@ -81,3 +81,15 @@ All four branches merged into main (2609b0a). Decision: round 2 builds a **portf
 | portfolio (zonedwell, hubstream, rectbatch) | **+87.83** | +89.56 | +80.90 | full ✓ 36/36 metric + 13/13 sanity | (this commit) | gates dropped (wins nothing); picks: zonedwell 24, hubstream 6, rectbatch 6 |
 
 Bounds (docs/bounds.md): ceiling 96.9 %. Phase B (hubwalk, systolic) running until 21:30 UTC.
+
+## Zone-span rule introduced (ADR 0010, ~19:45 UTC)
+
+| compiler | under ADR 0010 | notes |
+|---|---|---|
+| zonedwell r2 | **invalid** (34/36 circuits violate) | conveyor slides across the zone boundary in multi-row moves; fix in progress |
+| hubstream r2 | +82.01, 36/36 ✓ | unaffected |
+| rectbatch r2 | +76.98, 36/36 ✓ | unaffected |
+| gates | +72.87, 36/36 ✓ | unaffected |
+| portfolio (zonedwell, hubstream, rectbatch, gates; checker enforces ADR 0010) | **+82.23**, full ✓ 36/36 + sanity 13/13 | was +87.83 before the rule |
+
+zonedwell's own 50q strict note (round 2): 10/12 50q circuits strict-checked before the time limit (QCEC proved 7, 3 inconclusive), plus the 2 unreached; all 5 non-proven pass the exact Clifford-tableau check.
