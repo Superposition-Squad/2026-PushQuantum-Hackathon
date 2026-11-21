@@ -21,3 +21,5 @@ Worktrees `/home/hackathon/challenge-wt/<idea>`, branches `idea/<idea>` from `0e
 
 | idea | score | dist % | depth % | validity | commit | verdict |
 |---|---|---|---|---|---|---|
+| gates | +72.87 | +71.72 | +77.47 | full ✓ 36+13; strict 33/36 so far, no failures | c82ea11 | gate layer is the reference (commutation DAG, hub-as-control, ZXZ merge, in-zone retention); `gatesb` variant +66.39 (batching, HEA dist +75.7) |
+| rectbatch | +77.54 | +77.99 | +75.74 | full ✓ 36+13; strict 20q ✓ | 953450e | validator-exact move checker, visitor-first lifting, placement search. **Wall-clock-budgeted search → ±0.2 noise; must be made deterministic before merging** |
