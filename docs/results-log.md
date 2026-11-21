@@ -81,3 +81,44 @@ All four branches merged into main (2609b0a). Decision: round 2 builds a **portf
 | portfolio (zonedwell, hubstream, rectbatch) | **+87.83** | +89.56 | +80.90 | full ✓ 36/36 metric + 13/13 sanity | (this commit) | gates dropped (wins nothing); picks: zonedwell 24, hubstream 6, rectbatch 6 |
 
 Bounds (docs/bounds.md): ceiling 96.9 %. Phase B (hubwalk, systolic) running until 21:30 UTC.
+
+## Zone-span rule introduced (ADR 0010, ~19:45 UTC)
+
+| compiler | under ADR 0010 | notes |
+|---|---|---|
+| zonedwell r2 | **invalid** (34/36 circuits violate) | conveyor slides across the zone boundary in multi-row moves; fix in progress |
+| hubstream r2 | +82.01, 36/36 ✓ | unaffected |
+| rectbatch r2 | +76.98, 36/36 ✓ | unaffected |
+| gates | +72.87, 36/36 ✓ | unaffected |
+| portfolio (zonedwell, hubstream, rectbatch, gates; checker enforces ADR 0010) | **+82.23**, full ✓ 36/36 + sanity 13/13 | was +87.83 before the rule |
+
+zonedwell's own 50q strict note (round 2): 10/12 50q circuits strict-checked before the time limit (QCEC proved 7, 3 inconclusive), plus the 2 unreached; all 5 non-proven pass the exact Clifford-tableau check.
+
+## ~19:30–20:00 UTC: systolic, hubwalk, and validator v1.0.0
+
+| compiler | score (validator v0.0.0 + ADR 0007 + ADR 0010) | under official v1.0.0 | commit |
+|---|---|---|---|
+| systolic | +88.95 | **invalid** (`idle` on 36/36) | 1d7aeeb |
+| hubwalk | +88.91 | not yet checked; hub walk parks partners in the zone → expected `idle` failures | fc00cb6 |
+| portfolio (systolic, hubstream, rectbatch, gates) | **+89.18**, full ✓ 36/36 + sanity 13/13 | **invalid** (`idle` on 29/36) | this commit |
+| rectbatch / gates | +76.98 / +72.87 | valid 36/36 | – |
+| hubstream | +82.01 | `idle` on 15/36 | – |
+
+planqc's **validator v1.0.0** (18:26 UTC) adds: the `idle` rule (every atom in the entangling zone must
+take part in a two-qubit gate of each gate layer), single-zone pick-up/drop-off, and bans `rzz`. The
+>19q equivalence check is unchanged. The committed portfolio is therefore **not** valid on the new
+leaderboard; re-vendoring v1.0.0 and an `idle`-compliant rebuild are next.
+
+benchmaxx (exploit experiment, branch idea/benchmaxx only): +97.67 % on v0.0.0; parked.
+
+## Validator v1.0.0 vendored (~20:10 UTC)
+
+vendor/ now holds planqc's v1.0.0 (`_validation.py`, `errors.py`, `verify.py` updated; `idle` rule,
+single-zone moves). bench calls `run_compiler_process(..., network=False)` directly (v1.0.0 dropped the
+`network` argument). Naive still reproduces the baseline exactly.
+
+| compiler | v1.0.0 |
+|---|---|
+| portfolio (hubstream, rectbatch, gates; embedded v1.0.0 replay) | **+79.19**, 36/36 valid (bench full + official v1.0.0 replay) |
+
+systolic and hubwalk are being redesigned for the `idle` rule.

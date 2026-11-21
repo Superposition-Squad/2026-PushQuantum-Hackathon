@@ -68,6 +68,20 @@ logging.getLogger("pushquantum_validator").setLevel(logging.ERROR)  # spacing wa
 BASE_OPS = ["rx", "rz", "cz", "move", "measure", "barrier"]
 """Name table; `ops` is this plus any other operation encountered, in order of appearance."""
 
+EXCLUDED = frozenset({"portfolio"})
+"""Compilers left out of the visualisation (portfolio = per-circuit best of the others): `page`, `all`
+and the regenerate endpoint refuse them (unless `--force`), and the index, `manifest.json` and the
+comparison sidebar skip them even if their pages exist. Matched against the idea folder / page name."""
+
+
+def is_excluded(name_or_path) -> bool:
+    """Whether a page name (`portfolio`, `<worktree>-portfolio`) or a compiler file is excluded."""
+    text = str(name_or_path)
+    if text.endswith(".py"):
+        return Path(text).resolve().parent.name in EXCLUDED
+    return text in EXCLUDED or text.rsplit("-", 1)[-1] in EXCLUDED
+
+
 CHALLENGE_COMPILERS = Path(__file__).resolve().parents[1] / "compilers"
 """Compiler root of the canonical checkout."""
 
@@ -379,6 +393,8 @@ def _move_arrays(trace, loading, arch, zone_at) -> tuple[list, list]:
                 "ncols": ncols,
                 "br": br,
                 "bc": bc,
+                "rm": [[int(b), int(a)] for b, a in row_pairs],
+                "cm": [[int(b), int(a)] for b, a in col_pairs],
             }
         )
     return moves, warnings
@@ -506,8 +522,11 @@ def build(compiler_path: str | Path, qasm_path: str | Path, name: str, mode: str
 
     t0 = time.perf_counter()
     try:
-        compiled, loading = run_compiler(
-            reference, f"{compiler_path}:compile_circuit", timeout=timeout, network=False
+        from pushquantum_validator._sandbox import run_compiler_process
+        from pushquantum_validator.spec import load_trusted_spec
+
+        compiled, loading = run_compiler_process(
+            reference, load_trusted_spec(), f"{compiler_path}:compile_circuit", timeout, 4096, network=False
         )
     except CompilerOutputError as error:
         data["meta"]["compile_s"] = round(time.perf_counter() - t0, 3)
@@ -777,6 +796,8 @@ def collect_index(out: Path) -> list[dict]:
     for sidecar in sidecars:
         name = sidecar.get("name")
         if not name:
+            continue
+        if is_excluded(name):
             continue
         groups.setdefault(str(name), []).append(sidecar)
 
@@ -1050,6 +1071,9 @@ class VizRequestHandler(SimpleHTTPRequestHandler):
         except (OSError, RuntimeError, ValueError):
             self._send_json(403, {"ok": False, "error": "compiler path does not exist"})
             return
+        if is_excluded(resolved) or is_excluded(compiler_name(resolved)):
+            self._send_json(403, {"ok": False, "error": f"compiler is excluded from the visualisation ({', '.join(sorted(EXCLUDED))})"})
+            return
         if not _compiler_allowed(resolved):
             self._send_json(403, {"ok": False, "error": "compiler path is not allowed"})
             return
@@ -1117,6 +1141,8 @@ def cmd_page(args) -> int:
         raise SystemExit(f"no such compiler file: {compiler}")
     qasm, bench_label = resolve_circuit(args.circuit)
     name = sanitize_name(args.name) if args.name else compiler_name(compiler)
+    if (is_excluded(compiler) or is_excluded(name)) and not args.force:
+        raise SystemExit(f"{compiler} is excluded from the visualisation (EXCLUDED = {sorted(EXCLUDED)}); use --force")
     out = output_dir(args.out)
     data, summary = build(compiler, qasm, name, args.mode, args.timeout)
     summary, page_path = write_outputs(data, summary, out)
@@ -1133,6 +1159,8 @@ def cmd_all(args) -> int:
     if not compiler.is_file():
         raise SystemExit(f"no such compiler file: {compiler}")
     name = sanitize_name(args.name) if args.name else compiler_name(compiler)
+    if (is_excluded(compiler) or is_excluded(name)) and not args.force:
+        raise SystemExit(f"{compiler} is excluded from the visualisation (EXCLUDED = {sorted(EXCLUDED)}); use --force")
     out = output_dir(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -1282,6 +1310,7 @@ def main(argv: list[str] | None = None) -> int:
     page.add_argument("--mode", choices=["fast", "full"], default="fast")
     page.add_argument("--timeout", type=float, default=300)
     page.add_argument("--out", default=None)
+    page.add_argument("--force", action="store_true", help="build pages even for an excluded compiler")
     page.set_defaults(func=cmd_page)
 
     every = sub.add_parser("all", help="build every page")
@@ -1293,6 +1322,7 @@ def main(argv: list[str] | None = None) -> int:
     every.add_argument("--mode", choices=["fast", "full"], default="fast")
     every.add_argument("--timeout", type=float, default=300)
     every.add_argument("--out", default=None)
+    every.add_argument("--force", action="store_true", help="build pages even for an excluded compiler")
     every.set_defaults(func=cmd_all)
 
     index = sub.add_parser("index", help="regenerate the index")

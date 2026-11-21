@@ -40,6 +40,10 @@ python bench/viz.py serve        # http://<host>:9000/ serving viz/ (default hos
   by `page`, `all`, `index`, `rewrap` and the server's regenerate endpoint. Every page also embeds a
   snapshot of the part it needs (its circuit's compilations and its compiler's circuits): `page`
   refreshes the snapshots of the same circuit and compiler, `all`/`index`/`rewrap` refresh all.
+- Excluded compilers: `EXCLUDED = {"portfolio"}` in `bench/viz.py` (portfolio is the per-circuit best
+  of the others, so its pages add nothing). `page` and `all` refuse them unless `--force`, the
+  regenerate endpoint refuses them (403), and the index, `manifest.json`, the comparison sidebar and
+  the split-view picker skip them even if their pages exist on disk (also `<worktree>-portfolio`).
 - `--mode fast` (default) = compile + replay + metrics + transversal-CZ check, like `bench.py`;
   `--mode full` adds the official equivalence check.
 - The pages work from `file://` too; only the ↻ Regenerate button needs the server.
@@ -84,10 +88,25 @@ the controls and the live stats.
 
 - Cursor = "instruction *i* has just executed"; position 0 is the initial loading. A **frame** is
   one move, or a maximal block of consecutive non-move instructions.
-- Stepping forward onto a move animates it (ease-in-out, from the old to the new physical
-  positions) with the picked-up AOD rows/columns drawn as green dashed bands that travel with
-  the atoms. Resting on a move shows the bands at their target, dashed ghosts at the old
-  positions and arrows. Jumps and backward steps are instant.
+- **Moves**: while the cursor is on a move (instruction or frame mode) and during its animation,
+  the atom view shows the start and the end selection together:
+  - start (green): the picked rows and the picked cols, each one contiguous interval drawn as a
+    single shaded band (rows across the whole array, cols per zone, at that zone's column
+    positions), and their intersection, the **active rectangle**, outlined solid dark green: every
+    atom inside it moves (a legal move has no ghost inside);
+  - end (magenta): every target row and col (`new_rows`/`new_cols`, possibly spread or squeezed)
+    as its own line, and the dashed **target rectangle**; parts outside the zones the move uses
+    are drawn faintly;
+  - line map: connectors from each picked line to its target line, rows in the right margin, cols
+    in the top margin (from the picked col's position in the start zone to the target col's
+    position in the target zone), so spreads like (0,1,2,3)→(0,2,4,6) and squeezes read directly.
+    The map is the validator's: with fewer target lines than picked lines the empty picked lines
+    are dropped first, and those get a red ✕ (`rm`/`cm` in the page data);
+  - the caption above the atom view gives `rows a–b → … · cols … → …` and how many empty lines
+    were dropped.
+  Stepping forward onto a move animates the atoms (ease-in-out) with the AOD lines travelling as
+  thin dotted lines; dashed ghosts and arrows mark the old positions. Jumps and backward steps are
+  instant.
 - Stats: position and frame, the current instruction (angles in rad and multiples of π), moves
   m/M, this (or the last) move's distance, Σ distance so far vs this circuit's total and the
   naive compiler's (black tick on the bar; Δ % = total/naive − 1, negative is better), depth so
@@ -106,7 +125,9 @@ Legend (also on the page, "legend" in the footer):
 | blue ring: `rx` on that atom | two orange dots + line: `cz` |
 | green ring + dashed crosshair: `rz` (targeted) | purple bar + diamonds: `move` (diamonds on moved qubits) |
 | orange overlapping discs: `cz` pair | gray "M": `measure`; dashed gray line: `barrier` |
-| green dashed bands: AOD rows/cols of the current move | yellow background: current instruction (pale: rest of its frame) |
+| green bands + solid dark-green box: picked rows/cols of the current move, active rectangle | yellow background: current instruction (pale: rest of its frame) |
+| magenta lines + dashed box: target rows/cols, target rectangle | |
+| margin connectors (green dot → magenta dot; red ✕ = dropped empty line): line map | |
 | red ✕: instruction that violates a rule | faded glyphs: not executed yet; red outline/fill: violation/error |
 | red dashed ring: under-pulsed pair of a failing CZ segment | red dashed line: cursor |
 
@@ -240,7 +261,8 @@ top, as in the brief). Physical numbers are rounded to 4 decimals. *Sites* are i
      "w": [0],                          // indices into "warnings" (spacing warnings of this move)
      "rows": [5], "cols": [2, 3], "nrows": [10], "ncols": [2, 3],  // raw move params
      "br": [[5.0, 10.0]],               // AOD row bands: [physical y before, after] per used row line
-     "bc": [[2.0, 2.0], [3.0, 2.3]]     // AOD col bands: [physical x before, after] per used col line
+     "bc": [[2.0, 2.0], [3.0, 2.3]],    // AOD col bands: [physical x before, after] per used col line
+     "rm": [[5, 10]], "cm": [[2, 2], [3, 3]]  // line map [picked, target] after dropping empty lines
     }
   ],
   "warnings": ["Target cols ... not evenly spaced ...", ...],  // unique spacing-warning texts
