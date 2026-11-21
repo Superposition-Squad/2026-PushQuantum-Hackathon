@@ -178,4 +178,4 @@ headroom is in sorting atoms into the working row, not in the hub stream.
 | systolic2_po | +86.35 (systolic_po 86.30) |
 | TOP_HOME = 8 (row 9 kept free as working row) | worse (50q stagger p3 5366 -> 6740: deeper lifts, block mid rarely fits) |
 
-**~23:20 UTC: blockingcz removed** from the project at the user's request (code, results and viz pages; portfolio rebuilt without it). It stays in git history only.
+**~23:20 UTC: blockingcz removed** from the project at the user's request (code, results and viz pages). Portfolio rebuilt from solo + systolic_po + rectbatch: **+90.65 %**, full 20/20, slowest compile 46 s. It stays in git history only.
