@@ -670,7 +670,7 @@ def _budget(n: int, n_rounds: int) -> float:
     if n <= 24:
         return 5.0
     if n <= 50:
-        return 20.0
+        return 25.0
     return 5.0
 
 

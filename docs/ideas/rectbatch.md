@@ -118,6 +118,12 @@ most atoms move alone. Visitors (the second atom of a cross-row pair) are ~70 % 
 
 | iteration | commit | score | dist % | depth % | notes |
 |---|---|---|---|---|---|
+| v1 (opt level 2) | (uncommitted) | 73.88 | 74.69 | 70.64 | 36/36 metric pass, but 3 sanity circuits fail: level 2 permutes qubits / drifts angles |
+| v2 (level 1, flat+compact, LS 14 s) | 0c73d88 | **77.59** | **78.05** | **75.74** | 36/36 metric and 13/13 sanity pass in `--mode full`; slowest compile 22.5 s (50q p3) |
+
+Per family (v2): HEA distance −95.31 %, iHVA −80.54 %, QAOA −73.35 %; depth HEA −35.48 %,
+iHVA −80.00 %, QAOA −70.91 %. Biggest remaining circuits: metric_circuit_20 (50q iHVA stagger p3)
+8 876 and metric_circuit_36 (50q QAOA warm p3) 8 586, vs 24 907 naive each.
 
 ## Where the remaining distance goes (and the one big next step)
 
