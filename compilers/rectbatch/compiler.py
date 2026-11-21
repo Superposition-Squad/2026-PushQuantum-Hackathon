@@ -8,7 +8,6 @@ import heapq
 import itertools
 import math
 import random
-import time
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -662,21 +661,28 @@ def initial_placement(n: int, rounds) -> dict[int, Site]:
     return candidates[0]
 
 
-def _budget(n: int, n_rounds: int) -> float:
+def _budget(n: int, n_rounds: int) -> int:
+    """Deterministic work budget of the placement search, in planned pair-rounds.
+
+    One unit = re-planning one interaction pair of one round (~0.15-0.3 ms here). The budget is a
+    pure function of the circuit size, so the same input always yields the same placement, whatever
+    the machine load or whatever ran earlier in the process."""
     if n_rounds > 1000:
-        return 2.0
+        return 10_000
     if n <= 16:
-        return 3.0
+        return 20_000
     if n <= 24:
-        return 5.0
+        return 40_000
     if n <= 50:
-        return 20.0
-    return 5.0
+        return 50_000
+    return 10_000
 
 
-def optimise_placement(rounds, pos: dict[int, Site], budget_s: float) -> dict[int, Site]:
-    """Incremental hill climbing on the true plan cost: swap two sites, or move an atom to a free one."""
-    if not rounds or budget_s <= 0:
+def optimise_placement(rounds, pos: dict[int, Site], budget: int) -> dict[int, Site]:
+    """Incremental hill climbing on the plan cost: swap two sites, or move an atom to a free one.
+
+    Deterministic: fixed seed and a fixed work budget (see `_budget`), no wall clock."""
+    if not rounds or budget <= 0:
         return pos
     rng = random.Random(12345)
     pos = dict(pos)
@@ -694,23 +700,26 @@ def optimise_placement(rounds, pos: dict[int, Site], budget_s: float) -> dict[in
     active = [q for q in qubits if touch[q]]
 
     cache: dict[Any, float] = {}
+    work = [0]
 
     def rcost(i: int, p: dict[int, Site]) -> float:
+        # Keyed on the round's own atoms only: a heuristic (the ghost check also sees other atoms),
+        # measured to beat an exact full-placement key because it allows far more proposals.
         key = (pred_key[i], tuple(p[q] for q in involved[i]))
         value = cache.get(key)
         if value is None:
             value = _round_cost(pred_of_round[i], p)
             cache[key] = value
+            k = len(pred_of_round[i])
+            work[0] += max(1, k if k <= 8 else 2 * k)  # big rounds plan super-linearly
         return value
 
-    start = time.monotonic()
     cost = [rcost(i, pos) for i in range(len(rounds))]
-    spent = time.monotonic() - start
-    if not active or spent > budget_s * 0.5:
+    if not active or work[0] > budget // 2:
         return dict(pos)
     site_of = {q: pos[q] for q in qubits}
     holder = {site: q for q, site in site_of.items()}
-    span = start + spent + budget_s
+    proposals_left = 3 * budget  # guard: stop even if most proposals hit the cache
 
     def swap(u: int, v: int) -> None:
         keys = touch[u] + touch[v]
@@ -761,7 +770,8 @@ def optimise_placement(rounds, pos: dict[int, Site], budget_s: float) -> dict[in
             pos[u] = origin
             site_of[u] = origin
 
-    while time.monotonic() < span:
+    while work[0] < budget and proposals_left > 0:
+        proposals_left -= 1
         roll = rng.random()
         if roll < 0.3 and free_sites:
             relocate(rng.choice(active), free_sites[rng.randrange(len(free_sites))])
