@@ -130,3 +130,4 @@ systolic and hubwalk are being redesigned for the `idle` rule.
 | systolic (idle redesign: homes in storage, only active pairs in the zone, hub stays, row rotation) | +85.34 | full 20/20, sanity 13/13, v1.0.0 replay clean on 49, Clifford ✓ 50q iHVA | 3ae6025 |
 | optimizer (teammate Anton Stolz, `origin/idea/optimizer` 713e5a5) | +80.99 | fast 20/20 | not merged; adds only +0.01 to the portfolio (wins 07, 09) |
 | **portfolio (systolic, hubstream, rectbatch, gates)** | **+85.50** | full 20/20 | this commit |
+| hubwalk r3 (idle redesign) | +81.56 | full 20/20, sanity 13/13, 20q strict, 50q Clifford ✓ | c9e86df (idea/hubwalk) — **stopped**: wins none of the 20 vs portfolio +85.50 (same storage-home design as systolic, less tuned) |
