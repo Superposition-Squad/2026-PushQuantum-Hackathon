@@ -1640,6 +1640,544 @@ def sa_order(geo: Geo, ops: list[Op], n: int, hub: int, seed: int, iters: int = 
     return order  # None marks an empty home cell
 
 
+# ---------------------------------------------------------------- beam planner (validator v1.0.0)
+
+
+class Plan:
+    """One partial plan of the beam search: gate state, positions, homes, depth levels, cost.
+    The output is a chain of per-step chunks (`parent`, `chunk`) so copies stay cheap."""
+
+    __slots__ = ("ex", "st", "home", "owner", "lvl", "dist", "parent", "chunk", "steps")
+
+    def copy(self) -> "Plan":
+        p = Plan.__new__(Plan)
+        p.ex, p.st = self.ex.clone(), self.st.copy()
+        p.home, p.owner, p.lvl = dict(self.home), dict(self.owner), list(self.lvl)
+        p.dist, p.parent, p.chunk, p.steps = self.dist, self, [], self.steps
+        return p
+
+    def output(self) -> list[tuple]:
+        chunks = []
+        node = self
+        while node is not None:
+            chunks.append(node.chunk)
+            node = node.parent
+        return [item for ch in reversed(chunks) for item in ch]
+
+    def depth(self) -> int:
+        return max(self.lvl) if self.lvl else 0
+
+
+class BeamPlanner:
+    """Idle rule (validator v1.0.0): at every pulse the entangling zone holds exactly the pulsed pairs.
+
+    Atoms live in storage next to the zone. One step = one pulse: zone atoms that are not in it (or
+    still owe 1q gates) drop, rising atoms flush their pending 1q gates, the pairs form in the zone
+    (an atom already there is an anchor; the others get zone pair sites by an order-preserving
+    assignment, so lifts group into few rectangles), the CZs fire. A beam search over the choice of
+    pulse and of drop targets keeps the best partial plans by distance + 2.92 * depth + an estimate
+    of the remaining work. Every candidate move is checked by `State.apply` (validator semantics)."""
+
+    def __init__(self, geo: Geo, ops, succ, indeg, n, opts: dict | None = None):
+        self.geo, self.ops, self.succ, self.indeg, self.n = geo, ops, succ, indeg, n
+        self.opt = {"beam": 8, "lam": 2.0, "order": None, "zone_rows": 10, "layout": "line"}
+        if opts:
+            self.opt.update(opts)
+        self.qblocks: list[list[int]] = [[] for _ in range(n)]
+        for o in ops:
+            if o.kind in (ROT, CZB):
+                for q in o.qubits:
+                    self.qblocks[q].append(o.idx)
+        height = [0] * len(ops)
+        for i in range(len(ops) - 1, -1, -1):
+            o = ops[i]
+            height[i] = max((height[j] for j in succ[i]), default=0) + (2 if o.kind == ROT else 1 if o.kind == CZB else 0)
+        self.height = height
+        self.total_cz = sum(2 if o.kind == ROT else 1 for o in ops if o.kind in (ROT, CZB))
+        self.hub = find_hub(ops, n)
+        g = geo
+        if not g.ent_above:
+            raise Unsupported("expects the entangling zone above storage")
+        self.srows = sorted(range(g.sy0, g.sy1 + 1), reverse=True)
+        self.zrows = list(range(g.ey0, min(g.ey1, g.ey0 + self.opt["zone_rows"] - 1) + 1))
+        self.loading = self.initial_loading()
+
+    # ---------------------------------------------------------- layout
+    def initial_loading(self) -> dict[int, Site]:
+        g = self.geo
+        order = self.opt["order"] or (self.line_order() if self.opt.get("layout") == "line" else self.pair_order())
+        sites = [(x, y) for y in self.srows for x in range(g.sx0, g.sx1 + 1)]
+        return {q: sites[k] for k, q in enumerate(order) if q is not None}
+
+    def line_order(self) -> list[int | None]:
+        """Atoms along a long path of the interaction graph (hub excluded), row by row, so that
+        neighbours on the path are neighbours in storage; the hub goes last."""
+        import random
+
+        h = self.hub
+        adj: dict[int, set[int]] = {q: set() for q in range(self.n)}
+        for o in self.ops:
+            if o.kind in (ROT, CZB):
+                a, b = o.qubits
+                if h not in (a, b):
+                    adj[a].add(b)
+                    adj[b].add(a)
+        nodes = [q for q in range(self.n) if q != h]
+        rng = random.Random(self.opt.get("seed", 0))
+        best: list[int] = []
+        for trial in range(200):
+            start = nodes[trial % len(nodes)] if trial < len(nodes) else rng.choice(nodes)
+            path, seen = [start], {start}
+            while True:
+                cand = [v for v in adj[path[-1]] if v not in seen]
+                if not cand:
+                    break
+                # Warnsdorff: fewest onward options first
+                cand.sort(key=lambda v: (len([w for w in adj[v] if w not in seen]), rng.random()))
+                path.append(cand[0])
+                seen.add(cand[0])
+            if len(path) > len(best):
+                best = path
+            if len(best) == len(nodes):
+                break
+        rest = [q for q in nodes if q not in best]
+        line = best + rest
+        if h is not None:
+            line.append(h)
+        return line
+
+    def pair_order(self) -> list[int | None]:
+        slots: list[int | None] = []
+        placed: set[int] = set()
+        for o in self.ops:
+            if o.kind not in (ROT, CZB):
+                continue
+            a, b = o.qubits
+            if a in placed or b in placed:
+                continue
+            if len(slots) % 2:
+                slots.append(None)
+            slots += [a, b]
+            placed.update((a, b))
+        for q in range(self.n):
+            if q not in placed:
+                slots.append(q)
+        while len(slots) > len(self.geo.storage_sites):
+            slots.remove(None)
+        return slots
+
+    # ---------------------------------------------------------- helpers on a plan
+    def emit_moves(self, P: Plan, transfers):
+        for params, dist in group_transfers(P.st, transfers):
+            P.chunk.append(("move", params))
+            P.dist += dist
+
+    def flush(self, P: Plan, q):
+        for name, ang in synth_1q(P.ex.U[q]):
+            P.chunk.append(("u", q, name, ang))
+            P.lvl[q] += 1
+        P.ex.U[q] = I2.copy()
+
+    def set_home(self, P: Plan, q, s):
+        old = P.home.get(q)
+        if old is not None and P.owner.get(old) == q:
+            del P.owner[old]
+        P.home[q] = s
+        P.owner[s] = q
+
+    def next_partner(self, P: Plan, q) -> int | None:
+        ex = P.ex
+        for i in self.qblocks[q]:
+            if not ex.done[i] and i not in ex.bstate:
+                return [x for x in self.ops[i].qubits if x != q][0]
+        return None
+
+    def zone_dist(self, P: Plan, q) -> float:
+        g = self.geo
+        x, y = P.st.pos[q]
+        return 0.0 if g.in_ent((x, y)) else float(g.ey0 - y)
+
+    def below(self, P: Plan, q, taken) -> Site:
+        g, st = self.geo, P.st
+        hm = P.home.get(q)
+        if hm is not None and hm not in st.occ and hm not in taken:
+            return hm
+        x = min(max(st.pos[q][0], g.sx0), g.sx1)
+        for y in self.srows:
+            s = (x, y)
+            if s not in st.occ and s not in taken and P.owner.get(s, q) == q:
+                return s
+        free = [s for s in g.storage_sites if s not in st.occ and s not in taken and P.owner.get(s, q) == q]
+        if not free:
+            free = [s for s in g.storage_sites if s not in st.occ and s not in taken]
+        return min(free, key=lambda s: g.dist(st.pos[q], s))
+
+    def beside(self, P: Plan, q, taken) -> Site | None:
+        p = self.next_partner(P, q)
+        if p is None:
+            return None
+        g, st = self.geo, P.st
+        s = st.pos[p] if g.in_storage(st.pos[p]) else P.home.get(p)
+        if s is None:
+            return None
+        x, y = s
+        t = (x + 1, y) if (x - g.ex0) % 2 == 0 else (x - 1, y)
+        if g.in_storage(t) and t not in st.occ and t not in taken and P.owner.get(t, q) == q:
+            return t
+        return None
+
+    # ---------------------------------------------------------- pulse candidates
+    def pulses(self, P: Plan) -> list[list]:
+        """A few candidate pulses: all open blocks finish; new blocks are added greedily in two
+        orders (critical path first / cheapest lift first) and with different caps."""
+        ex, ops, h, g, st = P.ex, self.ops, self.hub, self.geo, P.st
+        base, used = [], set()
+        for i, r in sorted(ex.bstate.items(), key=lambda kv: (-self.height[kv[0]], kv[0])):
+            qs = ops[i].qubits
+            if used & set(qs):
+                continue
+            base.append(("finish", i, r))
+            used.update(qs)
+
+        def lift_cost(i):
+            qs = ops[i].qubits
+            if h is not None and h in qs:
+                p = qs[0] if qs[1] == h else qs[1]
+                hs = st.pos[h]
+                return g.dist(st.pos[p], g.sibling[hs]) if g.in_ent(hs) else self.zone_dist(P, p) + 0.5
+            return max(self.zone_dist(P, q) for q in qs)
+
+        def role(i):
+            roles = ex.start_roles(i)
+            if not roles or ops[i].kind != ROT:
+                return roles[0] if roles else None
+            roles.sort(key=lambda r: (r == h, self.zone_dist(P, r)))
+            return roles[0]
+
+        if self.opt.get("rounds") and base:
+            return [base]  # round mode: an open round only finishes (same rectangles back up)
+        ready = [i for i in ex.ready_blocks if ex.start_roles(i)]
+        orders = {
+            "crit": sorted(ready, key=lambda i: (-self.height[i], lift_cost(i), i)),
+            "cheap": sorted(ready, key=lambda i: (lift_cost(i), -self.height[i], i)),
+        }
+        # geometry: storage neighbours whose block is ready rise together (both alignments)
+        geo_sets = []
+        rowsmap: dict[int, list[tuple[int, int]]] = {}
+        for q in range(self.n):
+            x, y = st.pos[q]
+            if g.in_storage((x, y)):
+                rowsmap.setdefault(y, []).append((x, q))
+        pairblock = {}
+        for i in ready:
+            a, b = ops[i].qubits
+            pairblock[frozenset((a, b))] = i
+        for par in (0, 1):
+            S, u = list(base), set(used)
+            for y, items in rowsmap.items():
+                items.sort()
+                for k in range(len(items) - 1):
+                    (x1, a), (x2, b) = items[k], items[k + 1]
+                    if x2 != x1 + 1 or (x1 - g.sx0) % 2 != par:
+                        continue
+                    i = pairblock.get(frozenset((a, b)))
+                    if i is None or u & {a, b}:
+                        continue
+                    r = role(i)
+                    if r is None and ops[i].kind == ROT:
+                        continue
+                    S.append(("start", i, r))
+                    u.update((a, b))
+            # the hub joins with its cheapest ready partner
+            if h is not None and h not in u:
+                hb = [i for i in ready if h in ops[i].qubits and not (u & set(ops[i].qubits))]
+                if hb:
+                    i = min(hb, key=lift_cost)
+                    r = role(i)
+                    if r is not None or ops[i].kind == CZB:
+                        S.append(("start", i, r))
+                        u.update(ops[i].qubits)
+            geo_sets.append(S)
+        out, seen = [], set()
+        for S in geo_sets:
+            key = tuple(sorted((e[1], e[2] if e[2] is not None else -1) for e in S))
+            if S and key not in seen:
+                seen.add(key)
+                out.append(S)
+        for name, order in orders.items():
+            for cap in (None, 3, 1):
+                S, u = list(base), set(used)
+                added = 0
+                for i in order:
+                    if cap is not None and added >= cap:
+                        break
+                    qs = ops[i].qubits
+                    if u & set(qs):
+                        continue
+                    r = role(i)
+                    if r is None and ops[i].kind == ROT:
+                        continue
+                    S.append(("start", i, r))
+                    u.update(qs)
+                    added += 1
+                key = tuple(sorted((e[1], e[2] if e[2] is not None else -1) for e in S))
+                if S and key not in seen:
+                    seen.add(key)
+                    out.append(S)
+        return out
+
+    # ---------------------------------------------------------- zone sites (order preserving)
+    def assign_sites(self, P: Plan, todo, reserved):
+        """Pairs whose atoms both come from storage get zone pairs by a monotone assignment: pairs
+        sorted by the x of their atoms map onto free pair sites sorted by (row, x), minimising the
+        summed lift distance (DP). Returns {qubit: site}."""
+        g, st = self.geo, P.st
+        if not todo:
+            return {}
+        slots = [(l, r) for (l, r) in g.pairs if l[1] in self.zrows and l not in st.occ and r not in st.occ
+                 and l not in reserved and r not in reserved]
+        slots.sort(key=lambda lr: (lr[0][1], lr[0][0]))
+        items = []
+        for a, b in todo:
+            pa, pb = st.pos[a], st.pos[b]
+            qa, qb = (a, b) if (pa[0], -pa[1]) <= (pb[0], -pb[1]) else (b, a)
+            items.append((min(pa[0], pb[0]), qa, qb))
+        items.sort()
+        k, m = len(items), len(slots)
+        if m < k:
+            raise RuntimeError("entangling zone full")
+        INF = float("inf")
+        cost = [[0.0] * m for _ in range(k)]
+        for i, (_, qa, qb) in enumerate(items):
+            for j, (l, r) in enumerate(slots):
+                cost[i][j] = max(g.dist(st.pos[qa], l), g.dist(st.pos[qb], r))
+        # dp over rows of slots is not monotone across rows; restrict to one row band at a time
+        best = None
+        rows = sorted({l[1] for l, _ in slots})
+        for start in range(len(rows)):
+            band = [j for j, (l, _) in enumerate(slots) if l[1] in rows[start:]]
+            band.sort(key=lambda j: (slots[j][0][0], slots[j][0][1]))
+            mb = len(band)
+            if mb < k:
+                continue
+            D = [[INF] * (mb + 1) for _ in range(k + 1)]
+            for j in range(mb + 1):
+                D[0][j] = 0.0
+            for i in range(1, k + 1):
+                for j in range(1, mb + 1):
+                    D[i][j] = min(D[i][j - 1], D[i - 1][j - 1] + cost[i - 1][band[j - 1]])
+            if best is None or D[k][mb] < best[0]:
+                # backtrack
+                pick, i, j = [], k, mb
+                while i > 0:
+                    if D[i][j] == D[i][j - 1]:
+                        j -= 1
+                    else:
+                        pick.append(band[j - 1])
+                        i, j = i - 1, j - 1
+                best = (D[k][mb], list(reversed(pick)))
+            break  # the first band (nearest rows) is enough in practice
+        res = {}
+        for (_, qa, qb), j in zip(items, best[1]):
+            l, r = slots[j]
+            res[qa], res[qb] = l, r
+        return res
+
+    # ---------------------------------------------------------- one pulse on a plan
+    def step(self, P: Plan, S, pol):
+        g, ops = self.geo, self.ops
+        ex, st = P.ex, P.st
+        drop_pol, keep_pol = pol
+        for ev in S:
+            ex.apply_pre(ev)
+        pairs = [tuple(ops[ev[1]].qubits) for ev in S]
+        Sq = {q for pr in pairs for q in pr}
+
+        def dirty(q):
+            return not _is_identity(ex.U[q])
+
+        zone = [q for q in range(self.n) if g.in_ent(st.pos[q])]
+        # only the hub (and pairs that stay intact) may stay up; everything else drops, so that
+        # drops and lifts move whole rows instead of fragments
+        keep = set()
+        for a, b in pairs:
+            if g.in_ent(st.pos[a]) and g.sibling.get(st.pos[a]) == st.pos[b] and not dirty(a) and not dirty(b):
+                keep.update((a, b))
+        if keep_pol == "none":
+            keep = set()
+        elif keep_pol == "clean":
+            keep.update(q for q in zone if q in Sq and not dirty(q))
+        elif self.hub is not None and self.hub in Sq and not dirty(self.hub) and g.in_ent(st.pos[self.hub]):
+            keep.add(self.hub)
+        dropping = [q for q in zone if q not in keep]
+        taken: set[Site] = set()
+        drops = []
+        if isinstance(drop_pol, tuple):  # ("shift", dx, row): the group drops as one block
+            _, dx, row0 = drop_pol
+            for q in dropping:
+                x, y = st.pos[q]
+                t = (x + dx, row0 - (y - g.ey0))
+                if not g.in_storage(t) or t in taken:
+                    raise RuntimeError("block drop does not fit")
+                o = st.occ.get(t)
+                if o is not None:
+                    raise RuntimeError("block drop target occupied")
+                if P.owner.get(t, q) != q:
+                    o2 = P.owner[t]
+                    if not g.in_ent(st.pos[o2]):
+                        raise RuntimeError("block drop onto a home")
+                taken.add(t)
+                drops.append((q, st.pos[q], t))
+                self.set_home(P, q, t)
+            dropping = []
+        for q in sorted(dropping, key=lambda q: (q not in Sq, st.pos[q])):
+            t = None
+            if q not in Sq and drop_pol == "beside":
+                t = self.beside(P, q, taken)
+            if t is None:
+                t = self.below(P, q, taken)
+            taken.add(t)
+            drops.append((q, st.pos[q], t))
+            self.set_home(P, q, t)
+        self.emit_moves(P, drops)
+        for q in Sq:
+            if dirty(q):
+                if not g.in_storage(st.pos[q]):
+                    raise RuntimeError("dirty atom left in the zone")
+                self.flush(P, q)
+        reserved: set[Site] = set()
+        tg: dict[int, Site] = {}
+        todo = []
+        for a, b in pairs:
+            sa, sb = st.pos[a], st.pos[b]
+            if g.in_ent(sa) and g.sibling.get(sa) == sb:
+                reserved.update((sa, sb))
+                continue
+            todo.append((a, b))
+        rest = []
+        for a, b in todo:
+            ok = False
+            for anc, mov in ((a, b), (b, a)):
+                sa = st.pos[anc]
+                if g.in_ent(sa) and sa not in reserved:
+                    sib = g.sibling[sa]
+                    o = st.occ.get(sib)
+                    if (o is None or o == mov) and sib not in reserved:
+                        tg[mov] = sib
+                        reserved.update((sa, sib))
+                        ok = True
+                        break
+            if not ok:
+                rest.append((a, b))
+        # atoms of `rest` still in the zone (clean, re-pairing) are treated like storage atoms
+        tg.update(self.assign_sites(P, rest, reserved))
+        self.emit_moves(P, [(q, st.pos[q], s) for q, s in tg.items() if st.pos[q] != s])
+        for a, b in pairs:
+            if g.sibling.get(st.pos[a]) != st.pos[b]:
+                raise RuntimeError("pair not formed")
+        for q in range(self.n):
+            if g.in_ent(st.pos[q]) and q not in Sq:
+                raise RuntimeError("idle atom in the zone")
+        for a, b in pairs:
+            P.chunk.append(("cz", a, b))
+            m = max(P.lvl[a], P.lvl[b]) + 1
+            P.lvl[a] = P.lvl[b] = m
+        for ev in S:
+            ex.apply_post(ev)
+        ex.absorb()
+        P.steps += 1
+
+    def finish(self, P: Plan):
+        g, st = self.geo, P.st
+        taken: set[Site] = set()
+        drops = []
+        for q in range(self.n):
+            if g.in_ent(st.pos[q]):
+                t = self.below(P, q, taken)
+                taken.add(t)
+                drops.append((q, st.pos[q], t))
+        self.emit_moves(P, drops)
+        for q in range(self.n):
+            if not _is_identity(P.ex.U[q]):
+                self.flush(P, q)
+        for o in sorted(P.ex.pend_meas, key=lambda o: o.idx):
+            P.chunk.append(("meas", o.qubits[0], o.clbit))
+
+    # ---------------------------------------------------------- search
+    def remaining_cz(self, P: Plan) -> int:
+        ex = P.ex
+        left = 0
+        for i, o in enumerate(self.ops):
+            if o.kind in (ROT, CZB) and not ex.done[i]:
+                left += 1 if (o.kind == CZB or i in ex.bstate) else 2
+        return left
+
+    def score(self, P: Plan) -> float:
+        return P.dist + DEPTH_WEIGHT * P.depth() + self.opt["lam"] * self.remaining_cz(P)
+
+    def run(self):
+        g = self.geo
+        root = Plan.__new__(Plan)
+        root.ex = Exec(self.ops, self.succ, self.indeg, self.n)
+        root.st = State(g, self.loading)
+        root.home, root.owner = {}, {}
+        for q, s in self.loading.items():
+            self.set_home(root, q, s)
+        root.lvl = [0] * self.n
+        root.dist, root.parent, root.chunk, root.steps = 0.0, None, [], 0
+        beam = [root]
+        B = max(1, int(self.opt["beam"]))
+        guard = 0
+        self.work = 0
+        while any(not P.ex.finished() for P in beam):
+            guard += 1
+            if guard > 4 * len(self.ops) + 50:
+                raise RuntimeError("beam planner stuck")
+            cands = []
+            for P in beam:
+                if P.ex.finished():
+                    cands.append(P)
+                    continue
+                if self.opt.get("rounds"):
+                    pols = [("below", "none")]
+                else:
+                    pols = [(d, k) for d in ("beside", "below") for k in ("clean", "hub")] if B > 1 else [("beside", "clean")]
+                if self.opt.get("block"):
+                    pols = pols + [(("shift", dx, row), k) for dx in (-2, -1, 0, 1, 2) for row in self.srows[:2]
+                                   for k in ("hub", "none")]
+                for S in self.pulses(P):
+                    for pol in pols:
+                        Q = P.copy()
+                        self.work += 1
+                        try:
+                            self.step(Q, S, pol)
+                        except RuntimeError:
+                            continue
+                        cands.append(Q)
+            if not cands:
+                raise RuntimeError("no feasible pulse")
+            cands.sort(key=self.score)
+            nxt, seen = [], set()
+            for Q in cands:
+                key = (tuple(Q.st.pos[q] for q in range(self.n)), self.remaining_cz(Q), tuple(sorted(Q.ex.bstate)))
+                if key in seen:
+                    continue
+                seen.add(key)
+                nxt.append(Q)
+                if len(nxt) >= B:
+                    break
+            beam = nxt
+        finals = []
+        for P in beam:
+            Q = P.copy()
+            self.finish(Q)
+            finals.append(Q)
+        best = min(finals, key=lambda Q: Q.dist + DEPTH_WEIGHT * Q.depth())
+        self.dist_total = best.dist
+        self.out = best.output()
+        return self.out
+
+
 # ---------------------------------------------------------------- emit + self-check
 
 
@@ -1741,6 +2279,7 @@ def _naive(circuit: QuantumCircuit, spec: Any):
 # ---------------------------------------------------------------- entry point
 
 
+BEAM_BUDGET = 15000  # beam width = BEAM_BUDGET / (atoms x ops): ~10 at 12q p1, 1 at 20q p3 and 50q
 IDLE_RULE = True  # validator v1.0.0: every atom in the entangling zone must be in a CZ of each pulse
 DEV_FAST = False  # dev iteration only (bench/devbench.sh flips it in a scratch copy): one plan, no search
 DEPTH_WEIGHT = 276726.912853 / (4 * 23676)  # one depth unit = 2.92 distance units in the score
@@ -1758,6 +2297,31 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
     options = options or {}
     comp = Compiler(circuit, spec, options)
     hub = find_hub(comp.ops, comp.n)
+    if IDLE_RULE and options.get("planner", "pulse") == "pulse":
+        # deterministic effort: beam width from the problem size (n atoms x ops), both layouts
+        size = max(1, comp.n * len(comp.ops))
+        beam = max(1, min(24, int(BEAM_BUDGET / size)))
+        if options.get("pulse_opts"):
+            variants = [options["pulse_opts"]]
+        else:
+            variants = [{"beam": beam, "layout": "line"}]
+            if beam >= 2:
+                variants.append({"beam": beam, "layout": "pair"})
+        best = None
+        for v in variants:
+            try:
+                pp = BeamPlanner(comp.geo, comp.ops, comp.succ, comp.indeg, comp.n, v)
+                prog = pp.run()
+                self_check(comp.geo, pp.loading, prog)
+            except (RuntimeError, Unsupported):
+                continue
+            out = _emit(circuit, prog)
+            cost = pp.dist_total + DEPTH_WEIGHT * _depth(out)
+            if best is None or cost < best[0]:
+                best = (cost, out, pp)
+        if best is None:
+            raise RuntimeError("no plan")
+        return best[1], Architecture(best[2].loading, spec=spec), best[2]
     if hub is not None and not IDLE_RULE and options.get("planner", "cycle") == "cycle":
         dev = DEV_FAST
         if dev:
