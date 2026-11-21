@@ -151,3 +151,11 @@ positions) and kept only if cheaper; validator-rule replay before returning. `be
 `compilers/pulsebeam` is now `compilers/optimizer-optimizer` (team naming); `portfolio_po` full run:
 +86.63 on the v5 set (20/20 valid, full mode); sanity_circuit_12 times out (postopt on large
 circuits), fix pending before it replaces the official portfolio.
+
+## ~23:05 UTC: blockingcz (partner) and solo
+
+| compiler | v5 leaderboard set | validity | commit |
+|---|---|---|---|
+| blockingcz (partner's notebook, extracted verbatim: S-conjugation, blocking-CZ matchings, 2-leaf hub sweep) | +90.48 | full 20/20, slowest compile 23 s | 84c1d6f |
+| solo (pq-solo, Opus 5.5, implements itself) | +90.11 (fast), bf8bc79 +89.94 full | full 20/20 (bf8bc79) | ed8ef89 |
+| **portfolio (blockingcz, solo, systolic_po)** | **+90.81** | full 20/20, slowest compile 65 s | this commit |
