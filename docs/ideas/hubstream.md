@@ -133,6 +133,36 @@ them, on the free storage sites nearest to `(10, 0)` (iteration 2).
 | + loading by first use, one-row rounds, packed lowering | `ff4d3b3` | 81.06 | 83.24 | 72.33 | D = 46 367.6, P = 6 550; `MAX_PAIRS = 4` |
 | + end pair of row 10 reserved for the hub, all n | – | 81.35 | 83.61 | 72.33 | D = 45 359.8; 50q p3 stagger 5 981 → 5 579, but 20q qaoa p3 1 262 → 1 387 |
 | + end pair only for n > 20 (final) | `6262b1b` | 81.51 | 83.80 | 72.33 | D = 44 825.4; hub at entangling (9,10), home (9,9); other tasks never use pair (8,9) of row 10 |
+| + round 2: gates' commutation-DAG front end, per-circuit pick | `52039db` | **81.94** | 83.61 | **75.28** | D = 45 368.3, P = 5 854; both front ends compiled, cheaper `D + 2.92·depth` kept |
+
+### Round 2 — commutation DAG front end (step 3r2)
+
+`parse_items`/`build_wires`/`schedule_rounds` (the ASAP wire scheduler) are replaced as the *only*
+front end by gates' pipeline where it pays; the mover (`emit`, parking, end pair, deferred rz) is
+shared by both. Copied verbatim from `compilers/gates/compiler.py`: the Pauli/`_rx_mat`/`_rz_mat`/
+`_BASIS_CHANGE` algebra, `Item`, `_native_plan` (levels 1 then 0, with an operator check — never
+raised), `_next_on`, `lower_to_items`, `two_qubit_degree`, `expand_rot2`, `merge_1q_runs`,
+`build_commutation_dag`. New: `choose_hub_dag`, `schedule_rounds_dag` (gates' scheduler + a round cap
++ the hub/warm key), `_dag_frontend` (phases → our wires/tasks/rounds), `_move_distance`,
+`_gates_depth`.
+
+`compile_circuit` now compiles a circuit with every candidate front end and keeps the one with the
+lowest `D + 2.92·depth` (the portfolio exchange rate), computed from its own moves — no file-name or
+family special cases. Candidates: the wire front end plus the DAG front end with round caps
+{2,3,4} ({2} for n > 40, to bound compile time).
+
+| candidate | score | dist % | depth % |
+|---|---|---|---|
+| wire front end only (6262b1b) | 81.51 | 83.80 | 72.33 |
+| DAG only, cap 2 / 3 / 4 / 5 / 6 / 25 | 79.65 / 80.88 / **81.08** / 80.41 / 80.31 / 80.68 | – | 80.0–81.9 |
+| pick over {wire, dag2, dag3, dag4} | **81.94** | 83.61 | 75.28 |
+
+The `warm`-first key variant (`(hub-first, warm-first, −crit, i)`) gives **bit-identical** output on all
+36 circuits (the hub-first and criticality terms already decide every round), so only key 0 is kept.
+`MAX_PAIRS` sweep is the DAG-only row above; the pick wins 11 / 9 / 12 / 4 circuits for
+wire / dag3 / dag4 / dag2. DAG-only depth is +81–82 % (vs +72.3 % for the wire path) but it pays
+~15–25 % more distance on the 50q p3 circuits, which is why the pick (not a wholesale replacement)
+is what ships. Compile time: worst metric circuit 4.2 s, 40q sanity 10.2 s, 70q sanity 12.2 s.
 
 A hard pin of the hub to the end pair (instead of a reservation) failed on 10 circuits: after the
 hub's mixer descent a parked atom could hold the pair when the hub came back ("no free interaction
@@ -229,3 +259,24 @@ that is the next thing to try, together with keeping the hub at a row-10 end col
 split the run.
 Both 3d pieces are real local wins on `50q qaoa p1` (2 407 → 2 166) but lose ~2 % overall, so they
 are reverted too; the step-2 compiler is unchanged.
+
+### Round 2 — 15-circuit comparison, old (`6262b1b`) vs new, `D + 2.92·depth`
+
+| circuit | old D | old depth | old cost | new D | new depth | new cost | Δ |
+|---|---|---|---|---|---|---|---|
+| 12q_ihva_stagger_p1 | 181.2 | 53 | 335.9 | 196.8 | 45 | 328.2 | −7.7 |
+| 12q_ihva_stagger_p3 | 596.0 | 140 | 1004.8 | 596.0 | 140 | 1004.8 | 0 |
+| 12q_ihva_tree_p1 | 181.4 | 72 | 391.6 | 196.0 | 64 | 382.9 | −8.8 |
+| 12q_ihva_tree_p3 | 612.3 | 184 | 1149.6 | 612.3 | 184 | 1149.6 | 0 |
+| 20q_ihva_stagger_p1 | 430.6 | 88 | 687.6 | 480.9 | 56 | 644.4 | −43.1 |
+| 20q_ihva_stagger_p3 | 1263.3 | 236 | 1952.4 | 1263.3 | 236 | 1952.4 | 0 |
+| 20q_ihva_tree_p1 | 441.4 | 100 | 733.4 | 449.9 | 73 | 663.0 | −70.4 |
+| 20q_ihva_tree_p3 | 1302.2 | 270 | 2090.6 | 1477.4 | 197 | 2052.6 | −37.9 |
+| 12q_qaoa_p1 | 234.9 | 71 | 442.2 | 228.6 | 62 | 409.7 | −32.5 |
+| 12q_qaoa_p3 | 643.5 | 171 | 1142.8 | 668.9 | 133 | 1057.3 | −85.5 |
+| 20q_qaoa_p1 | 523.7 | 105 | 830.3 | 479.2 | 79 | 709.9 | −120.5 |
+| 20q_qaoa_p3 | 1261.8 | 269 | 2047.2 | 1467.5 | 189 | 2019.4 | −27.9 |
+| 50q_qaoa_p3 | 5860.9 | 677 | 7837.7 | 5860.9 | 677 | 7837.7 | 0 |
+| 50q_ihva_stagger_p3 | 5578.8 | 576 | 7260.7 | 5578.8 | 576 | 7260.7 | 0 |
+| 50q_hea_linear_p3 | 725.8 | 22 | 790.1 | 725.8 | 22 | 790.1 | 0 |
+| **total** | | | **28 696.9** | | | **28 262.7** | **−434.3 (−1.5 %)** |
