@@ -650,14 +650,14 @@ class Executor:
                 m.move({q: tmp})
         return
 
-    def nearest_free(self, s, avoid=(), rows=range(10)):
+    def nearest_free(self, s, avoid=(), rows=range(10), kappa=0.0, y0=6):
         best = None
         for y in rows:
             for x in range(10):
                 t = (x, y)
                 if t in self.m.occ or t in avoid:
                     continue
-                d = _dist(s, t)
+                d = _dist(s, t) + kappa * max(0, y - y0)
                 if best is None or d < best[0]:
                     best = (d, t)
         if best is None:
@@ -670,6 +670,8 @@ class Executor:
     PARS = (0, 1)
     SEED = None
     NOISE = 0.6
+    KAPPA = 0.0
+    Y0 = 6
     allowed = frozenset()
     EVAL = False
     FAR = 4.0
@@ -770,7 +772,8 @@ class Executor:
                 dummies.append((ql, qr))
         keep = {q for pr in dummies for q in pr}
         for q in sorted(q for q, s in m.pos.items() if inside(s) and q not in members and q not in keep):
-            t = self.nearest_free(m.pos[q], avoid=reserved | {(x, y) for x in range(x1, x2 + 1) for y in range(a, bb + 1)})
+            t = self.nearest_free(m.pos[q], avoid=reserved | {(x, y) for x in range(x1, x2 + 1) for y in range(a, bb + 1)},
+                                  kappa=self.KAPPA, y0=self.Y0)
             reserved.add(t)
             targets[q] = t
         self.relocate(targets)
@@ -1096,8 +1099,9 @@ def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=Fal
     return ex
 
 
-BASE_POLS = (("look", 2.0, True, 8), ("look", 2.0, True, 20), ("thresh", 20, True), ("rounds",), ("thresh", 45))
-CANDS = [(pol, lam, mu, (("PARS", pars),)) for pars in ((0, 1), (0,)) for mu in (None, 1.0) for lam in (0.0, 0.35)
+BASE_POLS = (("look", 2.0, True, 8), ("look", 2.0, True, 20), ("look", 2.0, True, 30), ("look", 2.0, True, 40),
+             ("look", 2.0, True, 48), ("thresh", 20, True), ("rounds",), ("thresh", 45))
+CANDS = [(pol, lam, mu, (("PARS", pars),)) for pars in ((0, 1), (0,)) for lam, mu in ((0.0, None), (0.0, 1.0), (0.35, 1.0))
          for pol in BASE_POLS]
 
 
