@@ -8,7 +8,8 @@
   compiled circuit.
 - [bounds.md](bounds.md): per-circuit lower bounds and headroom (`bench/bounds.py`).
 - [literature.md](literature.md): techniques from the papers corpus mapped to our metric.
-- [ideas/](ideas/): one design doc per idea branch, with results and verdict.
+- [ideas/](ideas/): one design doc per idea branch, with results and verdict; next big step:
+  [ideas/systolic2.md](ideas/systolic2.md) (staging-row choreography plan).
 - [results-log.md](results-log.md): round-by-round leaderboard of our compilers (orchestrator).
 - [rules.md](rules.md): the binding rule set (brief + validator v5 + what planqc said), incl. the
   idle rule and single-zone moves.

@@ -1958,8 +1958,11 @@ def _parked_qubit(items, n):
 TOP_HOME = 9  # top storage row holding homes (8 = keep row 9 free as a working row: measured worse, lifts get deeper)
 
 
+STORE_W = 10  # storage columns used per home row (fewer columns -> more, fuller rows for rotation)
+
+
 def _storage_rows(n):
-    r = max(1, min(TOP_HOME + 1, -(-n // 10)))
+    r = max(1, min(TOP_HOME + 1, -(-n // STORE_W)))
     return list(range(TOP_HOME + 1 - r, TOP_HOME + 1))
 
 
@@ -2008,7 +2011,7 @@ class _StorageCost:
 def plan_layout_storage(n, hub, blocks, groups, use_conveyor=True, seed=12345):
     """Pack every atom's home into storage rows 10-R..9 (all ten columns), then improve it."""
     rows = _storage_rows(n)
-    slots = [(x, y) for y in reversed(rows) for x in range(10)]
+    slots = [(x, y) for y in reversed(rows) for x in range(STORE_W)]
     if len(slots) < n:
         return None
     first = {}
@@ -2054,7 +2057,7 @@ def _pairing_layout(n, hub, blocks, use_conveyor, variant=0):
     endpoint sits in the same row as its partner, in the two columns of one interaction pair.
     The hub is kept out of the pairing (its walk lifts partners in their own columns)."""
     rows = _storage_rows(n)
-    pairs = [((2 * c, y), (2 * c + 1, y)) for y in reversed(rows) for c in range(5)]
+    pairs = [((2 * c, y), (2 * c + 1, y)) for y in reversed(rows) for c in range(STORE_W // 2)]
     cand = [b for b in blocks if hub not in (b.u, b.v)]
     if variant == 1:
         cand = [b for b in reversed(cand)]
@@ -2091,7 +2094,7 @@ def _path_layout(n, hub, blocks, use_conveyor=True):
     rows = _storage_rows(n)
     slots = []
     for k, y in enumerate(reversed(rows)):
-        xs = range(10) if k % 2 == 0 else range(9, -1, -1)
+        xs = range(STORE_W) if k % 2 == 0 else range(STORE_W - 1, -1, -1)
         slots.extend((x, y) for x in xs)
     if len(slots) < n:
         return None
@@ -2647,6 +2650,51 @@ def _layout_stream(n, hub, blocks, groups, use_conveyor, pool_groups):
 
 
 def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
+    """Best over storage widths: 10 columns (systolic's layout) and, for small registers, narrower
+    home rows (more, fuller rows: the hub stream's row rotation then pays off)."""
+    global STORE_W
+    n = circuit.num_qubits
+    widths = [10] + ([8, 6, 4] if n <= 30 else [])
+    best = None
+    for w in widths:
+        if -(-n // w) > TOP_HOME:
+            continue
+        STORE_W = w
+        try:
+            out, arch = _compile_circuit_w(circuit, architecture_spec)
+        finally:
+            STORE_W = 10
+        cost = _out_distance(out, arch.initial_loading) + 3.06 * _scored_depth(out)
+        if best is None or cost < best[0] - 1e-9:
+            best = (cost, out, arch)
+    return best[1], best[2]
+
+
+def _out_distance(out, loading):
+    """Summed move distance of a compiled circuit (validator geometry)."""
+    pos = dict(loading)
+    occ = {s: q for q, s in pos.items()}
+    qi = {b: i for i, b in enumerate(out.qubits)}
+    tot = 0.0
+    for ins in out.data:
+        if ins.operation.name != "move":
+            continue
+        qs = [qi[q] for q in ins.qubits]
+        rows, cols, nr, nc = ins.operation.params
+        occ_rows = [y for y in rows if any(pos[q][1] == y for q in qs)]
+        occ_cols = [x for x in cols if any(pos[q][0] == x for q in qs)]
+        if len(nr) == len(rows):
+            occ_rows = list(rows)
+        if len(nc) == len(cols):
+            occ_cols = list(cols)
+        rm, cm = dict(zip(occ_rows, nr)), dict(zip(occ_cols, nc))
+        new = {q: (cm[pos[q][0]], rm[pos[q][1]]) for q in qs}
+        tot += max(_dist(pos[q], new[q]) for q in qs)
+        pos.update(new)
+    return tot
+
+
+def _compile_circuit_w(circuit: QuantumCircuit, architecture_spec: Any = None):
     import time as _time
 
     n = circuit.num_qubits
