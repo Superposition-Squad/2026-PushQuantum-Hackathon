@@ -15,14 +15,13 @@ Compilers for planqc's zoned neutral-atom machine: map a circuit to `rx`/`rz` (s
 
 | compiler | v5 score (20 circuits) | what it is |
 |---|---|---|
-| `systolic_po` | **+86.30** | systolic + post-optimizer (below) |
-| `systolic` | +85.34 | storage homes, hub stays in the zone, row rotation, longest-path layout |
-| `optimizer-optimizer` | +81.79 | pulse-beam planner: beam search over pulses; atoms live in storage, block drops; wins most 12q iHVA |
-| `portfolio` (official, `submission/portfolio.py`) | +85.50 | systolic, hubstream, rectbatch, gates |
-| `portfolio_po` | +86.63 (full 33/33 incl. sanity) | best of all `*_po` components per circuit; `submission/portfolio_po.py` |
-| `systolic2` / `systolic2_po` | +85.41 / +86.35 | systolic fork for the matching rounds, plan in docs/ideas/systolic2.md |
+| **`portfolio`** (`submission/portfolio.py`) | **+90.81** (full) | best per circuit of blockingcz, solo, systolic_po |
+| `blockingcz` | +90.48 (full) | partner's compiler: global S-conjugation (no basis switches), matchings, 2-leaf hub sweep |
+| `solo` | +90.11 | dynamic storage band (no fixed homes), rigid rectangle lifts, multi-start search |
+| `systolic_po` | +86.30 | systolic + post-optimizer |
 
-**New here? Read [docs/overview.md](docs/overview.md)** (walkthrough of ideas, approaches and every compiler).
+All compilers, the ideas behind them, what worked and what did not: **[docs/overview.md](docs/overview.md)**.
+
 History and per-round numbers: [docs/results-log.md](docs/results-log.md).
 
 ## Layout
