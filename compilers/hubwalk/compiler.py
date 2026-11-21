@@ -395,7 +395,23 @@ def parse_blocks(circuit):
             continue
         items.append(("blk", _Block("cx", u, v)))
         consumed[i] = True
-    return _absorb_ihva_pre(items)
+    items = _absorb_ihva_pre(items)
+    return _elide_identity_blocks(items)
+
+
+def _identity_zz(blk):
+    """True when a `zz` block is exactly the identity (up to global phase), so it may be dropped."""
+    if blk.kind != "zz" or blk.mid is None:
+        return False
+    if not _eq_phase(blk.mid, np.eye(2)):
+        return False
+    pre = _fold([u for _q, u in blk.pre]) if blk.pre else np.eye(2)
+    post = _fold([u for _q, u in blk.post]) if blk.post else np.eye(2)
+    return _eq_phase(post @ pre, np.eye(2))
+
+
+def _elide_identity_blocks(items):
+    return [it for it in items if not (it[0] == "blk" and _identity_zz(it[1]))]
 
 
 def _absorb_ihva_pre(items):
