@@ -873,9 +873,12 @@ class Compiler:
         # phase A: dirty atoms in the zone go to storage (those in S must; others proactively)
         down = []
         for q in range(self.n):
-            if g.in_ent(st.pos[q]) and not _is_identity(U[q]):
-                if q in in_S or self.opt["proactive_down"]:
-                    down.append(q)
+            if not g.in_ent(st.pos[q]):
+                continue
+            if not _is_identity(U[q]) and (q in in_S or self.opt["proactive_down"]):
+                down.append(q)
+            elif IDLE_RULE and q not in in_S:
+                down.append(q)  # validator v1.0.0: no atom may sit in the zone during a pulse it is not in
         self._send_down(down)
         # phase B: destinations as pair constraints
         reserved: set[Site] = set()
@@ -1668,6 +1671,10 @@ def self_check(geo: Geo, loading: dict[int, Site], prog: list[tuple]) -> None:
             counts = set(seg_cz.values())
             if len(counts) != 1:
                 raise RuntimeError("non-uniform pulses")
+            if IDLE_RULE:
+                active = {q for k in seg_cz for q in k}
+                if any(geo.in_ent(s) and q not in active for q, s in st.pos.items()):
+                    raise RuntimeError("idle atom in the entangling zone during a pulse")
             for left, right in geo.pairs:
                 qa, qb = st.occ.get(left), st.occ.get(right)
                 if qa is not None and qb is not None and frozenset((qa, qb)) not in seg_cz:
@@ -1734,6 +1741,7 @@ def _naive(circuit: QuantumCircuit, spec: Any):
 # ---------------------------------------------------------------- entry point
 
 
+IDLE_RULE = True  # validator v1.0.0: every atom in the entangling zone must be in a CZ of each pulse
 DEV_FAST = False  # dev iteration only (bench/devbench.sh flips it in a scratch copy): one plan, no search
 DEPTH_WEIGHT = 276726.912853 / (4 * 23676)  # one depth unit = 2.92 distance units in the score
 
@@ -1750,7 +1758,7 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
     options = options or {}
     comp = Compiler(circuit, spec, options)
     hub = find_hub(comp.ops, comp.n)
-    if hub is not None and options.get("planner", "cycle") == "cycle":
+    if hub is not None and not IDLE_RULE and options.get("planner", "cycle") == "cycle":
         dev = DEV_FAST
         if dev:
             options = {**options, "budget": -1}

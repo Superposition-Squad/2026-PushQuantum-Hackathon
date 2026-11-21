@@ -7,10 +7,11 @@ validator and what planqc told us directly. **Where the validator is more permis
 the rules win.** planqc confirmed that using validator gaps is not allowed, even though they are not
 enforced.
 
-> Our vendored copy in `vendor/pushquantum_validator/` is still the version **before** 20:12 (it
-> still accepts `rzz`, does not check transversal CZ, and accepts rectangles spanning both zones).
-> Until the new validator is vendored, everything marked "since 20:12" is enforced only by our own
-> harness (`bench/bench.py` transversal check, ADR 0007) and by our compilers' design.
+> **Status 2026-11-21 ~21:15 CET:** validator **v1.0.0** is vendored (`vendor/pushquantum_validator/`)
+> and stays as it is. It enforces single-zone moves (M5) and the **idle rule** (I1). `rzz` is
+> forbidden (G3). Ancillas are **not** usable with v1.0.0 (it requires the same qubit count above
+> 19q). Scoring may be restricted to the circuits **≤ 19 qubits** (i.e. the 12-qubit metric
+> circuits); see §6 and §7.
 
 Legend:
 - Source: **B** = brief, **V** = validator, **P** = planqc said so in person.
@@ -33,7 +34,8 @@ Legend:
 | T1 | A CZ pulse hits **every occupied interaction pair** in the entangling zone at once (CZs are blocking) | B, V (since 20:12) | ✓ |
 | T2 | So between two consecutive moves, **every occupied pair gets the same number of `cz`** (= the number of pulses). You may not write a `cz` for pair A while pair B sits occupied without one | B (ADR 0007) | ✓ since 20:12; our harness checks it in every mode |
 | T3 | **The `cz` lines between two moves describe the pulses of that segment.** One pulse = one `cz` line for *every* occupied pair (written consecutively, no move in between). k pulses = exactly k `cz` per occupied pair. (Confirmed reading, 2026-11-21: `cz(A); cz(B)` with A and B both occupied is *one* pulse, not two) | B, P | ✓ since 20:12 |
-| T4 | A **lone atom** on a pair (its sibling site empty) is fine during a pulse: it gets identity | B | ✓ (nothing to check) |
+| T4 | ~~A lone atom on a pair gets identity~~ **Superseded by I1.** The brief says lone atoms only experience identity, but validator v1.0.0 rejects them | B (overruled by V) | — |
+| I1 | **Idle rule:** in every CZ layer (the two-qubit gates between two moves), **every atom in the entangling zone must take part in a two-qubit gate** of that layer. Atoms that are not pulsed must be moved to storage first. No lone atoms, no parked atoms in the zone during a pulse | V (v1.0.0, `idle` violation) | ✓ |
 
 ## 3. Moves (one `Move` = one AOD pair = one rectangle)
 
@@ -65,7 +67,7 @@ These rules only matter for the brief's distance metric. They don't affect the l
 | # | Rule | Source | V checks? |
 |---|---|---|---|
 | E1 | The compiled circuit (moves and barriers stripped, final measurements removed) must be **equivalent to the input up to a global phase, at every size** | B (ADR 0003) | ✓ only ≤ 19q; **✗ above** (only the pair set is checked) |
-| E2 | **Ancillas are allowed by the rules, but the validator rejects a different qubit count above 19q.** So in practice: same qubit count as the input, no ancilla tricks (not worth it at ≤ 19q alone) | P, V | ✓ (> 19q) |
+| E2 | **Ancillas are announced as allowed, but validator v1.0.0 rejects a different qubit count above 19q** (and its ≤ 19q QCEC check has no ancilla handling). So in practice: same qubit count as the input until a validator with ancilla support ships | P, V | ✓ (> 19q) |
 | E3 | Compiled interaction pairs ⊆ the input's pairs, and every required pair is present | V | ✓ (> 19q) |
 | E4 | Initial loading: every qubit on a distinct storage site. Loading happens only once, at the start | B, V | ✓ |
 
@@ -81,7 +83,8 @@ These rules only matter for the brief's distance metric. They don't affect the l
 - **Leaderboard distance** = Σ over every `move` of its farthest atom's path. Parallelism does not reduce it.
 - **The brief's distance** = per set of parallel moves, only the longest counts. We report it as a second figure, computed from the validator trace's parallel steps.
 - **Depth** = `depth()` of the circuit with moves and barriers removed. Measurements are included.
-- **Score** = 0.8 × % less distance + 0.2 × % less depth, both relative to naive. One depth unit is worth 2.92 distance units.
+- **Score** = 0.8 × % less distance + 0.2 × % less depth, both relative to naive. One depth unit is worth 2.92 distance units (over all 36 circuits).
+- **Possibly only the circuits ≤ 19 qubits are scored** (the 12 circuits with 12 qubits: 2 HEA, 6 iHVA, 4 QAOA). Then the naive totals are those of these 12 circuits, and per-circuit compile budgets can be spent much more freely (300 s for a 12-qubit circuit). Report both figures (all 36 and 12q only) until this is settled.
 - **Limits:** 300 s per circuit, sandboxed, no network, 4 GiB. The sandbox passes a minimal environment (environment variables do not reach the compiler).
 
 ## 6b. Two profiles: one compiler, two settings
@@ -103,14 +106,15 @@ These rules only matter for the brief's distance metric. They don't affect the l
 - Scorer environment: is the 300 s per circuit, CPU or wall clock, on what hardware? Which package versions? Is a seeded or time-limited search acceptable?
 - Is Sunday 10:00 the final submission deadline?
 - Where do the problem-circuit function, the encoding documentation and the ansatz description go?
-- Exact counting in the new validator: how it groups `cz` lines between moves (T3), and its exact reading of M5. Verify as soon as the new validator is vendored.
+- Is the leaderboard scored on all 36 circuits, on the `--reduced-metrics` set (iHVA + the two 12q HEA), or only on the circuits ≤ 19 qubits?
+- When does a validator with ancilla support ship, and with which semantics (ancillas start in |0⟩, must they end in |0⟩, pair check above 19q)?
 
 ## 8. Harness checklist (everything the validator does not catch)
 
 Every candidate output must pass all of these before it can enter the portfolio. Since 20:12 the validator covers 1–3 as well; keep our checks anyway as a second line:
 
 1. G3: no gate other than `cz` on an atom in the entangling zone.
-2. T1–T3: transversal CZ, i.e. equal `cz` count on every occupied pair between two moves (`bench/bench.py`, every mode).
-3. M5: source and target rectangles of every move each lie in one zone (**TODO: add to `bench/bench.py`**; for now a scratch check, all of optimizer / rectbatch / hubstream pass, zonedwell does not).
+2. T1–T3 and I1: transversal CZ and the idle rule (v1.0.0 replay; `bench/bench.py` transversal check, every mode).
+3. M5: single-zone moves (v1.0.0 replay; ADR-0010 check in `bench/bench.py`).
 4. E1 above 19q: our own equivalence evidence (statevector ≤ 22q, Clifford/QCEC check at 50q).
 5. Then the official replay and metrics.
