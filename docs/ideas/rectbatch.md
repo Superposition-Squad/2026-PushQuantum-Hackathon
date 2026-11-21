@@ -167,4 +167,33 @@ inside the time box.
 
 ## Verdict
 
-TBD
+**Works; recommend merging the whole movement core.** A generic, circuit-agnostic compiler at
+score ≈ 77.5 (distance −78 %, depth −75.7 %), valid on all 36 metric and all 13 sanity circuits in
+`--mode full`, slowest compile 22 s. Nothing in it is specific to HEA/iHVA/QAOA, so it is a drop-in
+base for the other ideas.
+
+What should carry over:
+
+1. `move_params` — the legal-move builder/checker (contiguous picked lines, monotone row/col maps,
+   ghost check, deposit check, single zone per move) plus `move_cost`. Validated against the
+   validator replay on 49 circuits; every other idea needs exactly this.
+2. The two-sub-phase order **visitors before hosts** (both up and down). It is what makes the
+   rectangles ghost-free: a visitor sits on an odd entangling column between host columns, so
+   lifting/lowering visitors first keeps the host rectangles clean.
+3. `assign_targets` with host = topmost storage row (+12 % distance over the obvious choice) and the
+   slot objective `max(host) + Σ(visitor)`, planned twice per round (`compact` vs `flat`, keep the
+   cheaper: +2 %).
+4. The placement stage: four deterministic layouts compared with the real planner cost, then
+   incremental hill climbing that re-costs only the rounds touching the moved qubits.
+5. `OPT_LEVEL = 1`. Levels 2/3 are **not equivalence-safe** (see the warning above) — this is the
+   finding other branches most need.
+
+Limits (measured, see the two sections above): with a static placement and a full return to storage
+after every round, we are within ~10 % of the structural bound
+`Σ_rounds Σ_atoms 2·(10 − y)`. The remaining big lever is **fewer zone round trips** (keep the
+control in the zone between the two CZs of a ZZ block, chain several CZs of one atom), which is the
+`zonedwell`/`gates` lane and composes with this planner. Dynamic row staging is worth only ~+18 % on
+the hub-dominated circuits (simulated), not the factor 3 a hand estimate suggested.
+
+Caveat for reproducibility: the placement search is wall-clock budgeted, so the score moves by
+about ±0.2 between identical runs on a loaded machine.
