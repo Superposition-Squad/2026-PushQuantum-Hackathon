@@ -379,7 +379,36 @@ def parse_blocks(circuit):
             continue
         items.append(("blk", _Block("cx", u, v)))
         consumed[i] = True
-    return _absorb_ihva_pre(items)
+    return _elide_identity_blocks(_absorb_ihva_pre(items))
+
+
+def _elide_identity_blocks(items):
+    """Drop `cx; rz(0); cx` blocks whose outer 1q gates also multiply to the identity.
+
+    A `zz` block is `pre_v . (cz mid cz) . post_v`, so an identity `mid` reduces it to `post . pre`
+    on `v`. When that is the identity too (the `rx(+pi/2)`, `rx(-pi/2)` of an absorbed iHVA block)
+    the whole item disappears — dropping it, rather than leaving two 1q items behind, keeps the
+    surrounding blocks in one run (1q items delimit runs).
+    """
+    eye = np.eye(2)
+    out = []
+    for item in items:
+        if item[0] != "blk":
+            out.append(item)
+            continue
+        blk = item[1]
+        if blk.kind != "zz" or blk.mid is None or not _eq_phase(blk.mid, eye):
+            out.append(item)
+            continue
+        pre = blk.pre or []
+        post = blk.post or []
+        if any(q != blk.v for q, _ in pre) or any(q != blk.v for q, _ in post):
+            out.append(item)
+            continue
+        u = _fold([m for _, m in post]) @ _fold([m for _, m in pre])
+        if not _eq_phase(u, eye):
+            out.append(("1q", blk.v, u))
+    return out
 
 
 def _absorb_ihva_pre(items):
