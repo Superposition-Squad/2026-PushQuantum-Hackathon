@@ -751,9 +751,15 @@ class Executor:
             reserved.add(t)
             targets[q] = t
         self.relocate(targets)
+        forms = {}
         for b in blks:
-            m.flush(b.c)
-            self.prep(b.t, _PRE_T)
+            forms[b.idx] = f = self.choose_form(b)
+            if f == "N":
+                m.flush(b.c)
+                self.prep(b.t, _PRE_T)
+            else:
+                self.prep(b.c, _H)
+                self.prep(b.t, _PRE_TS)
         riders = members | keep
         up = {q: (m.pos[q][0], m.pos[q][1] + h) for q in riders}
         down = {q: m.pos[q] for q in riders}
@@ -763,13 +769,52 @@ class Executor:
         m.pulse(pairs, keep)
         m.move(down)
         for b in blks:
-            m.apply1(b.t, _rx(b.th))
-            m.flush(b.t)
+            r = b.t if forms[b.idx] == "N" else b.c
+            m.apply1(r, _rx(b.th))
+            m.flush(r)
         m.move(up)
         m.pulse(pairs, keep)
         m.move(down)
         for b in blks:
-            m.apply1(b.t, _POST_T)
+            if forms[b.idx] == "N":
+                m.apply1(b.t, _POST_T)
+            else:
+                m.apply1(b.c, _H)
+                m.apply1(b.t, _POST_TS)
+
+    FORMS = "auto"
+
+    def _ng(self, q, u):
+        v = u @ self.m.pend[q]
+        if _is_diag(v):
+            return 0, v
+        return len(_zxz(v)), _I2
+
+    def choose_form(self, b):
+        hub = self.hub
+        if b.c == hub:
+            return "N"
+        if b.t == hub:
+            return "S"
+        if self.FORMS != "auto":
+            return self.FORMS
+        dep = self.m.depth
+        best = None
+        for f in ("N", "S"):
+            if f == "N":
+                gc, pc = self._ng(b.c, _I2)
+                gt, pt = self._ng(b.t, _PRE_T)
+                rot, pr = b.t, pt
+            else:
+                gc, pc = self._ng(b.c, _H)
+                gt, pt = self._ng(b.t, _PRE_TS)
+                rot, pr = b.c, pc
+            mid = 0 if _is_id(pr) else (1 if _is_diag(pr) else 0)
+            dc, dt = dep[b.c] + gc, dep[b.t] + gt
+            key = (max(dc, dt) + 1 + mid, gc + gt + mid, f)
+            if best is None or key < best[0]:
+                best = (key, f)
+        return best[1]
 
     def lift(self, mapping):
         """Realise a set of independent atom relocations with few legal rectangle moves."""
