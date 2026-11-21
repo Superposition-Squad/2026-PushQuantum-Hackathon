@@ -99,8 +99,10 @@ MAX_PAIRS = 4
 PARK_WINDOW = 1
 """A non-hub atom stays in the zone only if its next task is at most this many rounds away."""
 
-DAG_MAX_PAIRS = 3
-"""Cap on the CZs per round of the commutation-DAG scheduler."""
+DAG_MAX_PAIRS = (2, 3, 4)
+DAG_MAX_PAIRS_LARGE = (2,)
+LARGE_CIRCUIT = 40
+"""Round caps tried for the commutation-DAG front end; big circuits try fewer (compile time)."""
 HUB_END_PAIR = True
 HUB_END_MIN_QUBITS = 20
 """The end pair only pays off above this size (12q/20q measured worse with it)."""
@@ -1354,10 +1356,10 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
     errors = []
     # Both front ends are exact; a circuit is compiled by each and the cheaper one (distance +
     # 2.92 * depth, the portfolio's exchange rate) is kept.  No file-name special cases.
-    for tag, build in (
-        ("wire", lambda: _build_wire_frontend(circuit, n)),
-        ("dag", lambda: _dag_frontend(circuit, n, DAG_MAX_PAIRS, 0)),
-    ):
+    candidates_spec = [("wire", lambda: _build_wire_frontend(circuit, n))]
+    for cap in (DAG_MAX_PAIRS if n <= LARGE_CIRCUIT else DAG_MAX_PAIRS_LARGE):
+        candidates_spec.append((f"dag{cap}", lambda cap=cap: _dag_frontend(circuit, n, cap, 0)))
+    for tag, build in candidates_spec:
         try:
             front = build()
             out, loading = _compile_with(circuit, front, n, _loading_by_first_use, architecture_spec)
