@@ -574,6 +574,45 @@ class _Machine:
         self.to_storage()
         self.st.flush_all()
 
+    def dip(self, depth, action):
+        """Shift the whole zone down by `depth` rows, run `action`, shift it back exactly.
+
+        A dip only has to be deep enough for the deepest atom that needs a 1q gate to reach
+        storage, so `depth = 1 + max(y - 10)` over those atoms; the shift is uniform, so every
+        pair keeps its occupancy and no `cz` is emitted while it is open.
+        """
+        st = self.st
+        assert st.in_zone
+        depth = max(1, min(int(depth), 10))
+        before = dict(st.pos)
+        st.move(range(10, 20), range(0, 10), range(10 - depth, 20 - depth), range(0, 10))
+        action()
+        st.move(range(10 - depth, 20 - depth), range(0, 10), range(10, 20), range(0, 10))
+        assert st.pos == before, "dip did not restore the positions"
+
+    def flush_dip(self, qubits):
+        """Flush the pending 1q gates of `qubits` with the shallowest dip that reaches storage."""
+        st = self.st
+        need = [q for q in qubits if q in st.pending]
+        if not need:
+            return
+        if not st.in_zone:
+            for q in need:
+                st.flush(q)
+            return
+        depth = 1 + max(st.pos[q][1] - 10 for q in need)
+
+        def action():
+            for q in need:
+                st.flush(q)
+
+        self.dip(depth, action)
+
+    def _flush_in_storage(self):
+        for q in list(self.st.pending):
+            if _in_storage(self.st.pos[q]):
+                self.st.flush(q)
+
     def park_hub(self):
         site = (9, 19)
         p = self.st.pos[self.hub]
@@ -712,19 +751,27 @@ class _Machine:
             for q, u in _block_pre(blk, targ):
                 st.queue_1q(q, u)
         if self._needs_flush(involved):
-            self.storage_phase()
-            self.to_zone()
+            self.flush_dip(involved)
         moved = self._place(assign)
         st.pulse([(qa, qb) for _, qa, qb, _, _, _ in assign])
         if M[0].mid is not None:
-            self.to_storage()
-            for blk, qa, qb, sa, sb, targ in assign:
-                st.flush(targ)
-                theta = _mid_theta(blk.mid)
-                if theta is not None and _tight(theta):
-                    st.out.rx(_tight(theta), targ)
-            st.flush_all()
-            self.to_zone()
+            targs = [targ for _, _, _, _, _, targ in assign]
+            depth = 1 + max(0, max(st.pos[q][1] - 10 for q in targs))
+            if self._needs_flush(involved):
+                depth = max(depth, 1 + max(st.pos[q][1] - 10 for q in involved))
+
+            def mid():
+                for blk, qa, qb, sa, sb, targ in assign:
+                    st.flush(targ)
+                    theta = _mid_theta(blk.mid)
+                    if theta is not None and _tight(theta):
+                        st.out.rx(_tight(theta), targ)
+                self._flush_in_storage()
+
+            if st.in_zone and depth > 0:
+                self.dip(depth, mid)
+            else:
+                mid()
             st.pulse([(qa, qb) for _, qa, qb, _, _, _ in assign])
         for blk, qa, qb, sa, sb, targ in assign:
             for q, u in _block_post(blk, targ):
@@ -838,18 +885,18 @@ class _Machine:
         for q, u in _block_pre(blk, targ):
             st.queue_1q(q, u)
         if self._needs_flush({qa, qb, targ}):
-            self.storage_phase()
-            self.to_zone()
+            self.flush_dip({qa, qb, targ})
         moved = self._place(assign)
         st.pulse([(qa, qb)])
         if blk.mid is not None:
-            self.to_storage()
-            st.flush(targ)
-            theta = _mid_theta(blk.mid)
-            if theta is not None and _tight(theta):
-                st.out.rx(_tight(theta), targ)
-            st.flush_all()
-            self.to_zone()
+            def mid():
+                st.flush(targ)
+                theta = _mid_theta(blk.mid)
+                if theta is not None and _tight(theta):
+                    st.out.rx(_tight(theta), targ)
+                self._flush_in_storage()
+
+            self.dip(1 + max(0, st.pos[targ][1] - 10), mid)
             st.pulse([(qa, qb)])
         for q, u in _block_post(blk, targ):
             st.queue_1q(q, u)
