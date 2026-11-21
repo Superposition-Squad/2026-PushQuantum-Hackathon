@@ -279,3 +279,14 @@ took the depth over qubits with *identity* pending gates too.  Now:
 `1d7aeeb` → this: **+88.95 % → +89.01 %** (distance 25 733.3 → 25 475.1, depth 4272 → 4289).
 The dip depth is now explicit in the placement cost; every circuit except HEA moves (QAOA 50q p3
 2362.8 → 2333.0, 20q p1 232.5 → 216.2 at +6 depth).
+
+Validation of this round: 36/36 metric `--mode full` (+89.01 %, distance 25 475.1, depth 4289),
+12q 12/12 full (+89.16 % partial), 13/13 sanity full, exact Clifford tableaux equal on 19–22 and
+33–36 (two angle draws each), bench zone-span check clean on all 49 circuits plus
+`/tmp/sy/zonespan.py` 0 on the eight 50q circuits, compile-twice bit-identical (50q QAOA p3,
+50q iHVA tree p3, 20q QAOA warm p3), max compile 14.5 s CPU (20q warm p3; 50q p3 13.8 s).
+
+Tried and rejected (measured, not kept): a return-walk terminal bias towards the park (+25 on
+50q tree p3), two extra high-row-penalty placement strategies (never won, only cost time),
+depth-sorted matching order (50q partial 88.52 → 88.34), layout weights 8 (matching dip) and 4
+(walk dip): 88.31 / 88.53 vs 88.52.
