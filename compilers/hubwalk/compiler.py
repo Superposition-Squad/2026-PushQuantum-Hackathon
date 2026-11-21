@@ -1203,18 +1203,24 @@ class _Machine:
     def star_rounds(self, group):
         """Serve a hub-less, all-`zz`-with-mid group with star rounds; False if it cannot start."""
         st = self.st
-        try:
-            rounds = plan_star_rounds(group, self.home, STAR_CAP)
-        except Exception:  # planning must be pure: fall back before anything is emitted
-            return False
-        if rounds is None:
-            return False
         infos = {blk: _block_frame(blk) for blk in group}
         use_frames = all(info is not None for info in infos.values())
-        involved = set()
-        for rnd in rounds:
-            for _blk, leaf, center, _t in rnd:
-                involved.update((leaf, center))
+        # all-commuting Z (x) Z phase (QAOA): use a fixed bipartition so one dip fixes all frames
+        bipartite = use_frames and all(info[0] == "Z" and info[1] == "Z" for info in infos.values())
+        rounds = None
+        if not bipartite:
+            try:
+                rounds = plan_star_rounds(group, self.home, STAR_CAP)
+            except Exception:  # planning must be pure: fall back before anything is emitted
+                return False
+            if rounds is None:
+                return False
+            involved = set()
+            for rnd in rounds:
+                for _blk, leaf, center, _t in rnd:
+                    involved.update((leaf, center))
+        else:
+            involved = {q for b in group for q in b.qubits()}
         # every involved partner must already be at its home (nothing emitted yet)
         for q in involved:
             want = self.zone_home[q] if st.in_zone else self.home[q]
@@ -1222,16 +1228,92 @@ class _Machine:
                 return False
         self.to_zone()
         self._ensure_hub_lone()
-        for rnd in rounds:
-            if use_frames:
-                self._star_round_frames(rnd, infos)
-            else:
-                self._star_round(rnd)
+        if bipartite:
+            self._star_bipartite(group, infos)
+        else:
+            for rnd in rounds:
+                if use_frames:
+                    self._star_round_frames(rnd, infos)
+                else:
+                    self._star_round(rnd)
         if use_frames:
             away = [q for q in involved if st.pos[q] != self.zone_home[q]]
             if away:
                 self._relocate([(q, self.zone_home[q]) for q in away])
         return True
+
+    def _flush_frames(self, need):
+        """One shallow dip that changes the frames of `need` (`(q, F)` pairs)."""
+        st = self.st
+        if not need:
+            return
+        depth = 1 + max(st.pos[q][1] - 10 for q, _f in need)
+
+        def change():
+            for q, f in need:
+                u = st.pending.get(q)
+                if u is None:
+                    u = _I2
+                _emit_1q(st, q, f.conj().T @ u)
+                st.pending[q] = f
+
+        self.dip(depth, change)
+
+    def _star_bipartite(self, blocks, infos):
+        """Pack a Z(x)Z phase with a fixed C (centre) / L (leaf) bipartition.
+
+        Maximises the number of cut blocks by deterministic local search, changes all frames in
+        one dip, then packs the cut blocks (CAP=1, orientation fixed). Uncut blocks repeat the
+        process on the remaining subgraph; every pass costs at most one frame-change dip.
+        """
+        st = self.st
+        remaining = list(blocks)
+        while remaining:
+            qubits = sorted({q for b in remaining for q in b.qubits()})
+            adj: dict[int, set] = {q: set() for q in qubits}
+            for b in remaining:
+                adj[b.u].add(b.v)
+                adj[b.v].add(b.u)
+            side = {}
+            for q in qubits:
+                cls, _s = _conj_class(st.pending.get(q), "Z")
+                side[q] = "L" if cls in ("X", "Y") else "C"
+            while True:
+                best_gain, best_q = 0, None
+                for q in qubits:
+                    same = sum(1 for r in adj[q] if side[r] == side[q])
+                    gain = same - (len(adj[q]) - same)
+                    if gain > best_gain:
+                        best_gain, best_q = gain, q
+                if best_q is None:
+                    break
+                side[best_q] = "L" if side[best_q] == "C" else "C"
+            cut = []
+            rest = []
+            for b in remaining:
+                if side[b.u] != side[b.v]:
+                    cut.append((b, b.v, b.u) if side[b.u] == "C" else (b, b.u, b.v))
+                else:
+                    rest.append(b)
+            need = {}
+            for _b, leaf, center in cut:
+                for q, role in ((center, "C"), (leaf, "L")):
+                    cls, _s = _conj_class(st.pending.get(q), "Z")
+                    ok = cls == "Z" if role == "C" else cls in ("X", "Y")
+                    if not ok:
+                        need[q] = _choose_frame("Z", role)
+            self._flush_frames(list(need.items()))
+            rounds = []
+            for b, leaf, center in cut:
+                for rnd in rounds:
+                    if center not in {it[2] for it in rnd} and leaf not in {it[1] for it in rnd}:
+                        rnd.append((b, leaf, center, 0))
+                        break
+                else:
+                    rounds.append([(b, leaf, center, 0)])
+            for rnd in rounds:
+                self._star_round_frames(rnd, infos)
+            remaining = rest
 
     def _star_round_frames(self, rnd, infos):
         """One star round with Clifford frames; movers stay put afterwards (lazy / parity rule).
