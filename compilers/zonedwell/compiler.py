@@ -177,12 +177,14 @@ class _State:
         self.pos: dict[int, Site] = {}
         self.occ: dict[Site, int] = {}
         self.pending: dict[int, np.ndarray] = {}
+        self.loading: dict[int, Site] = {}
         self.in_zone = False
         self.distance = 0.0
         self.nmoves = 0
         self.measurements = []
 
     def load(self, home):
+        self.loading = dict(home)
         self.pos = dict(home)
         self.occ = {s: q for q, s in self.pos.items()}
         assert len(self.occ) == len(self.pos), "duplicate loading site"
@@ -659,21 +661,29 @@ class _Machine:
         before, after = ops
         for q, u in before.items():
             st.queue_1q(q, u)
-        self.storage_phase()
-        self.to_zone()
+        if not st.in_zone or self._needs_flush(before):
+            self.storage_phase()
+            self.to_zone()
         per_lane = {}
         for blk in group:
             p = targ[blk]
             per_lane.setdefault(self.home[p][0] // 2, {})[p] = theta[blk]
         for lane_idx in sorted(per_lane):
             self.conveyor_lane(2 * lane_idx, per_lane[lane_idx])
-        self.park_hub()
         for q, u in after.items():
             st.queue_1q(q, u)
         return True
 
     # -- matchings -----------------------------------------------------
+    def _ensure_hub_lone(self):
+        hub = self.hub
+        if hub not in self.st.pos:
+            return
+        if any(hub in pair for pair in self.st.occupied_pairs()):
+            self.park_hub()
+
     def matching(self, group):
+        self._ensure_hub_lone()
         for sub in ([b for b in group if b.mid is not None], [b for b in group if b.mid is None]):
             if not sub:
                 continue
@@ -874,6 +884,8 @@ def _greedy_matchings(group):
 
 
 def _block_pre(blk, t):
+    if blk.kind == "cz":
+        return []
     if blk.kind == "cx":
         return [(t, _H)]
     pre = list(blk.pre) if blk.pre else []
@@ -882,6 +894,8 @@ def _block_pre(blk, t):
 
 
 def _block_post(blk, t):
+    if blk.kind == "cz":
+        return []
     if blk.kind == "cx":
         return [(t, _H)]
     post = [(t, _H)]
@@ -1086,4 +1100,4 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
                     st = None
     if st is None:
         st = _compile_generic(circuit, architecture_spec)
-    return st.out, Architecture(st.pos, spec=architecture_spec)
+    return st.out, Architecture(st.loading, spec=architecture_spec)
