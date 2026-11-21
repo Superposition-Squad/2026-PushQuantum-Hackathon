@@ -229,3 +229,27 @@ control in the zone between the two CZs of a ZZ block, chain several CZs of one 
 
 Caveat for reproducibility: the placement search is wall-clock budgeted, so the score moves by
 about ±0.2 between identical runs on a loaded machine.
+
+## Round 2 (15:20–18:15 UTC)
+
+### 1. Determinism (done, `27af677`)
+
+The wall-clock budget of the placement search is replaced by a fixed **work budget**: each cache
+miss of the per-round cost adds `max(1, k)` units (`2k` for rounds with more than 8 pairs, which
+plan super-linearly), with `k` = pairs in the round; budgets 20 k (≤ 16 q), 40 k (≤ 24 q),
+50 k (≤ 50 q), 10 k (larger or > 1 000 rounds), plus a proposal cap of 3× the budget so that a
+search whose proposals all hit the cache still stops. Fixed seed, no `time` import.
+
+| check | result |
+|---|---|
+| full metric, run 1 vs run 2 (per-circuit `num_moves`, `move_distance`, `depth`, `num_operations`, `move_steps`) | **identical** |
+| `--mode full` | 36/36 + 13/13 sanity |
+| score | **+76.87 %** (distance +77.16 %, depth +75.74 %), was +77.54 % with the 20 s wall-clock search |
+| slowest compile | 17.3 s (50q iHVA tree_warm p1), under load |
+
+Every circuit where rectbatch was best in round 1 (all HEA, all `*_warm` iHVA, 13 circuit) is
+**bit-for-bit the same distance** as before (the search had converged there); the loss is entirely
+on 50q iHVA/QAOA (+2 to +7 % distance), where zonedwell wins anyway.
+
+θ≡0 block elision: not needed — the warm circuits have 18 blocks with θ≡0 mod 2π, but
+`transpile(level 1)` already removes them (same `cz` count with and without explicit elision).
