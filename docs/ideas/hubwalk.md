@@ -101,7 +101,8 @@ See the implementer spec in the session log; summary:
 | 5Q: fixed bipartition for QAOA phases | 3b6a209 | +88.73 | 90.93 | 79.92 | ~1 frame-change dip per pass instead of one per round |
 | 5V: per-circuit lazy on/off selection | 9ef4e3e | +88.79 | 90.92 | 80.26 | QAOA picks lazy, iHVA picks non-lazy; depth 4753→4673 |
 | ADR-0010: zone-span compliance | ed8a876 | +88.85 | 90.92 | 80.57 | dips restricted to rows 10..9+depth; conveyor → hub walk; `_State.move` guard; all 36 + sanity pass under the new bench check |
-| 6S: layout seed/order variants | (this commit) | +88.91 | 90.99 | 80.57 | 1–3 layouts × lazy on/off, picked by official cost; max compile 22 s |
+| 6S: layout seed/order variants | 0438413 | +88.91 | 90.99 | 80.57 | 1–3 layouts × lazy on/off, picked by official cost; max compile 22 s |
+| 6C: CAP≥2 center-walk rounds | (not kept) | +88.90 | | | walk=2 never beat walk=1 on the chosen layout and pushed 50q QAOA p3 to 53 s; reverted to 6S |
 
 Planner offline models (`/tmp/hwproto/sim*.py`): with random chords, neither star rounds with
 SA layout (≈800 for the 50q QAOA p1 non-hub part) nor whole-lane shears (≈870) batch well; the
