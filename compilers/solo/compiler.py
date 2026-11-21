@@ -443,7 +443,8 @@ def schedule(blocks, preds, succs, hub, policy=("look", 2.0)):
     return list(schedule_gen(blocks, preds, succs, hub, policy))
 
 
-def schedule_gen(blocks, preds, succs, hub, policy=("look", 2.0), posfn=None, mu=None, evaluator=None):
+def schedule_gen(blocks, preds, succs, hub, policy=("look", 2.0), posfn=None, mu=None, evaluator=None,
+                 depthfn=None):
     """Yields steps ("hub", [block...]) or ("round", [block...]); the caller may execute each step
     before the next one is chosen (`posfn()` gives the current positions for `mu`)."""
     m = len(blocks)
@@ -466,7 +467,15 @@ def schedule_gen(blocks, preds, succs, hub, policy=("look", 2.0), posfn=None, mu
             else:
                 pos = posfn()
                 key = lambda i: (_dist(pos[blocks[i].c], pos[blocks[i].t]) - mu * len(succs[i]), i)
-            for i in sorted(pool, key=key):
+            order = sorted(pool, key=key)
+            if depthfn is not None and hubround:
+                dep = depthfn()
+                hubs = [i for i in order if hub in blocks[i].qubits()]
+                if hubs:
+                    other = lambda i: blocks[i].t if blocks[i].c == hub else blocks[i].c
+                    hb = min(hubs, key=lambda i: (max(0, dep[other(i)] - dep[hub]), order.index(i)))
+                    order = [hb] + [i for i in order if i != hb]
+            for i in order:
                 b = blocks[i]
                 if b.c in used or b.t in used:
                     continue
@@ -671,6 +680,7 @@ class Executor:
     SEED = None
     NOISE = 0.6
     KAPPA = 0.0
+    HUBDEP = True
     Y0 = 6
     allowed = frozenset()
     EVAL = False
@@ -1099,7 +1109,8 @@ def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=Fal
                     best = (c, k)
             return 0 if best is None else best[1]
         evaluator.far = ex.FAR
-    for kind, blks in schedule_gen(blocks, preds, succs, hub, pol, posfn=lambda: ex.m.pos, mu=mu, evaluator=evaluator):
+    for kind, blks in schedule_gen(blocks, preds, succs, hub, pol, posfn=lambda: ex.m.pos, mu=mu, evaluator=evaluator,
+                                   depthfn=(lambda: ex.m.depth) if ex.HUBDEP else None):
         cur = {b.idx for b in blks}
         nxt = {}
         for b in blks:
