@@ -670,6 +670,7 @@ class Executor:
     PARS = (0, 1)
     SEED = None
     NOISE = 0.6
+    allowed = frozenset()
     EVAL = False
     FAR = 4.0
     DUMMY_OFF = False
@@ -735,10 +736,11 @@ class Executor:
                 if k in used:
                     continue
                 nl, nr = nonmem((xl, y)), nonmem((xl + 1, y))
-                if nl != nr and not self.DUMMY_OFF:
+                if nl and nr:
+                    if self.DUMMY_OFF or frozenset((occ[(xl, y)], occ[(xl + 1, y)])) not in self.allowed:
+                        tot += 2 * EV
+                elif nl or nr:
                     tot += EV
-                elif nl and nr and self.DUMMY_OFF:
-                    tot += 2 * EV
             h = 10 - a
             tot += 4 * math.hypot(h, 1.0 if par else 0.7)
             if best is None or tot < best[0] - 1e-9:
@@ -763,7 +765,8 @@ class Executor:
             if (xl, y) in used_slots or self.DUMMY_OFF:
                 continue
             ql, qr = occ.get((xl, y)), occ.get((xl + 1, y))
-            if ql is not None and qr is not None and ql not in members and qr not in members:
+            if ql is not None and qr is not None and ql not in members and qr not in members \
+                    and frozenset((ql, qr)) in self.allowed:
                 dummies.append((ql, qr))
         keep = {q for pr in dummies for q in pr}
         for q in sorted(q for q, s in m.pos.items() if inside(s) and q not in members and q not in keep):
@@ -1041,9 +1044,10 @@ POLICIES = [("look", 2.0), ("look", 0.0), ("look", 1.0), ("look", 4.0), ("thresh
 DEPTH_W = 0.2 / 13364 / (0.8 / 163364.298)  # distance units per depth unit (~3.06)
 
 
-def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=False):
+def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=False, allowed=None):
     hub = n - 1
     ex = Executor(n, hub, home, emit=emit)
+    ex.allowed = allowed if allowed is not None else frozenset(frozenset(b.qubits()) for b in blocks)
     ex.LOOK = lam
     for k, v in opts:
         setattr(ex, k, v)
@@ -1107,6 +1111,7 @@ def _budget(n, nblocks):
 
 
 def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
+    allowed = frozenset(frozenset(b.qubits()) for b in blocks)  # every pair of the input (incl. th == 0)
     blocks = [b for b in blocks if b.th != 0.0]
     for i, b in enumerate(blocks):
         b.idx = i
@@ -1117,7 +1122,7 @@ def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
 
     def run(cand):
         try:
-            ex = run_candidate(n, blocks, preds, succs, home, *cand)
+            ex = run_candidate(n, blocks, preds, succs, home, *cand, allowed=allowed)
         except Illegal:
             return
         c = ex.m.dist + DEPTH_W * (max(ex.m.depth) + 1)
@@ -1138,8 +1143,15 @@ def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
     best = min(res)
     if not emit:
         return best[0], best[2]
-    ex = run_candidate(n, blocks, preds, succs, home, *best[2], emit=True)
-    return ex.m.qc, home
+    ex = run_candidate(n, blocks, preds, succs, home, *best[2], emit=True, allowed=allowed)
+    qc = ex.m.qc
+    # guard: the interaction set must stay inside the input's pairs (validator check above 19 qubits)
+    idx = {bit: i for i, bit in enumerate(qc.qubits)}
+    for inst in qc.data:
+        if inst.operation.name == "cz":
+            if frozenset(idx[q] for q in inst.qubits) not in allowed:
+                raise Illegal("cz outside the input's interaction pairs")
+    return qc, home
 
 
 def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
