@@ -39,6 +39,8 @@ Site = tuple[int, int]
 
 _DEBUG = False
 
+_STATS = {"lanes": 0, "generic": 0, "fell_back": 0}
+
 
 # ---------------------------------------------------------------- template plumbing (keep as is)
 
@@ -379,7 +381,36 @@ def parse_blocks(circuit):
             continue
         items.append(("blk", _Block("cx", u, v)))
         consumed[i] = True
-    return _absorb_ihva_pre(items)
+    return _elide_identity_blocks(_absorb_ihva_pre(items))
+
+
+def _elide_identity_blocks(items):
+    """Drop `cx; rz(0); cx` blocks whose outer 1q gates also multiply to the identity.
+
+    A `zz` block is `pre_v . (cz mid cz) . post_v`, so an identity `mid` reduces it to `post . pre`
+    on `v`. When that is the identity too (the `rx(+pi/2)`, `rx(-pi/2)` of an absorbed iHVA block)
+    the whole item disappears — dropping it, rather than leaving two 1q items behind, keeps the
+    surrounding blocks in one run (1q items delimit runs).
+    """
+    eye = np.eye(2)
+    out = []
+    for item in items:
+        if item[0] != "blk":
+            out.append(item)
+            continue
+        blk = item[1]
+        if blk.kind != "zz" or blk.mid is None or not _eq_phase(blk.mid, eye):
+            out.append(item)
+            continue
+        pre = blk.pre or []
+        post = blk.post or []
+        if any(q != blk.v for q, _ in pre) or any(q != blk.v for q, _ in post):
+            out.append(item)
+            continue
+        u = _fold([m for _, m in post]) @ _fold([m for _, m in pre])
+        if not _eq_phase(u, eye):
+            out.append(("1q", blk.v, u))
+    return out
 
 
 def _absorb_ihva_pre(items):
@@ -481,13 +512,14 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True):
     if len(partners) > 49:
         return None
     partners.sort(key=lambda q: (first.get(q, 10 ** 9), q))
-    slots = [(2 * j, s) for j in range(5) for s in range(10)][: len(partners)]
+    L = max(1, min(10, -(-(len(partners) + 1) // 5)))
+    slots = [(2 * j, 10 - L + s) for j in range(5) for s in range(L)][: len(partners)]
     assign = {slots[i]: partners[i] for i in range(len(partners))}
     costs = _LayoutCost(blocks, groups, hub, use_conveyor)
     best = costs.eval(assign)
     rng = np.random.default_rng(12345)
     keys = list(assign)
-    for _ in range(40 * len(keys)):
+    for _ in range(200 * len(keys)):
         i, j = rng.integers(0, len(keys), 2)
         if i == j:
             continue
@@ -502,11 +534,19 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True):
     home[hub] = (9, 9)
     if len(set(home.values())) != n:
         return None
-    zone_home = {q: (s[0], s[1] + 10) for q, s in home.items()}
-    if (8, 19) in zone_home.values() or (8, 9) in assign:
+    zone_home = {q: (s[0], s[1] + L) for q, s in home.items()}
+    if (8, 9) in assign or (8, 9 + L) in zone_home.values():
+        return None
+    occupied = {v for q, v in zone_home.items() if q != hub}
+    park = None
+    for y in ([9 + L] if 9 + L <= 19 else []) + list(range(10, 10 + L)):
+        if (9, y) not in occupied and (8, y) not in occupied:
+            park = (9, y)
+            break
+    if park is None or park[1] > 9 + L:
         return None
     return {"home": home, "zone_home": zone_home, "lanes": _lanes(partners, home), "hub": hub,
-            "partners": partners, "conveyor": use_conveyor}
+            "partners": partners, "conveyor": use_conveyor, "L": L, "park": park}
 
 
 def _lanes(partners, home):
@@ -527,7 +567,8 @@ class _LayoutCost:
         self.groups = groups
 
     def eval(self, assign):
-        pos = {q: (site[0], site[1]) for site, q in assign.items()}
+        base = min(site[1] for site in assign)
+        pos = {q: (site[0], site[1] - base) for site, q in assign.items()}
         cost = 0.0
         for group in self.groups:
             if self.use_conveyor and all(self.hub in (b.u, b.v) for b in group):
@@ -542,6 +583,10 @@ class _LayoutCost:
                 for b in group:
                     if b.u in pos and b.v in pos:
                         cost += float(np.hypot(pos[b.u][0] - pos[b.v][0], pos[b.u][1] - pos[b.v][1]))
+                if self.use_conveyor:
+                    # matching rounds dip down to their deepest dweller: prefer a shallow endpoint
+                    dd = [min(pos[b.u][1], pos[b.v][1]) for b in group if b.u in pos and b.v in pos]
+                    cost += 4.0 * (1 + max(dd)) * (1 + len(dd) // 8) if dd else 0.0
         return cost
 
 
@@ -561,13 +606,15 @@ class _Machine:
     # -- zone helpers
     def to_storage(self):
         if self.st.in_zone:
-            self.st.move(range(10, 20), range(0, 10), range(0, 10), range(0, 10))
+            L = self.lay["L"]
+            self.st.move(range(10, 20), range(0, 10), range(10 - L, 20 - L), range(0, 10))
             self.st.in_zone = False
 
     def to_zone(self):
         if not self.st.in_zone:
             self.st.flush_all()
-            self.st.move(range(0, 10), range(0, 10), range(10, 20), range(0, 10))
+            L = self.lay["L"]
+            self.st.move(range(10 - L, 20 - L), range(0, 10), range(10, 20), range(0, 10))
             self.st.in_zone = True
 
     def storage_phase(self):
@@ -614,7 +661,7 @@ class _Machine:
                 self.st.flush(q)
 
     def park_hub(self):
-        site = (9, 19)
+        site = self.lay["park"]
         p = self.st.pos[self.hub]
         if p != site:
             self.st.move((p[1],), (p[0],), (site[1],), (site[0],))
@@ -623,7 +670,7 @@ class _Machine:
     def conveyor_lane(self, col, served):
         """`served` maps partner -> theta.  The lane's atoms must sit on entangling rows 10+slot."""
         st = self.st
-        top = max(self.home[q][1] for q in served)
+        top = max(self.zone_home[q][1] - 10 for q in served)
         g = top + 1
         hp = st.pos[self.hub]
         target = (col + 1, 10)
@@ -700,7 +747,10 @@ class _Machine:
         before, after = ops
         for q, u in before.items():
             st.queue_1q(q, u)
-        if not st.in_zone or self._needs_flush(before):
+        # every qubit the pass pulses must have no pending 1q gate: checking only `before` misses
+        # the hub (or a partner whose queued pre cancelled its pending post) -> wrong gate order
+        involved = {q for blk in group for q in blk.qubits()} | {self.hub}
+        if not st.in_zone or self._needs_flush(involved):
             self.storage_phase()
             self.to_zone()
         per_lane = {}
@@ -750,9 +800,9 @@ class _Machine:
         for blk, qa, qb, sa, sb, targ in assign:
             for q, u in _block_pre(blk, targ):
                 st.queue_1q(q, u)
+        moved = self._place(assign)
         if self._needs_flush(involved):
             self.flush_dip(involved)
-        moved = self._place(assign)
         st.pulse([(qa, qb) for _, qa, qb, _, _, _ in assign])
         if M[0].mid is not None:
             targs = [targ for _, _, _, _, _, targ in assign]
@@ -786,7 +836,7 @@ class _Machine:
         for blk in M:
             best = None
             for cipher in range(5):
-                for row in range(10, 20):
+                for row in range(10, 10 + self.lay["L"]):
                     a_site, b_site = (2 * cipher, row), (2 * cipher + 1, row)
                     if a_site in claimed or b_site in claimed:
                         continue
@@ -796,7 +846,7 @@ class _Machine:
                         ((blk.u, a_site), (blk.v, b_site)),
                         ((blk.u, b_site), (blk.v, a_site)),
                     ):
-                        cost = max(_dist(st.pos[qu], su), _dist(st.pos[qv], sv))
+                        cost = _dist(st.pos[qu], su) + _dist(st.pos[qv], sv) + 0.5 * (row - 10)
                         if best is None or cost < best[0]:
                             best = (cost, qu, qv, su, sv)
             if best is None:
@@ -838,7 +888,7 @@ class _Machine:
 
     def _free_zone_site(self):
         st = self.st
-        for row in range(19, 9, -1):
+        for row in range(10 + self.lay["L"] - 1, 9, -1):
             for cipher in range(5):
                 for site in ((2 * cipher, row), (2 * cipher + 1, row)):
                     if site not in st.occ and _partner_site(site) not in st.occ:
@@ -1103,7 +1153,7 @@ def _looks_like_hub(items, n):
     if len(used) != n:
         return None
     hub = max(neigh, key=lambda q: (len(neigh[q]), q))
-    if len(neigh[hub]) != n - 1:
+    if len(neigh[hub]) * 4 < n - 1:
         return None
     return hub
 
@@ -1142,11 +1192,15 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
                 try:
                     st = _compile_lanes(circuit, items, lay, groups)
                 except AssertionError:
+                    _STATS["fell_back"] += 1
                     if _DEBUG:
                         raise
                     st = None
     if st is None:
+        _STATS["generic"] += 1
         st = _compile_generic(circuit, architecture_spec)
+    else:
+        _STATS["lanes"] += 1
     return st.out, Architecture(st.loading, spec=architecture_spec)
 
 
