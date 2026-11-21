@@ -68,7 +68,7 @@ logging.getLogger("pushquantum_validator").setLevel(logging.ERROR)  # spacing wa
 BASE_OPS = ["rx", "rz", "cz", "move", "measure", "barrier"]
 """Name table; `ops` is this plus any other operation encountered, in order of appearance."""
 
-EXCLUDED = frozenset({"portfolio"})
+EXCLUDED = frozenset({"portfolio", "blockingcz"})
 """Compilers left out of the visualisation (portfolio = per-circuit best of the others): `page`, `all`
 and the regenerate endpoint refuse them (unless `--force`), and the index, `manifest.json` and the
 comparison sidebar skip them even if their pages exist. Matched against the idea folder / page name."""
