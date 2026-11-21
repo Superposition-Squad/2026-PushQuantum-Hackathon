@@ -1095,9 +1095,18 @@ class CyclePlanner:
     (one CZ per step), non-hub pairs are formed before the last pulse of a cycle, the register is
     dropped back (rotations happen in storage), and the next lift re-forms those pairs for CZ2."""
 
-    def __init__(self, geo: Geo, ops, succ, indeg, n, hub, order=None, match="index"):
+    def __init__(self, geo: Geo, ops, succ, indeg, n, hub, order=None, match="index", hub_min=0.0,
+                 slack=None, hub_max=1.0):
         self.geo, self.ops, self.succ, self.indeg, self.n, self.hub = geo, ops, succ, indeg, n, hub
-        self.match = match
+        self.match, self.hub_min, self.slack, self.hub_max = match, hub_min, slack, hub_max
+        # block level in the DAG (1q ops pass levels through): QAOA layer l -> level l
+        lvl = [0] * len(ops)
+        for i, o in enumerate(ops):  # edges always point forward in op order
+            if o.kind in (ROT, CZB):
+                lvl[i] += 1
+            for j in succ[i]:
+                lvl[j] = max(lvl[j], lvl[i])
+        self.lvl = lvl
         g = geo
         slots = order if order is not None else self.default_order()
         partners = [p for p in slots if p is not None]
@@ -1151,6 +1160,19 @@ class CyclePlanner:
         self.ex.U[q] = I2.copy()
 
     # ---------------------------------------------------------- planning one cycle
+    def direction_of(self, cands) -> bool:
+        hpos = self.st.pos[self.hub]
+        a = min(cands, key=lambda p: self.widx[p])
+        b = max(cands, key=lambda p: self.widx[p])
+        return self.geo.dist(hpos, self.home[a]) <= self.geo.dist(hpos, self.home[b])
+
+    def _allowed(self, ex: Exec, i) -> bool:
+        if self.slack is None:
+            return True
+        low = min((self.lvl[j] for j, o in enumerate(self.ops) if o.kind in (ROT, CZB) and not ex.done[j]
+                   and j not in ex.bstate), default=0)
+        return self.lvl[i] <= low + self.slack
+
     def _hub_event(self, ex: Exec, p):
         h = self.hub
         for i, r in ex.bstate.items():
@@ -1158,7 +1180,7 @@ class CyclePlanner:
                 return ("finish", i, r)
         for i in sorted(ex.ready_blocks):
             op = self.ops[i]
-            if h in op.qubits and p in op.qubits:
+            if h in op.qubits and p in op.qubits and self._allowed(ex, i):
                 roles = ex.start_roles(i)
                 if op.kind == CZB and roles:
                     return ("start", i, None)
@@ -1199,12 +1221,26 @@ class CyclePlanner:
             self._commit(ex, p1, touched)
             pulses.append(p1)
         cands = [p for p in self.walk if self._hub_event(ex, p) is not None]
+        if cands and self.hub_min > 0 and len(cands) < self.hub_min * len(self.walk):
+            # few hub events ready: spend this cycle on non-hub work if there is any
+            if any(h not in self.ops[i].qubits for i in ex.ready_blocks) and not any(
+                h in self.ops[i].qubits for i in ex.bstate
+            ):
+                cands = []
         if cands:
             hpos = self.st.pos[h]
             if self.geo.dist(hpos, self.home[cands[-1]]) < self.geo.dist(hpos, self.home[cands[0]]):
                 cands.reverse()
         snap = None
         n_hub = 0
+        cap = max(1, math.ceil(self.hub_max * len(self.walk)))
+        # finishes first (they free their partner), then starts, both in walk order
+        if self.hub_max < 1.0 and cands:
+            fin = [p for p in cands if self._hub_event(ex, p)[0] == "finish"]
+            cands = fin + [p for p in cands if p not in fin]
+            cands = cands[:cap]
+            sign = 1 if self.direction_of(cands) else -1
+            cands.sort(key=lambda p: self.widx[p] * sign)
         for p in cands:
             ev = self._hub_event(ex, p)
             if ev is None or not self._clean_ok(ex, ev, touched):
@@ -1235,7 +1271,7 @@ class CyclePlanner:
             mord = sorted(ex.ready_blocks)
         for i in mord:
             op = self.ops[i]
-            if h in op.qubits or used & set(op.qubits):
+            if h in op.qubits or used & set(op.qubits) or not self._allowed(ex, i):
                 continue
             for r in ex.start_roles(i):
                 ev = ("start", i, r)
@@ -1262,6 +1298,10 @@ class CyclePlanner:
             if guard > 4 * len(self.ops) + 20:
                 raise RuntimeError("cycle planner stuck")
             pulses = self.plan_cycle()
+            if not pulses and self.slack is not None:
+                keep, self.slack = self.slack, None  # the barrier blocked everything: relax once
+                pulses = self.plan_cycle()
+                self.slack = keep
             if not pulses:
                 raise RuntimeError("empty cycle")
             # which event touches each qubit first in this cycle
@@ -1641,23 +1681,50 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
     comp = Compiler(circuit, spec, options)
     hub = find_hub(comp.ops, comp.n)
     if hub is not None and options.get("planner", "cycle") == "cycle":
-        if "order" in options or "match" in options:
-            variants = [(options.get("order"), options.get("match", "index"))]
-        else:
-            orders = [None] + [sa_order(comp.geo, comp.ops, comp.n, hub, seed) for seed in (1, 2, 3)]
-            variants = [(o, mt) for o in orders for mt in ("index", "work")]
-        best = None
-        for order, match in variants:
+        orders = [None] + [sa_order(comp.geo, comp.ops, comp.n, hub, seed) for seed in (1, 2, 3)]
+        space = {
+            "order": list(range(len(orders))),
+            "match": ["index", "work"],
+            "hub_max": [1.0, 0.75, 0.5, 0.25],
+            "slack": [None, 0, 1],
+            "hub_min": [0.0, 0.6],
+        }
+        cur = {k: v[0] for k, v in space.items()}
+        cur["order"] = 2 if len(orders) > 2 else 0
+        fixed = {k: options[k] for k in space if k in options}
+        cur.update(fixed)
+        seen: dict = {}
+
+        def evaluate(cfg):
+            key = tuple(sorted(cfg.items(), key=lambda kv: kv[0]))
+            if key in seen:
+                return seen[key]
+            res = None
             try:
-                cp = CyclePlanner(comp.geo, comp.ops, comp.succ, comp.indeg, comp.n, hub, order, match)
+                cp = CyclePlanner(comp.geo, comp.ops, comp.succ, comp.indeg, comp.n, hub, orders[cfg["order"]],
+                                  cfg["match"], cfg["hub_min"], cfg["slack"], cfg["hub_max"])
                 prog = cp.run()
                 self_check(comp.geo, cp.loading, prog)
+                out = _emit(circuit, prog)
+                res = (cp.dist_total + DEPTH_WEIGHT * _depth(out), out, cp)
             except (RuntimeError, Unsupported):
-                continue
-            out = _emit(circuit, prog)
-            cost = cp.dist_total + DEPTH_WEIGHT * _depth(out)
-            if best is None or cost < best[0] - 1e-9:
-                best = (cost, out, cp)
+                res = None
+            seen[key] = res
+            return res
+
+        best = evaluate(cur)
+        for _ in range(options.get("sweeps", 1)):
+            for k, vals in space.items():
+                if k in fixed:
+                    continue
+                for v in vals:
+                    if v == cur[k]:
+                        continue
+                    trial = dict(cur)
+                    trial[k] = v
+                    r = evaluate(trial)
+                    if r is not None and (best is None or r[0] < best[0] - 1e-9):
+                        best, cur = r, trial
         if best is not None:
             return best[1], Architecture(best[2].loading, spec=spec), best[2]
     prog = comp.run()
