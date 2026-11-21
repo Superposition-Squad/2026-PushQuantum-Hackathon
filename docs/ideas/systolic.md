@@ -100,7 +100,9 @@ check (angles → π/2) on 50q before claiming.
 | phase A WIP on r1 (batcher only) | ae910ec | +81.27 | 82.27 | 77.25 | 50q QAOA p3 2911→2721; windows broke 50q iHVA (fallback) |
 | **re-seed: zonedwell r2 (25f752c) + shallow dip** | 34f724c | **+87.52** | 89.27 | 80.51 | full 36/36 ✓, sanity 13/13 ✓, Clifford tableaux equal on 6 × 50q |
 | + A1 rectangle move batcher | b91d742 | +87.90 | 89.74 | 80.51 | 50q QAOA p3 2612→2455, 20q QAOA p3 769→693 |
-| + A2 batched-cost placement strategies | 552bcb4 | **+88.01** | 89.84 | 80.68 | 20q QAOA p3 693→678, depth 4614→4574 |
+| + A2 batched-cost placement strategies | 552bcb4 | +88.01 | 89.84 | 80.68 | 20q QAOA p3 693→678, depth 4614→4574 |
+| + B1 deterministic multi-start (schedules × layouts) | — | +88.53 | 90.42 | 80.97 | iHVA 50q p1 1404→1010, stagger p3 4061→3326 |
+| + B2 zig-zag path layouts, B3 run-merge, lookahead schedules | 60279cd | **+88.57** | 90.50 | 80.82 | iHVA tree p3 4931→4495, HEA +80.98 |
 
 Per-circuit distance/depth, base `34f724c` → final (same depth where equal):
 
@@ -154,9 +156,53 @@ Max compile time 10.3 s per circuit (50q p3).
 * Fewer/larger matchings: the greedy packing already gives 6 rounds for 98 blocks (49 qubits,
   ≤24 blocks per round ⇒ ≥5); four alternative orderings and 30 random shuffles all gave 6.
 
+## Phase B: layout and scheduling candidates
+
+* **B1 deterministic multi-start.** `compile_circuit` compiles a deterministic candidate list
+  (schedule policy × layout) and keeps the lowest `distance + 2.922 * depth` (depth with moves and
+  barriers stripped). Candidate count is fixed by qubit count (12 for n ≤ 20, 8 for n ≤ 34, 4
+  otherwise), so 50q p3 stays at ~25 s; there is a hard 120 s stop that never triggers. The same
+  layout is often produced by two seeds, so candidates are de-duplicated by their `home` map.
+* **B2 zig-zag layouts.** Longest simple path of the non-hub block graph (Warnsdorff greedy DFS from
+  every start, ties by index — covers all 49 partners on 50q), laid over lane pairs (0,1),(2,3) and
+  the tail in lane 4, plus (1,2),(3,4)/(0,1),(3,4) variants and both path orientations. Then
+  edge (p2k,p2k+1) is a same-row pair (visitor 1.7) and (p2k+1,p2k+2) an offset-+1 pair (1.97).
+* **Schedule policies.** `lookahead(w)`: take the ready category whose group plus the blocks it
+  frees (weighted by w) is largest, incremental counters keep it O(edges) per step; plus non-first,
+  hub-first, largest, and ASAP antichain layering. Priority order look2, look0.5, non, hub, largest,
+  asap.
+* **B3 run-merge placement** (scored against the other strategies by the batched-cost model): whole
+  contiguous lane runs whose atoms are all desired pairs with one destination lane at a fixed row
+  offset (>= 2 pairs) become one rectangle move; remaining blocks are placed by the base strategy
+  with the run sites claimed.
+* **Role-aware target choice**: for `zz` blocks the middle `rx` goes to the endpoint that needs no
+  extra flush.
+
+Per-circuit distance/depth, phase A (`9e27b23`) → phase B (`60279cd`):
+
+| circuit | phase A D/P | phase B D/P |
+|---|---|---|
+| 19 50q iHVA stagger p1 | 1404.3 / 133 | **1010.4 / 143** |
+| 20 50q iHVA stagger p3 | 4061.2 / 382 | **3325.6 / 416** |
+| 21 50q iHVA tree p1 | 1683.1 / 158 | 1533.3 / 175 |
+| 22 50q iHVA tree p3 | 4931.1 / 451 | 4494.9 / 486 |
+| 29 20q QAOA p1 | 256.3 / 73 | 226.1 / 70 |
+| 30 20q QAOA p3 | 769.0 / 203 | 678.4 / 200 |
+| 31 20q QAOA warm p1 | 256.3 / 73 | 226.1 / 70 |
+| 32 20q QAOA warm p3 | 769.0 / 205 | 678.4 / 200 |
+| 33 50q QAOA p1 | 870.7 / 138 | 818.3 / 138 |
+| 34 50q QAOA p3 | 2612.2 / 390 | 2455.0 / 390 |
+| 35 50q QAOA warm p1 | 870.7 / 138 | 818.3 / 138 |
+| 36 50q QAOA warm p3 | 2612.2 / 390 | 2455.0 / 390 |
+
+Winning candidates: 50q iHVA/QAOA → `seed12345/look2` or `…/non`; 20q/12q → `seed*/look2` or other
+seeds; HEA 20q/50q → `zig0`. On 50q QAOA p3 the placement is 444 single-atom moves (was 858 in
+zonedwell r1) plus 78 runs of 2–3 and 54 of 4–9; the run-merge fires on most matchings of 20q/12q
+(54 opportunities) but rarely wins on 50q, where the lane columns are too dense for long runs.
+
 ## Verdict
 
-**+88.01 %** (distance +89.84 %, depth +80.68 %) at `552bcb4`, up +0.49 pts from the re-seeded base
+**+88.57 %** (distance +90.50 %, depth +80.82 %) at `60279cd` (phase A: +88.01 % at `552bcb4`, up +0.49 pts from the re-seeded base
 (+87.52): 36/36 metric `--mode full`, 13/13 sanity `--mode full`, and the exact Clifford-tableau
 check equal on 50q circuits 19–22 and 33–36 (two angle draws each). Every sanity circuit ≤ 18
 qubits is `equivalent_up_to_global_phase` under QCEC. Remaining distance on 50q QAOA p3
