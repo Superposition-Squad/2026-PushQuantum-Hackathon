@@ -98,15 +98,67 @@ check (angles → π/2) on 50q before claiming.
 | fork = zonedwell r1 | 43f5e62 | +80.79 | 81.68 | 77.25 | baseline |
 | r1 + shallow dip before conveyor (scratch) | – | +81.45 | 82.46 | 77.43 | full 12q ✓, sanity 13/13 ✓, Clifford ✓ |
 | phase A WIP on r1 (batcher only) | ae910ec | +81.27 | 82.27 | 77.25 | 50q QAOA p3 2911→2721; windows broke 50q iHVA (fallback) |
-| **re-seed: zonedwell r2 (25f752c) + shallow dip** | 34f724c | **+87.52** | 89.27 | 80.51 | full 36/36 ✓, sanity 13/13 ✓, Clifford tableaux equal on 6 × 50q; vs zonedwell r2 +0.20 pts (all on iHVA: 50q tree p3 5228→4931) |
+| **re-seed: zonedwell r2 (25f752c) + shallow dip** | 34f724c | **+87.52** | 89.27 | 80.51 | full 36/36 ✓, sanity 13/13 ✓, Clifford tableaux equal on 6 × 50q |
+| + A1 rectangle move batcher | b91d742 | +87.90 | 89.74 | 80.51 | 50q QAOA p3 2612→2455, 20q QAOA p3 769→693 |
+| + A2 batched-cost placement strategies | 552bcb4 | **+88.01** | 89.84 | 80.68 | 20q QAOA p3 693→678, depth 4614→4574 |
 
-Experiments that did not help (scratch, fast mode):
-- ASAP antichain scheduling (26 groups instead of 57 on 50q tree p3): same cost; the dips are not per group.
-- Conveyor slides issued as `cols 0..lane` rectangles ("ride-along") used as free storage visits for
-  pending 1q flushes: 48 548 vs 48 550. The expensive flushes are the *next* block's pre-gates, whose
-  role (target/control) is only decided at placement time.
-- Lane visiting order by hub position: −0.07 (depth up).
-- Simulated annealing on zonedwell's layout proxy: proxy better, real −0.37. The proxy is saturated.
+Per-circuit distance/depth, base `34f724c` → final (same depth where equal):
+
+| circuit | base D/P | systolic D/P |
+|---|---|---|
+| 19 50q iHVA stagger p1 | 1404.3 / 133 | 1366.1 / 133 |
+| 20 50q iHVA stagger p3 | 4061.2 / 382 | 3897.1 / 382 |
+| 21 50q iHVA tree p1 | 1683.1 / 158 | 1653.6 / 158 |
+| 22 50q iHVA tree p3 | 4931.1 / 451 | 4820.2 / 451 |
+| 29 20q QAOA p1 | 256.3 / 73 | 226.1 / 70 |
+| 30 20q QAOA p3 | 769.0 / 203 | 678.4 / 200 |
+| 31 20q QAOA warm p1 | 256.3 / 73 | 226.1 / 70 |
+| 32 20q QAOA warm p3 | 769.0 / 205 | 678.4 / 200 |
+| 33 50q QAOA p1 | 870.7 / 138 | 818.3 / 138 |
+| 34 50q QAOA p3 | 2612.2 / 390 | 2455.0 / 390 |
+| 35 50q QAOA warm p1 | 870.7 / 138 | 818.3 / 138 |
+| 36 50q QAOA warm p3 | 2612.2 / 390 | 2455.0 / 390 |
+
+Max compile time 10.3 s per circuit (50q p3).
+
+## What was implemented (phase A)
+
+* **A1 rectangle move batcher** (`_group_params`, `_plan_moves`, `_emit_plan`, `_emit_singles`):
+  validator-exact group legality (consistent + strictly increasing row/col maps, ghost-free
+  rectangle, fixed-point atoms may join as zero-displacement members, destinations free or vacated
+  by the group, squeeze emission, zone crossing allowed); agglomerative merging on the largest
+  saving; a topological order on the "destination is another group's source" relation with a
+  temporary free site for genuine swap cycles; legality re-checked on the live state before every
+  emitted move, with a per-atom fallback. `_place` emits it; `_unplace` re-plans the return trip
+  batched (the two trips are now ~16 moves instead of ~24 single-atom moves each).
+* **A2 placement strategies scored by the real batcher** (`_assign` + `_assign_cost` +
+  `_choose_assign`): the base min-distance assignment, a variant with a strong shallow-row
+  penalty, and a "dweller" variant that restricts a block to the pair one of its atoms already
+  sits on (so only one atom travels). Each candidate is scored by the *non-emitting* batcher plan
+  (outward trip + return trip + 2·dip depth) and the cheapest wins; deterministic tie-breaks.
+
+## What did not pay off (numbers)
+
+* **Windows / super-rounds (A3)** — packing several matchings behind one storage dip. A target may
+  not be touched by any other block of the same window (its `rx` would land between another pair's
+  two `cz`), so a window's blocks need *fresh targets*: each partner can be a target only once per
+  window. With 49 partners and 98 non-hub blocks per layer that forces shrinking matchings
+  (24, 6, 2, …) and 3 windows per layer, i.e. ~1.5× more placement stages, each of which must visit
+  the previous configuration twice (forward and reverse pulses). Measured on 50q QAOA p3: dips
+  18→9 (−170) but placement 1395→2288 (+890) → 3408 vs 2455. Not worth it: the dips here cost
+  ~17 each, the placement ~75 per matching.
+* **Direct transitions between matchings (task 4)** — chaining configs without returning visitors
+  home, with the dweller allowed to stay at its *current* site. Fewer atoms move but each trip is
+  much longer (3.0–4.1 per atom vs 1.6): 50q QAOA p3 2684 vs 2455. A visitor that stays becomes a
+  dweller on an odd site whose pair partner is far from the next visitor.
+* Fewer/larger matchings: the greedy packing already gives 6 rounds for 98 blocks (49 qubits,
+  ≤24 blocks per round ⇒ ≥5); four alternative orderings and 30 random shuffles all gave 6.
 
 ## Verdict
-(pending)
+
+**+88.01 %** (distance +89.84 %, depth +80.68 %) at `552bcb4`, up +0.49 pts from the re-seeded base
+(+87.52): 36/36 metric `--mode full`, 13/13 sanity `--mode full`, and the exact Clifford-tableau
+check equal on 50q circuits 19–22 and 33–36 (two angle draws each). Every sanity circuit ≤ 18
+qubits is `equivalent_up_to_global_phase` under QCEC. Remaining distance on 50q QAOA p3
+(2455): placement 1395, conveyor 404, dips 353, zone moves 20 — placement is still the lever, but
+it is now ~1.6 per atom-move, i.e. close to the ~1.04 geometric floor of a visitor hop.
