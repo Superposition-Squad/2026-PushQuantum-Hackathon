@@ -808,9 +808,15 @@ class _Machine:
         before, after = ops
         for q, u in before.items():
             st.queue_1q(q, u)
-        if not st.in_zone or self._needs_flush(before):
+        if not st.in_zone:
             self.storage_phase()
             self.to_zone()
+        else:
+            # already in the zone: only dip far enough to flush the qubits that need it
+            watch = set(before) | set(targ.values()) | {self.hub}
+            need = [q for q in watch if self._needs_flush((q,))]
+            if need:
+                self.flush_dip(need)
         per_lane = {}
         for blk in group:
             p = targ[blk]
