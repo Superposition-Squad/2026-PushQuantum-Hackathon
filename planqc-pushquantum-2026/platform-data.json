@@ -1,0 +1,389 @@
+{
+ "competition": {
+  "slug": "planqc-pushquantum-2026",
+  "title": "planqc | PushQuantum 2026",
+  "shortDescription": "planqc track for PushQuantum Hackathon 2026: Compilation of circuits on Neutral Atom devices.",
+  "purpose": "# Purpose\n\n**Why compilation matters.** On a neutral atom machine, the abstract circuit you write is not the circuit that runs. Only global $R_x$, targeted $R_z$ and $CZ$ gates on atoms that sit next to each other in the entangling zone are native. Thus, every abstract gate has to be transpiled onto this gateset and qubits need to be moved between zones based on the required interactions. Moving atoms is usually the slowest operation on the device and a significant source of errors. Two circuits that are equivalent on paper can therefore differ a lot in run time and fidelity, depending on how well their interaction pattern is scheduled and routed. This is what you optimize in this challenge. To make it concrete, we use a small variational algorithm for a logistics problem as an example.\n\n**The toy problem: choosing bus stops.** A city wants to consolidate stops along a bus route. Every neighborhood has exactly two acceptable stops, and keeping stop $i$ incurrs $c_i$ in maintenance costs. Find the cheapest set of stops such that every neighborhood keeps at least one of its two.\n\nDrawing an edge between the two acceptable stops of each neighborhood turns this into a graph problem (a minimum-weight vertex cover).\n\nOur chosen instance has 12 stops and 18 neighborhoods. The graph consists of four triangles, $\\{1,2,3\\}$, $\\{4,5,6\\}$, $\\{7,8,9\\}$, $\\{10,11,12\\}$, connected by six links: 1–4, 2–7, 3–10, 5–8, 6–11, 9–12.\n\nThe unique optimum keeps stops $\\{1,2,5,6,7,8,10,12\\}$ at cost 14, i.e. it drops one stop per triangle (3, 4, 9, 11), none of them linked to each other. The instance is small enough to be checked by brute force on purpose: the challenge is not to solve it classically, but to run a variational circuit for it efficiently on the device.\n\n![The example instance: the graph of 12 stops, where every edge is one neighborhood and joins its two acceptable stops, next to a table with the maintenance cost of each stop. Green vertices and highlighted costs mark the stops kept in the optimum, and every edge keeps at least one green endpoint.](https://s3.fr-par.scw.cloud/aqora-prod-private/fe1c0cbd-9ae7-487c-929f-efc60652c8a4?x-id=GetObject&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T115512Z&X-Amz-Expires=600&X-Amz-SignedHeaders=host&X-Amz-Signature=815a56728c805df3111f614f4df6d040d3ac244f45dca55f97b3a4bba7e9408b#aqora-upload_fe1c0cbd-9ae7-487c-929f-efc60652c8a4)\n\n*Fig 0: The example instance: every edge is one neighborhood and joins its two acceptable stops, and the table lists the maintenance cost $c_i$ of each stop. Green vertices and highlighted costs mark the stops kept in the optimal solution, and every edge keeps at least one green endpoint.*\n\n**From stops to an Ising model.** A variational algorithm needs the problem as a Hamiltonian on qubits, one per stop. Let $x_i=1$ if stop $i$ is kept and penalize every neighborhood that loses both of its stops:\n\n$$F(x)=\\sum_i c_i x_i+P\\sum_{(i,j)\\in E}(1-x_i)(1-x_j),\\qquad P=5>\\max_i c_i.$$\n\nThe minimum of $F$ is the cheapest valid set of stops. Substituting $x_i=(1-Z_i)/2$, i.e. $Z_i=-1$ for a kept stop, gives $F=(H+146)/4$ with the classical Ising Hamiltonian\n\n$$H=5\\sum_{(i,j)\\in E}Z_iZ_j+\\sum_i(15-2c_i)\\,Z_i,$$\n\nwhich has a $ZZ$ coupling on every neighborhood and a local field on every stop.\n\n**Where compilation comes in.** A variational circuit searches for this minimum. A generic choice is the *hardware-efficient ansatz* (HEA): layers of parametrized single-qubit rotations followed by $CX$ gates between neighboring qubits, without using the problem structure. One layer on $n$ qubits needs only $n-1$ entangling gates, in two rounds of disjoint pairs. On this device, every entangling gate means that two atoms have to meet in the entangling zone for a $CZ$ pulse, while targeted $R_z$ rotations are only available in the storage zone. The number of entangling rounds and the distance the atoms travel between them therefore decide the cost, and pairs that interact in the same round can be moved and pulsed together.\n\nA circuit that follows the problem structure more closely can be better on the abstract level, but this does not make it better on the device. Problem-tailored ansätze are often built on a Max-Cut form of the problem: the local fields become couplings to one extra reference qubit $a$ (with weights $15-2c_i$), so that all 30 terms, 18 neighborhood edges of weight 5 and 12 reference edges, are $ZZ$ interactions. A bitstring $b$ then cuts the graph with weight $W(b)=180-2F(x)$, where $x_i=b_i\\oplus b_a$, and the maximum cut ($W^*=152$, reached by&#32;`1100111101010`&#32;and its complement) encodes the same stops. An example is the *imaginary Hamiltonian variational ansatz* (iHVA, [Wang et al., Phys. Rev. A 111, 032612 (2025)](https://doi.org/10.1103/PhysRevA.111.032612)), which places one parametrized two-qubit gate on every Max-Cut edge. Here that is 30 gates (60 $CZ$) per layer. Since the reference qubit has 12 partners and an atom can only partner with one neighbor per pulse, it also needs at least 12 rounds per layer, compared with 2 for an HEA layer. The best circuit in the abstract is therefore not necessarily the best one after compilation, and the metrics below measure the latter.\n\n**Bonus challenge: tailor the ansatz.** The cost function is fixed, the circuit that searches for its minimum, and how you encode the problem into qubits, are yours. We encourage you to design an ansatz that is more expressive than a generic HEA and easier to compile than the obvious one-gate-per-edge circuit, for example:\n\n- Match the hardware. Build entangling layers from interactions the device performs in parallel instead of one gate per problem edge.\n- Use the structure of the instance. The graph is made of four tightly connected clusters. Entangling within clusters first keeps atoms close together and movements short.\n- Trade expressivity for cost. Global $R_x$ and targeted $R_z$ layers need no movement of their own while the atoms are in storage, so extra parameters there are cheap compared to an additional round of entangling gates.\n\nPlease document the encoding and ansatz you choose (see Deliverables).\n\n# PushQuantum Hackathon Challenge\n\nSince the introduction of the zoned architecture for neutral atom quantum computers by Bluvstein et al. There has been an increased interest in how to best exploit the architectural capabilities while adhering to its constraints. However, a clear optimization of the compilation process still remains an open question. In this challenge, we provide a neutral atom device with simplified constraints and a series of circuits to compile.\n\n## Quantum Device Specifications\n\nThe setup is a 100 qubit neutral atom quantum machine utilizing a zoned architecture as illustrated in Figure 1.\n\n![Figure 1: Zoned Neutral Atom Architecture](https://s3.fr-par.scw.cloud/aqora-prod-private/50888192-db94-43a1-af27-4750fa944e9f?x-id=GetObject&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T115512Z&X-Amz-Expires=600&X-Amz-SignedHeaders=host&X-Amz-Signature=d37fd71d34fd85d7a21c0896c395e80e107ddf7954b0c7e31d2e7f98b0afb17a#aqora-upload_50888192-db94-43a1-af27-4750fa944e9f)\n\n*Figure 1: Zoned Neutral Atom Architecture*\n\nThere are two main zones for this hackathon. The blue zone, known as the storage zone, and the red zone, known as the entangling zone. The diagram also illustrates what native gates are available:\n\n- Targeted $R_z$ rotations, indicated by a green circle, which can affect a single qubit in the storage zone.\n- Global $R_x$ rotations, indicated by blue circles, that affect all qubits in both zones. This means that all qubits in both zones in Fig. 1 will experience the $R_x$ gate. [Relaxed to also allow single qubit targetting]\n- Two-qubit $CZ$ rotations, indicated by orange ovals, which affect all neighboring qubit pairs in the entangling zone transversally. Single atoms in the entangling zone are excited by this process but, logically, only experience an identity operation.\n- Movement operations, which are not visually depicted here, will be described in the next section.\n\nYou may assume that the $R_z$ and $R_x$ gates can be implemented with arbitrary angles.\n\n## Move Semantics\n\n![Figure 2: Movement Examples](https://s3.fr-par.scw.cloud/aqora-prod-private/bac369c7-ba9f-4778-b525-2b941106d7dd?x-id=GetObject&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T115512Z&X-Amz-Expires=600&X-Amz-SignedHeaders=host&X-Amz-Signature=8b028e8c7f2b6458aa6f9a13e7477c89cb888716afef7b06f97f28d40bf33b58#aqora-upload_bac369c7-ba9f-4778-b525-2b941106d7dd)\n\n*Figure 2: Movement Examples*\n\nEach circle, empty or filled, in Fig. 1 represents a set of spatial light modulators (SLMs) that hold atoms statically in place. Thus, in order to move atoms together or apart or between zones, one requires a pair of orthogonal acousto-optic deflectors (AODs), one vertical and one horizontal. These can pick up and deposit rows or columns of atoms from and to SLM traps. One exemplary movement is shown in Fig. 2 and is described in the following:\n\nA contiguous set of source rows and columns are chosen. In this example, rows (5, 6) and columns (0, 1) are chosen.\n\nThe orthogonal AOD pair picks up atoms from the SLM traps in the intersection, we refer to this as the active region of the AOD pair. Each AOD pair has a single contiguous active region. This is highlighted in darker green.\n\nA set of empty destination rows and columns are chosen. In this example, rows (10, 11) and columns (0, 2) are chosen. Note, that depositing an atom into an already filled SLM trap constitutes an invalid move operation.\n\nIdeally, valid movements must also preserve the proportional spacing between atoms, but this will not be enforced for this challenge.\n\nThe orthogonal AOD pair shifts to the chosen destination and deposits the carried atoms.\n\nThis is encoded as movement of $[(5,6), (0,1)] \\rightarrow [(10, 11), (0, 2)]$.\n\n## Movement Constraints\n\nFor this problem, we assume that you can utilize multiple pairs of AODs simultaneously to perform parallel movements. However, this comes with three constraints:\n\n- Permuting the rows and columns during a movement is not possible. For example, the following movement given the described architecture is invalid: $[(5,6), (0,1)] \\rightarrow [(10, 11), \\mathbf{(2, 0)}]$ as the atoms in the initial columns $(0, 1)$ are permuted. More exactly, the order of rows and columns must be preserved.\n- During pickup, movement or deposit, the intersection of any simultaneous AOD pairs that is not an active region must be empty of atoms. Such intersections, referred to as ghost regions, are indicated in Fig. 3 with red Xs. Here, the atoms marked in red would also be picked up and likely lost during the movement operation.\n- During movement of multiple AOD pairs, the active regions of any AOD pair cannot overlap with any other AOD. An example of one such illegal move is shown in Fig. 4.\n\nAny consecutive move operations that do not violate these constraints can be run simultaneously. For simplicity, we also assume that movement operations are fully atomic (i.e. interleaving pickup, move and deposit operations to ensure that simultaneous movement operations are valid is not possible) and that new movement operations cannot start before the current set of simultaneous movements are completed.\n\nOtherwise, they will be run sequentially as single movements that do not permute column or row indices cannot violate the remaining constraints.\n\n![Figure 3: Example of invalid simultaneous pickup operations.](https://s3.fr-par.scw.cloud/aqora-prod-private/b2873981-b2f2-4e04-a1b4-ee24fe8435ef?x-id=GetObject&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T115512Z&X-Amz-Expires=600&X-Amz-SignedHeaders=host&X-Amz-Signature=9e1192104218f4f466ce8a5874572db5d8af420fdf937b169be952d1371ca673#aqora-upload_b2873981-b2f2-4e04-a1b4-ee24fe8435ef)\n\n*Figure 3: Example of invalid simultaneous pickup operations.*\n\n![Figure 4: Example of invalid simultaneous movement operations.](https://s3.fr-par.scw.cloud/aqora-prod-private/5311570d-91ae-479a-9ad5-dee44766a267?x-id=GetObject&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T115512Z&X-Amz-Expires=600&X-Amz-SignedHeaders=host&X-Amz-Signature=9d089532ef585d01a8b7584eb1587423cbf0eb73a13e625ed9b4f3ec1894a096#aqora-upload_5311570d-91ae-479a-9ad5-dee44766a267)\n\n*Figure 4: Example of invalid simultaneous movement operations.*\n\n## Initial Atom Placement\n\nFor each transpiled circuit, the initial atom placement can be anywhere within the storage zone. For simplicity, we assume that atom loading only occurs during initial placement. You may assume any number of atoms can be used for each compiled circuit, i.e. the usage of additional ancilla or reduced number of atoms to simplify transpilation are both allowed. You may also ignore the effects of atom loss during operations.\n\n## Deliverables\n\n### What you receive\n\n- A custom qiskit `QuantumInstruction` that defines a Move operation as defined in this document, named move.py.\n- A spec file `architectures/default.json` that encodes the zones and coordinates of the SLM traps per Fig. 1 and the corresponding parsing method in architecture.py.\n- A template file template.py with the compiler function signature that must be implemented.\n- A set of circuits for the Hardware-Efficient Ansatz implementation\n\n### What we want\n\nA function (or series thereof) that produces a qiskit `QuantumCircuit` object that can be used to solve the optimization problem. Please clearly document the encoding used for this process.\n\nAn implementation of `compile_circuit` that accepts the above `QuantumCircuit` object and the parsed spec file and produces an initial atom placement and a transpiled `QuantumCircuit`.\n\nThe final transpiled circuit must:\n\nOnly consist of the gate set described in [Quantum Device Specifications](#quantum-device-specifications).\n\n- Only consist of valid move operations.\n- Be equivalent up to a phase shift to the input circuit.\n\nThe metrics to rank the compilation step ordered by importance:\n\n- Adherence to strict constraints in [Movement Constraints](#movement-constraints).\n- Total cartesian distance of moved atoms considering parallelism. Only the longest traveled distance is considered for each set of movement operations that can be run in parallel.\n- Circuit depth (excluding movement operations).\n- (bonus): Find an efficient circuit ansatz to represent the Hamiltonian.",
+  "about": "## planqc\n\nParticipants will implement a movement / routing algorithm for a simple two-zoned neutral atom computing device based on the infrastructure present in:\n\n[Logical quantum processor based on reconfigurable atom arrays | Nature](https://www.nature.com/articles/s41586-023-06927-3)\n\nIn the introduced architecture, only certain operations can be run in each zone. The task involves, given an input quantum circuit, to map it to the native gate-set of the provided architecture and then provide a routing / placement algorithm to move atoms between the two zones and ensure that every operation runs in the correct region. The goal is to then minimize the total movement and the effective total run-time of the output circuit.\n\nAn overview of recent techniques and algorithms can be found in the following research papers:\n\n[Reuse-Aware Compilation for Zoned Quantum Architectures Based on Neutral Atoms | IEEE Conference Publication | IEEE Xplore](https://ieeexplore.ieee.org/document/10946298)\n\n[ZAP: Zoned Architecture and Performant Compiler for Field-Programmable Atom Array | IEEE Journals & Magazine | IEEE Xplore](https://ieeexplore.ieee.org/document/11535023)\n\n### Track links\n\n- [Discussion](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/planqc-pushquantum-2026/discussions): Ask technical questions.\n- [Submissions](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/planqc-pushquantum-2026/submission): Read the submission instructions when they are available.\n- [Track rules](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/planqc-pushquantum-2026/rules): Check the provider rules when they are available.\n- [Event agenda](https://aqora.io/challenges/pushquantum-hackathon-2026/agenda): Check the session times.\n- [Hackathon guide](https://aqora.io/challenges/pushquantum-hackathon-2026): Return to the event links.\n\nplanqc will confirm the task, resources, scoring method, and submission deadline.",
+  "gettingStarted": "1. Attend the Friday kick-off from 18:00 to 19:45 CET.\n2. Read the challenge brief when it is available.\n3. Follow the provider instructions for tools and access.\n4. Ask technical questions in the [track discussion](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/planqc-pushquantum-2026/discussions).\n\nThe provider has not confirmed the submission deadline.",
+  "description": null,
+  "useLegacyDescription": false,
+  "isPrivate": true,
+  "visibility": "MEMBERS",
+  "host": {
+   "__typename": "Organization",
+   "displayName": "planqc",
+   "username": "planqc"
+  }
+ },
+ "metadata": {
+  "forum": {
+   "slug": "01a1abfee91f7d5085c1c1a68c3f1bef",
+   "title": "",
+   "guidelines": null
+  },
+  "rewards": {
+   "nodes": [
+    {
+     "kind": "SWAG",
+     "description": "Top team wins planqc merch",
+     "amount": null
+    }
+   ]
+  },
+  "timeline": {
+   "startDate": "2026-11-20",
+   "endDate": "2026-11-22",
+   "timezone": "Europe/Berlin",
+   "locationKind": "IN_PERSON",
+   "steps": {
+    "nodes": []
+   },
+   "location": {
+    "city": "Garching bei München (Research Campus)",
+    "country": "Germany"
+   }
+  },
+  "currentStage": {
+   "id": "AENvbXBldGl0aW9uU3RhZ2UBoav-6Th_o7FmTUyLKj5s",
+   "seq": 1,
+   "submissionDeadline": null,
+   "showMetric": false,
+   "useJuryScore": false,
+   "submissionPreamble": null,
+   "isActive": true,
+   "scoringCriteria": [
+    {
+     "description": null,
+     "weight": 1.0,
+     "order": 0,
+     "title": "Score"
+    }
+   ]
+  },
+  "rules": {
+   "nodes": [
+    {
+     "text": "",
+     "createdAt": "2026-11-05T13:56:12.253935+00:00"
+    }
+   ]
+  }
+ },
+ "event": {
+  "slug": "pushquantum-hackathon-2026",
+  "title": "PushQuantum Hackathon 2026",
+  "shortDescription": "Build a quantum computing prototype with industry mentors at PushQuantum Hackathon, 20–22 November 2026, in Garching, Munich.",
+  "purpose": "Use this space to find the hackathon challenges, resources, discussions, and agenda.",
+  "about": "## Hackathon guide\n\n**20–22 November 2026 · Garching, Munich**\n\nAttend the mandatory kick-off on Friday, 20 November, from **16:00 to 20:00 CET**.\n\n### Challenges and questions\n\nOpen a track for its challenge brief, resources, and submission instructions.\n\n| Track | Questions |\n| --- | --- |\n| [Aqarios](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/aqarios-pushquantum-2026) | [Track discussion](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/aqarios-pushquantum-2026/discussions) |\n| [Alice & Bob](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/alice-bob-pushquantum-2026) | [Track discussion](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/alice-bob-pushquantum-2026/discussions) |\n| [IQM Quantum Computers](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/iqm-pushquantum-2026) | [Track discussion](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/iqm-pushquantum-2026/discussions) |\n| [planqc](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/planqc-pushquantum-2026) | [Track discussion](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/planqc-pushquantum-2026/discussions) |\n| [Qoro](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/qoro-pushquantum-2026) | [Track discussion](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/qoro-pushquantum-2026/discussions) |\n| [Quantinuum](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/quantinuum-pushquantum-2026) | [Track discussion](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/quantinuum-pushquantum-2026/discussions) |\n\nThe final briefs and submission deadlines are pending. Each provider will confirm its track instructions.\n\n### Event links\n\n- [Agenda](https://aqora.io/challenges/pushquantum-hackathon-2026/agenda): Check the session times.\n- [Event discussion](https://aqora.io/challenges/pushquantum-hackathon-2026/discussions): Ask questions about the event.\n- [Rules](https://aqora.io/challenges/pushquantum-hackathon-2026/rules): Check the event rules when they are available.\n- [All tracks](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks): Compare the provider tracks.\n\nThe detailed Saturday and Sunday schedule and final venue are pending.",
+  "gettingStarted": "1. Check the [agenda](https://aqora.io/challenges/pushquantum-hackathon-2026/agenda).\n2. Attend the Friday kick-off from 18:00 to 19:45 CET.\n3. Choose a [track](https://aqora.io/challenges/pushquantum-hackathon-2026/tracks) after the challenge presentations.\n4. Follow the instructions in that track.\n5. Ask technical questions in the track discussion.\n\nUse the [event discussion](https://aqora.io/challenges/pushquantum-hackathon-2026/discussions) for event questions.",
+  "description": null,
+  "isPrivate": true,
+  "visibility": "MEMBERS",
+  "agenda": {
+   "location": "Garching, Munich. Conference at Business Campus Garching, hackathon weekend at Garching Research Campus.",
+   "timezone": "Europe/Berlin",
+   "phases": [
+    {
+     "id": "friday",
+     "label": "Friday, November 20: Conference and mandatory hackathon kick-off",
+     "location": "Business Campus Garching"
+    },
+    {
+     "id": "saturday",
+     "label": "Saturday, November 21: Challenge details and hacking",
+     "location": "Garching Research Campus"
+    },
+    {
+     "id": "sunday",
+     "label": "Sunday, November 22: Submissions, solution pitches and closing ceremony",
+     "location": "Garching Research Campus"
+    }
+   ],
+   "events": [
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "08:30:00",
+     "label": "Conference arrival"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "09:00:00",
+     "label": "Welcome"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "09:15:00",
+     "label": "Prof. Dr. Annabelle Bohrdt (LMU)"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "10:00:00",
+     "label": "Prof. Dr. Andreas Reiserer (TUM)"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "10:45:00",
+     "label": "Coffee and speaker meetings"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "11:15:00",
+     "label": "Prof. Dr. Dominik Bucher (TUM) / company speed dating (prior registration)"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "12:00:00",
+     "label": "Prof. Dr. Barbara Kraus (TUM)"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "12:45:00",
+     "label": "Lunch, speaker meetings and MCQST posters"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "14:15:00",
+     "label": "Science Slam"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "15:45:00",
+     "label": "Coffee"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "16:00:00",
+     "label": "Mandatory hackathon kick-off begins"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "16:15:00",
+     "label": "PushQuantum introduction"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "16:30:00",
+     "label": "Keynote: Prof. Dr. Ignacio Cirac (MPQ)"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "17:00:00",
+     "label": "Munich quantum ecosystem presentations"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "17:45:00",
+     "label": "Coffee"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "18:00:00",
+     "label": "Partner and challenge presentations"
+    },
+    {
+     "phase": "friday",
+     "date": "2026-11-20",
+     "time": "20:00:00",
+     "label": "Dinner"
+    },
+    {
+     "phase": "saturday",
+     "date": "2026-11-21",
+     "time": "08:30:00",
+     "label": "Breakfast"
+    },
+    {
+     "phase": "saturday",
+     "date": "2026-11-21",
+     "time": "09:30:00",
+     "label": "Challenge details"
+    },
+    {
+     "phase": "saturday",
+     "date": "2026-11-21",
+     "time": "11:00:00",
+     "label": "Submission process walkthrough"
+    },
+    {
+     "phase": "saturday",
+     "date": "2026-11-21",
+     "time": "11:15:00",
+     "label": "Hacking starts"
+    },
+    {
+     "phase": "saturday",
+     "date": "2026-11-21",
+     "time": "13:00:00",
+     "label": "Lunch"
+    },
+    {
+     "phase": "saturday",
+     "date": "2026-11-21",
+     "time": "14:30:00",
+     "label": "Hacking"
+    },
+    {
+     "phase": "saturday",
+     "date": "2026-11-21",
+     "time": "19:00:00",
+     "label": "Dinner"
+    },
+    {
+     "phase": "saturday",
+     "date": "2026-11-21",
+     "time": "20:30:00",
+     "label": "Hacking"
+    },
+    {
+     "phase": "saturday",
+     "date": "2026-11-21",
+     "time": "23:30:00",
+     "label": "Midnight special"
+    },
+    {
+     "phase": "sunday",
+     "date": "2026-11-22",
+     "time": "08:00:00",
+     "label": "Breakfast"
+    },
+    {
+     "phase": "sunday",
+     "date": "2026-11-22",
+     "time": "10:00:00",
+     "label": "Deadline for solution submissions"
+    },
+    {
+     "phase": "sunday",
+     "date": "2026-11-22",
+     "time": "10:30:00",
+     "label": "Solution pitches and coffee"
+    },
+    {
+     "phase": "sunday",
+     "date": "2026-11-22",
+     "time": "14:00:00",
+     "label": "Lunch"
+    },
+    {
+     "phase": "sunday",
+     "date": "2026-11-22",
+     "time": "15:00:00",
+     "label": "Closing ceremony and goodbye"
+    }
+   ]
+  },
+  "rewards": {
+   "nodes": []
+  },
+  "host": {
+   "__typename": "Organization",
+   "displayName": "PushQuantum",
+   "username": "pushquantum"
+  },
+  "forum": {
+   "slug": "01a18790ffaf7f02b898491a4843c00d",
+   "title": "",
+   "guidelines": null,
+   "topics": {
+    "nodes": []
+   }
+  },
+  "rules": {
+   "nodes": [
+    {
+     "text": "",
+     "createdAt": "2026-10-29T12:09:49.242199+00:00"
+    }
+   ]
+  },
+  "timeline": {
+   "startDate": "2026-11-20",
+   "endDate": "2026-11-22",
+   "timezone": "Europe/Berlin",
+   "locationKind": "IN_PERSON",
+   "location": {
+    "city": "Garching bei München (Research Campus)",
+    "country": "Germany"
+   },
+   "steps": {
+    "nodes": [
+     {
+      "date": "2026-11-20",
+      "label": "Mandatory kick-off"
+     },
+     {
+      "date": "2026-11-21",
+      "label": "24h hacking begins"
+     },
+     {
+      "date": "2026-11-22",
+      "label": "Demos & awards"
+     }
+    ]
+   }
+  },
+  "competitions": {
+   "nodes": [
+    {
+     "competition": {
+      "slug": "aqarios-pushquantum-2026",
+      "title": "Aqarios | PushQuantum 2026",
+      "shortDescription": "Aqarios track for PushQuantum Hackathon 2026."
+     }
+    },
+    {
+     "competition": {
+      "slug": "alice-bob-pushquantum-2026",
+      "title": "Catch the flip",
+      "shortDescription": "Catch the bit flips of a cat qubit in the measurement records of its buffer, and find out what a detected flip is worth for quantum error correction."
+     }
+    },
+    {
+     "competition": {
+      "title": "IQM Quantum Computers | PushQuantum 2026",
+      "slug": "iqm-pushquantum-2026",
+      "shortDescription": "IQM Quantum Computers track for PushQuantum Hackathon 2026. The final challenge brief is pending."
+     }
+    },
+    {
+     "competition": {
+      "shortDescription": "Qoro track for PushQuantum Hackathon 2026. The final challenge brief is pending.",
+      "slug": "qoro-pushquantum-2026",
+      "title": "Qoro | PushQuantum 2026"
+     }
+    },
+    {
+     "competition": {
+      "slug": "quantinuum-pushquantum-2026",
+      "title": "Quantinuum | PushQuantum 2026",
+      "shortDescription": "Quantinuum track for PushQuantum Hackathon 2026. The final challenge brief is pending."
+     }
+    },
+    {
+     "competition": {
+      "slug": "planqc-pushquantum-2026",
+      "title": "planqc | PushQuantum 2026",
+      "shortDescription": "planqc track for PushQuantum Hackathon 2026: Compilation of circuits on Neutral Atom devices."
+     }
+    }
+   ]
+  }
+ }
+}

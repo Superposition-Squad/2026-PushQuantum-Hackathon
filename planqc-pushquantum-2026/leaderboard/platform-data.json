@@ -1,0 +1,480 @@
+{
+ "data": {
+  "workspaceBySlug": {
+   "latestVersion": {
+    "version": "0.0.0",
+    "entries": [
+     {
+      "__typename": "WorkspaceFile",
+      "name": ".ignore",
+      "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/yf0n0qfqsx7a0?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22.ignore%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=432fe24945caf4ccc272caf7067184ddb48578587669f7a153cef309cab4cc28",
+      "size": 688,
+      "isNotebook": false
+     },
+     {
+      "__typename": "WorkspaceFile",
+      "name": ".secrets",
+      "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/w9hte8yachkbc?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22.secrets%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=4c14d710d3a404b212270d5d808b97be13a776134959b5fb1e4387ddc4139fbb",
+      "size": 762,
+      "isNotebook": false
+     },
+     {
+      "__typename": "WorkspaceDirectory",
+      "name": "pushquantum_validator",
+      "entries": [
+       {
+        "__typename": "WorkspaceFile",
+        "name": "__init__.py",
+        "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/khaar3wzja7tw.py?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22__init__.py%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=ad2b0aea7dce0387f35f9321512983f8cdcc43e321aa67c9a52e5d9c4f08fe54",
+        "size": 937,
+        "isNotebook": false
+       },
+       {
+        "__typename": "WorkspaceFile",
+        "name": "_compile_child.py",
+        "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/2jh0rtjk2z01w.py?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22_compile_child.py%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=6c6e18f4155a72a87ca6c2131fa19a3d8ccf1cf064eb3504aba66f97d92cd571",
+        "size": 3908,
+        "isNotebook": false
+       },
+       {
+        "__typename": "WorkspaceFile",
+        "name": "_sandbox.py",
+        "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/1t9n9s34zxhqg.py?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22_sandbox.py%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=230e54ad59e6cf7c1de8391665025995b5aabf79559d7d7baaca4153d7a121c8",
+        "size": 9530,
+        "isNotebook": false
+       },
+       {
+        "__typename": "WorkspaceFile",
+        "name": "_validation.py",
+        "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/h0cmz71pfandw.py?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22_validation.py%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=5cb958d3654ac852aacd1215a17da227a7707e7d329e33450ea447eadfe7ed8c",
+        "size": 21800,
+        "isNotebook": false
+       },
+       {
+        "__typename": "WorkspaceDirectory",
+        "name": "architectures",
+        "entries": [
+         {
+          "__typename": "WorkspaceFile",
+          "name": "default.json",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/eqrjt6g685c7e.json?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22default.json%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=5d70ee6a43976a2041fadf9e19f3829aea7df9d6da6fa62b62e1408e699635f2",
+          "size": 336,
+          "isNotebook": false
+         }
+        ]
+       },
+       {
+        "__typename": "WorkspaceFile",
+        "name": "errors.py",
+        "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/gsvm6k35p802c.py?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22errors.py%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=2a84b2247b7bf6fd68108b05f2951f2b87e817b8e9f4ce3266f5817c89a17b0d",
+        "size": 1343,
+        "isNotebook": false
+       },
+       {
+        "__typename": "WorkspaceDirectory",
+        "name": "metric_benchmarks",
+        "entries": [
+         {
+          "__typename": "WorkspaceDirectory",
+          "name": "hea",
+          "entries": [
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_hea_linear_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/krshkdjx46jdc.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_hea_linear_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=649a635e19dbaa4bd9cadbf034829d8f55d612cbfcce20684c87e71fb8aff710",
+            "size": 1739,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_hea_linear_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/rwh5b0yefsdpm.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_hea_linear_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=d072cebafd08c954ee13802e698157312d92bc7c69a5ddcddc39b07e02ff77d9",
+            "size": 3484,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_hea_linear_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/mspcg4747tw5r.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_hea_linear_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=f7fe0078eb9625297b0bd5d7bc3c90d2cb3e3a18414fb7c4851d238ef5a33208",
+            "size": 2788,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_hea_linear_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/2avj1mwpkkn48.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_hea_linear_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=d66cfbc15b5fec2270d4bc0193287fc5d2a3c6a72a93460f3294e8badb613b1e",
+            "size": 5775,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_hea_linear_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/nteb9zehf48ca.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_hea_linear_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=7475341f55598294f0f2659793344a54f928d5d0e8609a96149cbac9dd50e280",
+            "size": 6784,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_hea_linear_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/1g7n7zm33vcct.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_hea_linear_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=66df5a00342a72ff7558ae2823b98c05cce05727c79ebc140754cd302636c08f",
+            "size": 14434,
+            "isNotebook": false
+           }
+          ]
+         },
+         {
+          "__typename": "WorkspaceDirectory",
+          "name": "ihva",
+          "entries": [
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_ihva_stagger_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/akxmkh7b55m4g.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_ihva_stagger_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=63c15105a7b37ba21b2396a850778236163cd6b83db47dc2c5a94bbbc6aa32f0",
+            "size": 3265,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_ihva_stagger_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/kb6gk1w8t8x50.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_ihva_stagger_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=f39d50d6882838f2b04177a355b0fbc2c692f4ce50732dcdf00310835b7278b9",
+            "size": 8542,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_ihva_tree_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/7tw5ak4jw0d1e.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_ihva_tree_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=2fbc71c71d9c874efd6280a6cd8777f555b1edd0ebbb3b7e5422e6dfd0d9e51e",
+            "size": 3232,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_ihva_tree_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/0sse755qgwp68.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_ihva_tree_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=960ae7f4dcc517bd0bee7b55d017b7b6b4a46572de040db1ee05607e311577a0",
+            "size": 8509,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_ihva_tree_warm_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/c773a56nptryp.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_ihva_tree_warm_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=97f64d3bab9f075d9b420712b18354aba0debb215748aa1f6ba0dee6f7ed6a95",
+            "size": 2919,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_ihva_tree_warm_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/qsvbzz16t97hj.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_ihva_tree_warm_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=82a58c85b5b76a8df0aca73fb50f50252584b3643ffa933339311cd95808e9f9",
+            "size": 7149,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_ihva_stagger_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/1620v4gwzva2y.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_ihva_stagger_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=060f2f83c6f5b0d82c8e98dd4a8b62f264876b5383fe174196d6d3ffae23dfe6",
+            "size": 5552,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_ihva_stagger_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/9nqjt45hr26je.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_ihva_stagger_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=8403de99a2c0edc0aef8ac883d056e0b6b60f6163d6f5198d4fc0c300d51451b",
+            "size": 14854,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_ihva_tree_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/7vhn6j46wwa5m.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_ihva_tree_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=6eeff28dd77e405354a72a39e86d2635625c9e0a05bd570d1e6b544f16d3dcd9",
+            "size": 5510,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_ihva_tree_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/30p8vwjfk9vga.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_ihva_tree_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=1a39ecfe308b8dd1e03f654b2a4404b44242ce5d93ed24e1c0ed6d660756e25b",
+            "size": 14812,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_ihva_tree_warm_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/5vq79a57ev0tc.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_ihva_tree_warm_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=cdf268bc74269ea3f9c0ed71f552b796c11d9daedeb185697188000d6b924626",
+            "size": 4949,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_ihva_tree_warm_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/xx93bx3q5pdyt.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_ihva_tree_warm_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=8b1be5d12765854383581f41b07c9659c664c0bf2e0494d9f6860fd5a315adc0",
+            "size": 12448,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_ihva_stagger_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/vgv4j8zjxr3sw.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_ihva_stagger_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=bc4d3a41d2f24bc9aa1546fccb2d9e3ecebc760f3bbd657beac7486426e7a841",
+            "size": 15827,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_ihva_stagger_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/edezdf2z6c6y6.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_ihva_stagger_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=43fc1176525c840499ec0c4e520130a8c56bf2a3191bb7693407f0edb0662da5",
+            "size": 43679,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_ihva_tree_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/6qr4pwjqcz3s8.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_ihva_tree_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=6479f8736c88938251fa859ad5db0505b0a2d88ad91e052a24ab4b9623fa9843",
+            "size": 15758,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_ihva_tree_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/4246r75sbvrft.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_ihva_tree_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=5da8cc14634ab33f9f48e39946602c763f808519b5569d306919eba142124e25",
+            "size": 43610,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_ihva_tree_warm_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/am86mxj9apgt2.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_ihva_tree_warm_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=7a77df51018db5e304a7ac0be76b0676001f9c827b6ced42fe0cb4175074b3e3",
+            "size": 13967,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_ihva_tree_warm_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/aa6frckj865zt.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_ihva_tree_warm_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=b77e29b4f26cafaeac5ff43eec9ecfaaef9b075c9e377eb2ae61459896ffebfb",
+            "size": 36514,
+            "isNotebook": false
+           }
+          ]
+         },
+         {
+          "__typename": "WorkspaceDirectory",
+          "name": "qaoa",
+          "entries": [
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_qaoa_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/dc5h3k2pe99yj.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_qaoa_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=1acb1a996a4290a02f44def54407d0b0481ce2602134d82856fdf4474970104d",
+            "size": 2662,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_qaoa_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/a5wdfa5djfd88.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_qaoa_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=167daac469dc3a482efa0c5caaed5d5db1cdea852417d575b7ca7217ba3867c8",
+            "size": 6813,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_qaoa_warm_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/vxfqf6sfgydmm.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_qaoa_warm_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=f41676fa7283e1f2c32100b1913e5978da20b6f096c8a9ea89373a15033ea402",
+            "size": 3641,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_12q_qaoa_warm_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/trk4pwexz15bc.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_12q_qaoa_warm_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=ffe0b90f49484a3468fd62f86cda4597f47dbb4bc2cbad59523f5d295af900ba",
+            "size": 9218,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_qaoa_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/pnqt3aphsr23t.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_qaoa_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=ffafc4c5d226ad205455d408481dedc7b0a525ed63f02622cd8c1525b75e61ba",
+            "size": 4527,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_qaoa_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/n62b0j0ehhwzp.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_qaoa_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=b7be2010b9c3ceb7b72a998809ac0ea39bddf9e932117ccf5b699a75e9972602",
+            "size": 11797,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_qaoa_warm_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/jkjkr8v8yf4qm.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_qaoa_warm_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=7d291380877531881645a2ef16a6ce0b659881ffe44639367a4cf20dfb54e8c4",
+            "size": 6114,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_20q_qaoa_warm_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/2pdb89kf0trm6.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_20q_qaoa_warm_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=9ca3ea16d8e120ae68f0fec3f6f5f797fcd6f7205dad5522b7529c940ce51cea",
+            "size": 15729,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_qaoa_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/p451633b92wge.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_qaoa_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=d2e19513b59671d6432e58133694467862ddaf779db408dd7960907ce4287223",
+            "size": 12332,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_qaoa_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/9y4911qg654sw.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_qaoa_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=8224cbab6f7c245128b893afbfd80434c2f39352387fbfa2fb14ba57b4e171a6",
+            "size": 33538,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_qaoa_warm_p1.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/xh6fyk6e31pt2.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_qaoa_warm_p1.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=5b69993809e9a80ce375d7bf759df830246df961610b8108eb66587ec66c73af",
+            "size": 16680,
+            "isNotebook": false
+           },
+           {
+            "__typename": "WorkspaceFile",
+            "name": "bus_stop_50q_qaoa_warm_p3.qasm",
+            "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/v3fhhk16p1j30.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22bus_stop_50q_qaoa_warm_p3.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=2e81c76d675895bea4d4c35df03791e9ce6c123eef6ab374f8d503ef534d7680",
+            "size": 43873,
+            "isNotebook": false
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "__typename": "WorkspaceFile",
+        "name": "naive_baseline.json",
+        "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/katfbm0j3jr68.json?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22naive_baseline.json%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=f158229fbaa8cd576e44f5f87ed50dde5908339d14b961b727c37fd3fb594e3a",
+        "size": 14399,
+        "isNotebook": false
+       },
+       {
+        "__typename": "WorkspaceDirectory",
+        "name": "sanity_benchmarks",
+        "entries": [
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_01.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/ac59qha905cnm.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_01.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=196b2dc9a87ed1129d7362466e686f9c3d8c67e2e70a31b01a773c6af3cd21c4",
+          "size": 151,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_02.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/ycjcghm94srtr.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_02.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=df50555c487a74c945ad458925a20746034e0b55fd953096f00f6793ef2ae2f5",
+          "size": 195,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_03.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/99pgs7szx7swm.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_03.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=0d936d1202234b98b1951a8f302bf3f9021d803a027f619dba0f5be9437e3f83",
+          "size": 561,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_04.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/b29s1ekke6z4t.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_04.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=6762ba2dac575543c7d8e406c9eee2e1693ef4195c1ece91bed24a6b653b4881",
+          "size": 239,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_05.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/wn05xnwtdqv1g.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_05.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=cd58a6f9509f1476d9447b5e022e6ac08d209c061b9c601fe87feb01921178dd",
+          "size": 717,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_06.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/qx968a8zh3e00.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_06.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=866a78488a419402f50b9123ed59a54d529351758d02501488d882026cd76eb4",
+          "size": 904,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_07.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/60j903reny7mj.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_07.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=6731c3bf0214fba2029652691e06fec5003cfc35e28fa476e97fac36d953b5e7",
+          "size": 7762,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_08.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/0rhwgt1pdjf4j.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_08.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=70d0d63c63e4530a26de3b9d69d6c7135644f638136753525de9867fa5693e6f",
+          "size": 1853,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_09.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/k9sr26cf3kn88.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_09.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=77121c6cec1aa85e386eb990ad755043e7ac6afe2b38d87f8ca8ad6d62669a20",
+          "size": 5511,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_10.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/vq14591wqpwh8.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_10.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=fe8a341c735b43294cc8214ff1d4e6dab4b0f585f4972778152272bd987ad818",
+          "size": 2755,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_11.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/dz98vb5nabzdp.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_11.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=b9e49b4a718f195609e3a8bfa698e6d64d71965c7407e8d828f0fdb33b8258d9",
+          "size": 9586,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_12.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/d5w3wfv21p3zp.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_12.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=120934128ae7ea8c135941ad7df8f1de6e8fafc2758c3dcdd001ed23fe5101ef",
+          "size": 83210,
+          "isNotebook": false
+         },
+         {
+          "__typename": "WorkspaceFile",
+          "name": "sample_circuit_13.qasm",
+          "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/z79hdc66wn50r.qasm?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22sample_circuit_13.qasm%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=dcea0358c043a140bb7fae4bd3b0cb05d624cc16985270658e2dfe0884f70f6f",
+          "size": 263044,
+          "isNotebook": false
+         }
+        ]
+       },
+       {
+        "__typename": "WorkspaceFile",
+        "name": "spec.py",
+        "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/rdytywr3bpne6.py?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22spec.py%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=39fc12dae11d6145ad8c1b44e80b26d5002b26f0323cee945ce23f8a886e6792",
+        "size": 3857,
+        "isNotebook": false
+       },
+       {
+        "__typename": "WorkspaceFile",
+        "name": "verify.py",
+        "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/afvrg1ss18xne.py?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22verify.py%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=145442786a497609ae8264ec0adf0e7185ea1e0efe8fbed781b6f43dec44f985",
+        "size": 23560,
+        "isNotebook": false
+       }
+      ]
+     },
+     {
+      "__typename": "WorkspaceFile",
+      "name": "readme.py",
+      "downloadUrl": "https://s3.fr-par.scw.cloud/aqora-prod-private/workspace/01a1e9fd-3d9a-7101-ab3b-f42935f73344/pfzearskcsr8t.py?x-id=GetObject&response-content-disposition=attachment%3B%20filename%3D%22readme.py%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=SCW6METZ9AY6PPJC59S3%2F20261121%2Ffr-par%2Fs3%2Faws4_request&X-Amz-Date=20261121T120411Z&X-Amz-Expires=30&X-Amz-SignedHeaders=host&X-Amz-Signature=2af54a1121c396aec5f826ea002902c79d0d0455476eba17b8a7919f1838ac56",
+      "size": 13148,
+      "isNotebook": true
+     }
+    ]
+   }
+  }
+ }
+}

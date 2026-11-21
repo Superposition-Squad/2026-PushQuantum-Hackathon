@@ -1,0 +1,14 @@
+[project]
+name = "pq-planqc"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+    "qiskit>=2.0",
+    "mqt-qcec>=3.0.0b3",
+    "numpy",
+    "scipy",
+    "marimo",
+]
+
+[tool.uv]
+package = false

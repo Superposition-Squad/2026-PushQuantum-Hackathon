@@ -1,0 +1,25 @@
+# Links
+
+- <https://aqora.io/challenges/pushquantum-hackathon-2026>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/agenda>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/discussions>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/rules>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/alice-bob-pushquantum-2026>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/alice-bob-pushquantum-2026/discussions>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/aqarios-pushquantum-2026>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/aqarios-pushquantum-2026/discussions>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/iqm-pushquantum-2026>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/iqm-pushquantum-2026/discussions>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/planqc-pushquantum-2026>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/planqc-pushquantum-2026/discussions>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/planqc-pushquantum-2026/rules>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/planqc-pushquantum-2026/submission>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/qoro-pushquantum-2026>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/qoro-pushquantum-2026/discussions>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/quantinuum-pushquantum-2026>
+- <https://aqora.io/challenges/pushquantum-hackathon-2026/tracks/quantinuum-pushquantum-2026/discussions>
+- <https://doi.org/10.1103/PhysRevA.111.032612>
+- <https://ieeexplore.ieee.org/document/10946298>
+- <https://ieeexplore.ieee.org/document/11535023>
+- <https://www.nature.com/articles/s41586-023-06927-3>

@@ -1,0 +1,24 @@
+# Docs index
+
+- [scoring.md](scoring.md): the leaderboard metric, validity checks, architecture geometry, move
+  rules, benchmark structure.
+- [harness.md](harness.md): `bench/bench.py`, `bench/compare.py`, `bench/package.py`, modes and
+  outputs.
+- [literature.md](literature.md): techniques from the papers corpus mapped to our metric.
+- [ideas/](ideas/): one design doc per idea branch, with results and verdict.
+- [results-log.md](results-log.md): round-by-round leaderboard of our compilers (orchestrator).
+
+## Decisions (ADRs)
+
+| ADR | Decision |
+|---|---|
+| [0001](adr/0001-local-harness.md) | Score locally with the vendored official validator; the harness reproduces the naive baseline exactly |
+| [0002](adr/0002-cz-only.md) | Gate set rx, rz, cz only (no rzz) |
+| [0003](adr/0003-true-equivalence.md) | True equivalence at every size; strict mode adds checks above 19 qubits |
+| [0004](adr/0004-agent-hierarchy.md) | Opus orchestrator → Opus planners → DeepSeek Flash implementers, 4 parallel worktrees |
+| [0005](adr/0005-no-outward-actions.md) | No submission, publishing or push without the user's explicit approval |
+| [0006](adr/0006-single-file-compilers.md) | Each compiler is one self-contained file (stdlib, qiskit, numpy, scipy) |
+| [0007](adr/0007-transversal-cz.md) | Respect transversal CZ: every occupied pair gets the same number of pulses between moves |
+
+The original brief, template notebook, dataset and leaderboard notebook are archived in
+[`../planqc-pushquantum-2026/`](../planqc-pushquantum-2026/README.md).
