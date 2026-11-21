@@ -95,6 +95,9 @@ See the implementer spec in the session log; summary:
 | 3W: hub by degree dominance (deg≥4, ≥2×second) | 4a9ffaa | +88.36 | 90.64 | 79.25 | tree_warm hub deg 31/11 now rides the conveyor: 50q p3 1042→397 |
 | (3) mover decoupled from leaf role | (this commit) | +88.47 | 90.77 | 79.25 | the deeper endpoint visits the shallower's right slot → shallower dips |
 | 3F conveyor frames | (not kept) | +88.16 | 90.76 | 77.73 | distance −331 but +depth from `ry` mids; net below the old conveyor |
+| 4D: 2-gate Y mids (S folded into the leaf frame) | a6b2e3a | +88.67 | 90.77 | 80.26 | depth 4913→4674 at equal distance; conveyor frames retried with it: +88.6705 vs +88.6708, not kept |
+| 4L: lazy return + parity rule | f54d907 | +88.70 | 90.91 | 79.87 | movers stay on their anchors; idle pairs get cz·cz=I. Distance 25531→25156, depth 4674→4765 |
+| 4O: deeper pairs first | (not kept) | +88.64 | 90.89 | 79.66 | with 4L it regressed (52q QAOA depth); reverted |
 
 Planner offline models (`/tmp/hwproto/sim*.py`): with random chords, neither star rounds with
 SA layout (≈800 for the 50q QAOA p1 non-hub part) nor whole-lane shears (≈870) batch well; the
