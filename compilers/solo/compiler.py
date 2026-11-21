@@ -448,22 +448,24 @@ class Machine:
 # ---------------------------------------------------------------- scheduling
 
 
-def schedule(blocks, preds, succs, hub, policy="look"):
+def schedule(blocks, preds, succs, hub, policy=("look", 2.0)):
     """Steps: ("hub", [block...], role) or ("round", [block...])."""
     m = len(blocks)
     npred = [len(p) for p in preds]
     ready = {i for i in range(m) if npred[i] == 0}
     steps = []
     done = 0
+    hubround = len(policy) > 2 and policy[2]
     while ready:
         hubZ = sorted(i for i in ready if blocks[i].c == hub)
         hubY = sorted(i for i in ready if blocks[i].t == hub)
         non = sorted(i for i in ready if hub not in blocks[i].qubits())
         # greedy maximal matching of non-hub ready blocks (by unlock count, then index)
         match = []
-        if non:
+        pool = non + (hubZ + hubY if hubround else [])
+        if pool:
             used = set()
-            for i in sorted(non, key=lambda i: (-len(succs[i]), i)):
+            for i in sorted(pool, key=lambda i: (-len(succs[i]), i)):
                 b = blocks[i]
                 if b.c in used or b.t in used:
                     continue
@@ -485,8 +487,23 @@ def schedule(blocks, preds, succs, hub, policy="look"):
                         k += 1
             return len(sel) + 2 * k
 
-        if policy == "look":
-            kind, sel = max(cands, key=lambda c: (gain(c[1]), c[0] == "round"))
+        kindp = policy[0]
+        if kindp == "look":
+            w = policy[1]
+            kind, sel = max(cands, key=lambda c: (len(c[1]) + w * (gain(c[1]) - len(c[1])) / 2, c[0] == "round"))
+            if hubround and kind == "hub" and len(sel) < policy[3]:
+                kind, sel = "round", match
+        elif kindp == "thresh":
+            hubs = [c for c in cands if c[0] == "hub"]
+            big = [c for c in hubs if len(c[1]) >= policy[1]]
+            if big:
+                kind, sel = max(big, key=lambda c: len(c[1]))
+            elif match:
+                kind, sel = "round", match
+            elif hubround:
+                kind, sel = "round", match
+            else:
+                kind, sel = max(hubs, key=lambda c: len(c[1]))
         else:
             kind, sel = cands[0]
         if kind == "round" and len(sel) == 0:
@@ -829,20 +846,37 @@ def default_layout(n, hub):
     return home
 
 
-def compile_ihva(n, blocks, policy="look"):
+POLICIES = [("look", 2.0), ("look", 0.0), ("look", 1.0), ("look", 4.0), ("thresh", 8), ("thresh", 16), ("thresh", 30), ("thresh", 45), ("rounds",), ("look", 2.0, True, 8), ("look", 2.0, True, 20), ("look", 4.0, True, 12), ("thresh", 20, True), ("thresh", 30, True), ("thresh", 45, True), ("rounds", 0, True)]
+DEPTH_W = 0.2 / 13364 / (0.8 / 163364.298)  # distance units per depth unit (~3.06)
+
+
+def compile_ihva(n, blocks, policies=None, emit=True):
     blocks = [b for b in blocks if b.th != 0.0]
     for i, b in enumerate(blocks):
         b.idx = i
     hub = n - 1
     preds, succs = build_dag(blocks)
-    steps = schedule(blocks, preds, succs, hub, policy)
     home = default_layout(n, hub)
+    best = None
+    for pol in policies or POLICIES:
+        try:
+            steps = schedule(blocks, preds, succs, hub, pol)
+            ex = Executor(n, hub, home, emit=False)
+            for kind, blks in steps:
+                (ex.run_round_band if kind == "round" else ex.run_hub)(blks)
+            ex.m.finish()
+        except Illegal:
+            continue
+        c = ex.m.dist + DEPTH_W * (max(ex.m.depth) + 1)
+        if best is None or c < best[0] - 1e-9:
+            best = (c, pol, steps)
+    if best is None:
+        raise Illegal("no candidate")
+    if not emit:
+        return best
     ex = Executor(n, hub, home)
-    for kind, blks in steps:
-        if kind == "round":
-            ex.run_round_band(blks)
-        else:
-            ex.run_hub(blks)
+    for kind, blks in best[2]:
+        (ex.run_round_band if kind == "round" else ex.run_hub)(blks)
     ex.m.finish()
     return ex.m.qc, home
 
