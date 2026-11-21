@@ -2,7 +2,7 @@
 
 - Branch: idea/zonedwell · Worktree: /home/hackathon/challenge-wt/zonedwell
 - Base: main 0ea558b, compiler starts from `compilers/naive/compiler.py`
-- Status: round 2 done — final `38fff76`, +87.12 % (round 1: `e0c88c4`, +80.79 %)
+- Status: round 2 done — final `25f752c`, +87.32 % (round 1: `e0c88c4`, +80.79 %)
 
 ## Hypothesis
 
@@ -250,7 +250,8 @@ Two things in the original spec turned out to be wrong:
 | compact lanes (L = ceil((P+1)/5)), place-before-flush, sum assignment cost | cf966d3 | +86.33 | 88.15 | 79.07 | zone switch costs L instead of 10 |
 | layout search 40*P -> 200*P iterations | af66dd9 | +86.43 | 88.26 | 79.08 | max compile 9.0 s; C1 (deferred visitor homes) measured worse (+85.93) and reverted |
 | conveyor flushes every pulsed qubit (bug fix) | e884bb5 | +86.43 | 88.26 | 79.08 | metric numbers unchanged; fixes a latent gate-order bug, see round 2 |
-| hub = max-degree qubit with degree >= (n-1)/4 | 38fff76 | **+87.12** | 88.80 | 80.39 | `tree_warm` gets the conveyor: 50q 974/180 -> 376/75, 20q 250/74 -> 127/35 |
+| hub = max-degree qubit with degree >= (n-1)/4 | 38fff76 | +87.12 | 88.80 | 80.39 | `tree_warm` gets the conveyor: 50q 974/180 -> 376/75, 20q 250/74 -> 127/35 |
+| layout objective models the matching-round dip depth (hub circuits only) | 25f752c | **+87.32** | 89.02 | 80.51 | 50q qaoa p3 2794 -> 2612, 50q ihva stagger p3 4204 -> 4136 |
 
 Per family at `e0d4431`: HEA distance +63.5 % / depth +16.1 %, iHVA +76.4 % / +74.9 %,
 QAOA +87.0 % / +80.7 %. Max per-circuit compile time 3.3 s.
@@ -332,16 +333,16 @@ running the real planner (compile time is ≤ 7 s of a 60 s budget).
 
 ## Round 2 (15:20–18:15 UTC): verdict
 
-**Final `38fff76`: +87.12 % standalone (distance +88.80 %, depth +80.39 %)**, up from +80.79 %. Our
+**Final `25f752c`: +87.32 % standalone (distance +89.02 %, depth +80.51 %)**, up from +80.79 %. Our
 compiler alone is now above the round-1 four-way portfolio (+86.24 %). Per family: QAOA distance
-+90.1 % / depth +80.0 %, iHVA +88.4 % / +81.5 %, HEA +76.5 % / +25.8 %.
++90.5 % / depth +80.4 %, iHVA +88.5 % / +81.4 %, HEA +76.5 % / +25.8 %.
 
 **Against the round-1 per-circuit best** (weighted cost = distance + 2.92·depth), we now win 24 of
 36 circuits (round 1: 12). Substituting our results into the round-1 portfolio lowers its
-weighted total from 47 582 to 42 878:
+weighted total from 47 582 to 42 133:
 - all 12 QAOA (12q is new, from compact lanes);
 - 20q and 50q iHVA stagger/tree (the 20q ones are new);
-- 20q and 50q `tree_warm` (new): 50q 376/75 vs rectbatch 808/116, 20q 127/35 vs 208/53.
+- 20q and 50q `tree_warm` (new): 50q 319/75 vs rectbatch 808/116, 20q 127/35 vs 208/53.
 
 Still behind on HEA (rectbatch, far ahead) and on 12q iHVA (hubstream, 10–17 % ahead; removing the
 conveyor at 12q makes us worse, not better). 12q `tree_warm` is a near tie (82/30 vs 89/26).
@@ -355,6 +356,9 @@ What changed, in order of value:
    `tree_warm` (hub degree 31) gets the conveyor.
 4. Place before the pre-flush dip, summed assignment cost plus a row penalty, and a 200·P layout
    search: ~2–5 % at 50q.
+5. A layout objective term for the matching-round dip depth, `4·(1 + max over the group's blocks
+   of the shallower endpoint's slot)` per group, on hub circuits only (it hurt HEA): +0.2 points,
+   mostly 50q QAOA (2794 → 2612).
 
 **Correctness finding:** an exact Clifford-tableau check (all rotation angles set to π/2, which
 also breaks the iHVA `rx(±π/2)` pattern) exposed a latent bug present since round 1. The conveyor
@@ -365,14 +369,20 @@ on the 36 metric circuits (exact QCEC at 12q, statevector at 20q, Clifford check
 fire in real iHVA if every served partner chains. Fixed in `e884bb5` by flushing every pulsed qubit.
 Metric numbers are unchanged.
 
-**Validity evidence for `38fff76`:**
+**Validity evidence for `25f752c`:**
 - `--mode full` 36/36 metric, and 13/13 sanity on a frozen snapshot;
+- `--mode strict --filter 50q` on `38fff76` (identical move and gate machinery, only the layout
+  objective differs): QCEC proved `equivalent_up_to_global_phase` for HEA p1/p3, iHVA stagger p1,
+  tree p1/p3 and tree_warm p1/p3; 50q QAOA p1 only `probably_not_equivalent` (ZX-inconclusive,
+  as in round 1, and exactly equal under the Clifford check);
 - 12q exactly equivalent under QCEC;
 - `--mode strict --filter 20q`: 12/12 pass the statevector ×3 check;
-- 50q exact Clifford-tableau equality for `tree_warm` p1/p3, tree p3, stagger p1 and qaoa_warm p3,
-  both with the structure-preserving and with the pattern-breaking angle substitution.
+- 50q exact Clifford-tableau equality for iHVA stagger p3, tree p3, `tree_warm` p3, QAOA p3,
+  qaoa_warm p1 and HEA p3, with both the structure-preserving and the pattern-breaking angle
+  substitution.
 
-Max compile time 9 s (50q iHVA tree p3, `--jobs 2`). The code is deterministic (seeded layout
+Max compile time 9 s standalone (18 s while three verification jobs ran in parallel), on 50q iHVA
+tree p3. The code is deterministic (seeded layout
 search).
 
 **Tried and rejected (measured):**
