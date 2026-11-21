@@ -6,6 +6,12 @@ Hackathon 2026). Goal: maximise the leaderboard score, computed locally by `benc
 Read before working: `docs/scoring.md` (what counts), `docs/harness.md` (how to measure),
 `docs/adr/` (decisions you must respect), `docs/literature.md` (technique ideas).
 
+## Scoring (validator v5.0.0, final — ADR 0011)
+
+Only 20 circuits are scored: the 18 iHVA circuits + 12q HEA p1/p3. `bench` defaults to that set
+(`--full-set` for all 36). The `idle` rule is mandatory: in every two-qubit gate layer, every atom in
+the entangling zone must take part in a two-qubit gate (no atoms waiting in the zone).
+
 ## Hard rules
 
 1. **No outward actions.** Never submit to the leaderboard, create or publish aqora workspaces, run
