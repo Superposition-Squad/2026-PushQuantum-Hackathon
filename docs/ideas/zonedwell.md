@@ -245,6 +245,7 @@ Two things in the original spec turned out to be wrong:
 | stage 1 conveyor + matching | 1e2e764 | +74.73 | 74.14 | 77.09 | 36/36 metric `--mode full` |
 | optimised lane packing, hub-less circuits on the lane machine | a8a75ab | +78.80 | 79.26 | 76.95 | HEA 439 -> 151 on 12q p1 |
 | initial-loading fix, `cz` needs no `H`, lazy hub parking | e0d4431 | +79.59 | 80.25 | 76.95 | 36/36 metric + 13/13 sanity `--mode full` |
+| partial (shallow) bulk dips | e0c88c4 | +80.79 | 81.68 | 77.25 | 36/36 metric; dip depth = 1 + deepest atom needing a 1q gate |
 
 Per family at `e0d4431`: HEA distance +63.5 % / depth +16.1 %, iHVA +76.4 % / +74.9 %,
 QAOA +87.0 % / +80.7 %. Max per-circuit compile time 3.3 s.
