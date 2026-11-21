@@ -67,10 +67,31 @@ See the implementer spec in the session log; summary:
 - Parity relaxation (idle–idle co-locations cancel if pulsed an even number of times) is exact and
   would allow whole-lane shears; kept for step 3 if batching is the bottleneck.
 
+## Interim status (planner, 17:30 UTC)
+
+- Standalone (fast, 36/36): **+87.06 %** at 02bad93 (zonedwell +80.79). Estimated portfolio with
+  hubwalk added: **86.24 → 87.89** (hubwalk wins 20 circuits: all 12 QAOA, 20q iHVA
+  stagger/tree, 50q iHVA stagger/tree). Full mode 12q passes (QCEC); 50q Clifford-tableau check
+  (`/tmp/hwproto/cliff.py`, verified to catch a dropped cz / perturbed rx) equal on 50q QAOA p1,
+  iHVA stagger p1, tree p1, tree_warm p3.
+- In progress: ILP round packing (2b). Next: Clifford-frame block synthesis (half of all dip
+  distance is flush dips caused by H/rx(±π/2) wrappers; iHVA ZY blocks are exactly
+  CZ·ry(θ)·CZ with no wrappers), hub park on row 10, lazy return via the parity rule.
+
 ## Results
 
 | iteration | commit | score | dist % | depth % | notes |
 |---|---|---|---|---|---|
+| fork of zonedwell | da6a920 | +80.79 | 81.68 | 77.25 | baseline |
+| 1: star rounds (leaf-only moves, one dip per round), STAR_CAP=1 | 0e3065b | +81.45 | 82.42 | 77.57 | 50q QAOA p1 970→920; leaf moves barely batch (181 moves for 98 blocks) |
+| 2a: DAG-closed phases (iHVA) | 73b90b7 | +82.12 | | | stagger p1 11 groups → 4 phases |
+| 2f: row-major lane slots | 3281ce1 | +83.81 | | | shallow lanes for 12/20q: 20q QAOA p3 1085→810 |
+| 2e: exact θ≡0 block elision | f8e3a28 | +86.43 | | | tree_warm circuits |
+| 2c: conveyor pre-flush by shallow dip | 4c8dcec | +86.69 | 88.41 | 79.83 | portfolio with hubwalk ≈ 87.58 (wins 20 circuits) |
+
+Planner offline models (`/tmp/hwproto/sim*.py`): with random chords, neither star rounds with
+SA layout (≈800 for the 50q QAOA p1 non-hub part) nor whole-lane shears (≈870) batch well; the
+gains come from fewer phases/rounds/dips, not from batching.
 | step 1: instrumentation + star rounds, `STAR_CAP=1` | (this commit) | +81.45 | 82.42 | 77.57 | 36/36 metric + 13/13 sanity `--mode full`; zonedwell base +80.79 |
 | `STAR_CAP=2` | | +79.16 | 79.54 | 77.63 | too many phase-A/B moves |
 | `STAR_CAP=3` | | +79.04 | 79.43 | 77.45 | |
