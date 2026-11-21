@@ -176,6 +176,127 @@ def _mid_theta(mid):
     return -2.0 * np.angle(m[0, 0])
 
 
+# ---------------------------------------------------------------- Clifford frames (3F)
+#
+# A block B = exp(-i theta/2 P_a (x) Q_b) commutes past the buffered 1q operators as
+# B (Ua (x) Ub) = (Ua (x) Ub) B',  B' = exp(-i theta/2 (Ua^+ P Ua) (x) (Ub^+ Q Ub)).
+# If Uc^+ P Uc = s_c Z and Ul^+ Q Ul = s_l R (R in {X, Y}) then B' = CZ (I (x) M) CZ with
+# M = exp(-i phi/2 R), phi = s_c s_l theta.  So a block needs no flush when its endpoints are
+# already conjugated into a centre (Z) and a leaf (X/Y); otherwise the offending qubit is flushed
+# in storage with a frame F, emitting F^+ U and leaving F pending (F (F^+ U) == U).
+
+_I2 = np.eye(2, dtype=complex)
+_PX = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex)
+_PY = np.array([[0.0, -1j], [1j, 0.0]], dtype=complex)
+_PZ = np.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex)
+_PAULI = {"X": _PX, "Y": _PY, "Z": _PZ}
+_S = np.diag([1.0, 1j]).astype(complex)
+
+
+def _ry(t):
+    c, s = np.cos(t / 2.0), np.sin(t / 2.0)
+    return np.array([[c, -s], [s, c]], dtype=complex)
+
+
+_FRAMES = [
+    _I2,
+    _H,
+    _S,
+    _S.conj().T,
+    _H @ _S,
+    _S @ _H,
+    _rx(np.pi / 2),
+    _rx(-np.pi / 2),
+    _ry(np.pi / 2),
+    _ry(-np.pi / 2),
+]
+
+
+def _conj_class(u, letter, tol=1e-7):
+    """Classify `U^+ P U` -> ("Z"|"X"|"Y", sign) or (None, 0)."""
+    p = _PAULI[letter]
+    uu = _I2 if u is None else u
+    m = uu.conj().T @ p @ uu
+    for name, q in _PAULI.items():
+        for s in (1, -1):
+            if np.allclose(m, s * q, atol=tol):
+                return name, s
+    return None, 0
+
+
+def _mid_matrix(axis, phi):
+    """`exp(-i phi/2 R)` for `R = X` or `R = Y` (the leaf's mid gate)."""
+    return _rx(phi) if axis == "X" else _ry(phi)
+
+
+def _choose_frame(letter, role):
+    """First Clifford frame F with `F^+ P F` of class Z (role "C") or X/Y (role "L")."""
+    for f in _FRAMES:
+        cls, _s = _conj_class(f, letter)
+        if (role == "C" and cls == "Z") or (role == "L" and cls in ("X", "Y")):
+            return f
+    raise AssertionError("no frame")
+
+
+def _eq_phase_n(a, b, tol=1e-7):
+    """`a == exp(i phase) * b` for equal-size unitaries (works for 2x2 and 4x4)."""
+    k = int(np.argmax(np.abs(b)))
+    if abs(b.flat[k]) < tol:
+        return False
+    ph = a.flat[k] / b.flat[k]
+    return abs(abs(ph) - 1.0) < 1e-6 and np.allclose(a, ph * b, atol=tol)
+
+
+def _expm_pp(theta, p, q):
+    """`exp(-i theta/2 P (x) Q)` for Paulis P, Q."""
+    return np.cos(theta / 2.0) * np.eye(4, dtype=complex) - 1j * np.sin(theta / 2.0) * np.kron(p, q)
+
+
+def _block_pauli(u_idx, v_idx, mid, pre, post, gen, mid_theta):
+    """`(letter_u, letter_v, theta')` with the block `== exp(-i theta'/2 P_u (x) Q_v)`, or None."""
+    def emb(q, m):
+        return np.kron(m, _I2) if q == u_idx else np.kron(_I2, m)
+
+    cx = np.array(
+        [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]], dtype=complex
+    )  # control first
+    full = np.eye(4, dtype=complex)
+    for q, m in pre or []:
+        full = emb(q, m) @ full
+    full = cx @ full
+    full = np.kron(_I2, mid) @ full
+    full = cx @ full
+    for q, m in post or []:
+        full = emb(q, m) @ full
+    th = mid_theta(mid)
+    if th is None:
+        return None
+    p, q = _PAULI[gen[u_idx]], _PAULI[gen[v_idx]]
+    for s in (1, -1):
+        if _eq_phase_n(full, _expm_pp(s * th, p, q)):
+            return gen[u_idx], gen[v_idx], s * th
+    return None
+
+
+def _block_frame(blk):
+    """Pauli-rotation data of an eligible block, else None (old synthesis path)."""
+    if blk.kind != "zz":
+        return None
+    gen = _block_generator(blk)
+    if gen is None:
+        return None
+    return _block_pauli(blk.u, blk.v, blk.mid, blk.pre, blk.post, gen, _mid_theta)
+
+
+def _emit_1q(st, q, u):
+    """Emit a 1q operator as `rz rx rz` (the atom must be in storage)."""
+    a, b, c = _zxz(u)
+    for ang, gate in ((c, "rz"), (b, "rx"), (a, "rz")):
+        ang = _tight(ang)
+        if ang:
+            getattr(st.out, gate)(ang, q)
+
+
 # ---------------------------------------------------------------- state
 
 
@@ -723,6 +844,11 @@ class _Machine:
             if _in_storage(self.st.pos[q]):
                 self.st.flush(q)
 
+    def _flush_in_storage_except(self, skip):
+        for q in list(self.st.pending):
+            if q not in skip and _in_storage(self.st.pos[q]):
+                self.st.flush(q)
+
     def park_hub(self):
         site = (9, 10)
         p = self.st.pos[self.hub]
@@ -1035,6 +1161,8 @@ class _Machine:
             return False
         if rounds is None:
             return False
+        infos = {blk: _block_frame(blk) for blk in group}
+        use_frames = all(info is not None for info in infos.values())
         involved = set()
         for rnd in rounds:
             for _blk, leaf, center, _t in rnd:
@@ -1047,8 +1175,92 @@ class _Machine:
         self.to_zone()
         self._ensure_hub_lone()
         for rnd in rounds:
-            self._star_round(rnd)
+            if use_frames:
+                self._star_round_frames(rnd, infos)
+            else:
+                self._star_round(rnd)
         return True
+
+    def _star_round_frames(self, rnd, infos):
+        """One star round with Clifford-frame synthesis: no pre/post 1q wrappers, no leaf flush."""
+        st = self.st
+        req: dict[int, tuple[str, str]] = {}
+        for blk, leaf, center, _t in rnd:
+            pu, qv, _th = infos[blk]
+            req[center] = ("C", pu if center == blk.u else qv)
+            req[leaf] = ("L", pu if leaf == blk.u else qv)
+        need = []
+        for q, (role, pauli) in req.items():
+            cls, _s = _conj_class(st.pending.get(q), pauli)
+            ok = cls == "Z" if role == "C" else cls in ("X", "Y")
+            if not ok:
+                need.append((q, _choose_frame(pauli, role)))
+        if need:
+            depth = 1 + max(st.pos[q][1] - 10 for q, _f in need)
+
+            def change_frames():
+                for q, f in need:
+                    u = st.pending.get(q)
+                    if u is None:
+                        u = _I2
+                    _emit_1q(st, q, f.conj().T @ u)
+                    st.pending[q] = f
+
+            self.dip(depth, change_frames)
+
+        plan = []
+        for blk, leaf, center, t in rnd:
+            pu, qv, th = infos[blk]
+            cp = pu if center == blk.u else qv
+            lp = pu if leaf == blk.u else qv
+            cls_c, s_c = _conj_class(st.pending.get(center), cp)
+            cls_l, s_l = _conj_class(st.pending.get(leaf), lp)
+            assert cls_c == "Z" and cls_l in ("X", "Y"), (cls_c, cls_l)
+            plan.append((blk, leaf, center, t, cls_l, s_c * s_l * th))
+
+        by_t: dict[int, list] = {}
+        for item in plan:
+            by_t.setdefault(item[3], []).append(item)
+        top = max(by_t) + 1
+
+        def slot(center):
+            x, y = self.home[center]
+            return (x + 1, y + 10)
+
+        def visit(items):
+            self._batch_moves(
+                [(leaf, st.pos[leaf], slot(center)) for _b, leaf, center, _t, _a, _p in items]
+            )
+
+        def go_home(items):
+            self._batch_moves(
+                [(leaf, st.pos[leaf], self.zone_home[leaf]) for _b, leaf, center, _t, _a, _p in items]
+            )
+
+        for t in range(top):
+            items = by_t.get(t, [])
+            visit(items)
+            st.pulse([(center, leaf) for _b, leaf, center, _t, _a, _p in items])
+            if t < top - 1:
+                go_home(items)
+
+        leaves = [leaf for _b, leaf, _c, _t, _a, _p in plan]
+        centers = {center for _b, _l, center, _t, _a, _p in plan}
+        depth = 1 + max(st.pos[q][1] - 10 for q in leaves)
+
+        def mid():
+            for _blk, leaf, _center, _t, axis, phi in plan:
+                _emit_1q(st, leaf, _mid_matrix(axis, phi))
+            self._flush_in_storage_except(set(leaves) | centers)
+
+        self.dip(depth, mid)
+
+        for t in range(top - 1, -1, -1):
+            items = by_t.get(t, [])
+            if t < top - 1:
+                visit(items)
+            st.pulse([(center, leaf) for _b, leaf, center, _t, _a, _p in items])
+            go_home(items)
 
     def _star_round(self, rnd):
         st = self.st
