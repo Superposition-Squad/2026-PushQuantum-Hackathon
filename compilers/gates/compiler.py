@@ -608,7 +608,8 @@ def _single_moves(assignment, pos) -> list[_MoveRecord]:
     return out
 
 
-def merge_move_records(records: list[_MoveRecord], occupancy: dict[Site, int]) -> list[_MoveRecord]:
+def merge_move_records(records: list[_MoveRecord], occupancy: dict[Site, int],
+                       landing: dict[Site, int] | None = None) -> list[_MoveRecord]:
     """Greedily merge single-row moves that share (source row -> target row) into one rectangle.
 
     Legal iff the picked-up column span contains no atom that is not part of the merged move and the
@@ -643,7 +644,7 @@ def merge_move_records(records: list[_MoveRecord], occupancy: dict[Site, int]) -
             j = i + 1
             while j < len(bucket):
                 trial = run + [bucket[j]]
-                if _mergeable(trial, row, occupancy):
+                if _mergeable(trial, row, occupancy, landing):
                     run = trial
                     j += 1
                 else:
@@ -664,7 +665,8 @@ def merge_move_records(records: list[_MoveRecord], occupancy: dict[Site, int]) -
     return merged
 
 
-def _mergeable(run: list[_MoveRecord], row: int, occupancy: dict[Site, int]) -> bool:
+def _mergeable(run: list[_MoveRecord], row: int, occupancy: dict[Site, int],
+               landing: dict[Site, int] | None = None) -> bool:
     if any(len(r.qubits) != 1 for r in run):
         return False
     cols = [r.cols[0] for r in run]
@@ -678,6 +680,10 @@ def _mergeable(run: list[_MoveRecord], row: int, occupancy: dict[Site, int]) -> 
         q = occupancy.get((c, row))
         if q is not None and q not in moving:
             return False
+        if landing is not None:
+            q = landing.get((c, row))
+            if q is not None and q not in moving:
+                return False
     return True
 
 
@@ -749,16 +755,15 @@ def plan_round_sites(pairs, pos, occupancy, ent, future=None, home=None):
             left, right = _slots(site, ent)
             for a, b in ((u, v), (v, u)):
                 # Every target must be empty or already hold that very atom, so the moves of a
-                # round never collide and can be emitted in any order.  An atom that is already in
-                # the zone never moves: an in-zone relocation would deposit into a row that another
-                # move of the same round picks up from, which can turn a legal rectangle into one
-                # with a ghost.
+                # round never collide and can be emitted in any order.
                 if occupancy.get(left, a) is not a or occupancy.get(right, b) is not b:
                     continue
-                if (_in_zone(pos[a], ent) and pos[a] != left) or (_in_zone(pos[b], ent) and pos[b] != right):
-                    continue
                 da, db = _dist(pos[a], left, ent), _dist(pos[b], right, ent)
-                cost = max(da, db) + 0.001 * (da + db)
+                # lifts out of storage can be merged into one rectangle (cost = max), while an atom
+                # that is already in the zone needs a move of its own (cost adds up)
+                lift = [d for q, d in ((a, da), (b, db)) if not _in_zone(pos[q], ent)]
+                solo = [d for q, d in ((a, da), (b, db)) if _in_zone(pos[q], ent)]
+                cost = (max(lift) if lift else 0.0) + sum(solo) + 0.001 * (da + db)
                 if future is not None:
                     # An atom that stays parked here for several more rounds makes every one of its
                     # upcoming partners travel to the opposite slot, so steer its site towards the
@@ -921,7 +926,8 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
             pairs, pos, occupancy, ent,
             future=lambda q, r=round_no: future_partners(r, q), home=loading)
         trips = [(q, t) for q, t in targets.items() if pos[q] != t]
-        up = merge_move_records(_single_moves(trips, pos), occupancy)
+        landing = {t: q for q, t in trips}
+        up = merge_move_records(_single_moves(trips, pos), occupancy, landing)
         _apply(out, up, pos, occupancy, ent)
         for a, b, _site in ordered:
             out.cz(qubits[a], qubits[b])
@@ -929,7 +935,8 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
                              loading, targets, ent)
         leaving = [(q, loading[q]) for q in targets if q not in keeps]
         leaving.sort()
-        down = merge_move_records(_single_moves(leaving, pos), occupancy)
+        down = merge_move_records(_single_moves(leaving, pos), occupancy,
+                                  {t: q for q, t in leaving})
         _apply(out, down, pos, occupancy, ent)
         parked = {q: pos[q] for q in keeps}
         round_no += 1
