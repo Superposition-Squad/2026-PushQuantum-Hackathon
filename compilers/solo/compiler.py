@@ -211,13 +211,30 @@ def _gate_matrix(seq):
 
 
 class Block:
-    __slots__ = ("c", "t", "th", "idx")
+    """kind: "G" generic (cz rx cz), "C" th = s*pi/2 mod 2pi (one cz + local Cliffords),
+    "P" th = pi mod 2pi (local Paulis, no cz), "Z" a bare cz (generic cz-program path)."""
 
-    def __init__(self, c, t, th, idx):
+    __slots__ = ("c", "t", "th", "idx", "kind", "s")
+
+    def __init__(self, c, t, th, idx, kind="G", s=0):
         self.c, self.t, self.th, self.idx = c, t, th, idx
+        self.kind, self.s = kind, s
 
     def qubits(self):
         return (self.c, self.t)
+
+
+def classify(th):
+    k = th / (math.pi / 2)
+    if abs(k - round(k)) < 1e-12:
+        r = int(round(k)) % 4
+        if r == 1:
+            return "C", 1
+        if r == 3:
+            return "C", -1
+        if r == 2:
+            return "P", 0
+    return "G", 0
 
 
 def _close(a, b):
@@ -723,6 +740,24 @@ class Executor:
         return self.m.pos[nx] if nx is not None else None
 
     def run_round_band(self, blks):
+        m = self.m
+        for b in blks:
+            if b.kind == "P":  # exp(-i pi/2 Z_c X_t) = Z_c X_t (S-frame)
+                m.apply1(b.c, np.diag([1, -1]).astype(complex))
+                m.apply1(b.t, np.array([[0, 1], [1, 0]], dtype=complex))
+        cs = [b for b in blks if b.kind == "C"]
+        gs = [b for b in blks if b.kind in ("G", "Z")]
+        if cs:
+            saved = self.NPULSE, self.DUMMY_OFF
+            self.NPULSE, self.DUMMY_OFF = 1, True
+            try:
+                self._round(cs)
+            finally:
+                self.NPULSE, self.DUMMY_OFF = saved
+        if gs:
+            self._round(gs)
+
+    def _round(self, blks):
         from scipy.optimize import linear_sum_assignment
 
         m = self.m
@@ -840,6 +875,11 @@ class Executor:
         self.relocate(targets)
         if self.NPULSE == 1:
             riders = members | keep
+            for b in blks:
+                if b.kind == "C":
+                    ss = _S if b.s > 0 else _SD
+                    m.apply1(b.c, ss)
+                    m.apply1(b.t, ss @ _H)
             for q in riders:
                 m.flush(q)
             up = {q: (m.pos[q][0] + par, m.pos[q][1] + h) for q in riders}
@@ -848,6 +888,9 @@ class Executor:
             m.move(up)
             m.pulse(pairs, ())
             m.move(down)
+            for b in blks:
+                if b.kind == "C":
+                    m.apply1(b.t, _H)
             return
         forms = {}
         for b in blks:
@@ -959,19 +1002,27 @@ class Executor:
         return e
 
     def run_hub(self, blks):
-        best = None
-        for strat in self.HUB_STRATS:
-            e = self.clone()
-            try:
-                e._hub(blks, strat)
-            except Illegal:
+        m = self.m
+        for b in blks:
+            if b.kind == "P":
+                m.apply1(b.c, np.diag([1, -1]).astype(complex))
+                m.apply1(b.t, np.array([[0, 1], [1, 0]], dtype=complex))
+        for part in ([b for b in blks if b.kind == "C"], [b for b in blks if b.kind == "G"]):
+            if not part:
                 continue
-            c = e.m.dist - self.m.dist
-            if best is None or c < best[0] - 1e-9:
-                best = (c, strat)
-        if best is None:
-            raise Illegal("no hub strategy")
-        self._hub(blks, best[1])
+            best = None
+            for strat in self.HUB_STRATS:
+                e = self.clone()
+                try:
+                    e._hub(part, strat)
+                except Illegal:
+                    continue
+                c = e.m.dist - self.m.dist
+                if best is None or c < best[0] - 1e-9:
+                    best = (c, strat)
+            if best is None:
+                raise Illegal("no hub strategy")
+            self._hub(part, best[1])
 
     HUB_STRATS = ("rotate", "direct", "compact", "gravity")
 
@@ -1048,14 +1099,32 @@ class Executor:
         for b in blks:
             p = b.t if role == "Z" else b.c
             partners.append((p, b.th))
-        if role == "Y":
-            self.prep(hub, m.frame["St"][0])
+        single = all(b.kind == "C" for b in blks)
+        if single:
+            # one cz per block: exp(-i s pi/4 Z_c X_t) = (I x h) cz (S^s x S^s) (I x h)
+            hs = _I2.copy()
+            for b in blks:
+                hs = (_S if b.s > 0 else _SD) @ hs
+            if role == "Z":
+                self.prep(hub, hs)
+                for b in blks:
+                    self.prep(b.t, (_S if b.s > 0 else _SD) @ _H)
+                post_p, post_h = _H, None
+            else:
+                self.prep(hub, hs @ _H)
+                for b in blks:
+                    self.prep(b.c, _S if b.s > 0 else _SD)
+                post_p, post_h = None, _H
         else:
-            m.flush(hub)
-        pre_p = m.frame["Nt"][0] if role == "Z" else m.frame["Sc"][0]
-        post_p = m.frame["Nt"][1] if role == "Z" else m.frame["Sc"][1]
-        for p, _ in partners:
-            self.prep(p, pre_p)
+            if role == "Y":
+                self.prep(hub, m.frame["St"][0])
+            else:
+                m.flush(hub)
+            pre_p = m.frame["Nt"][0] if role == "Z" else m.frame["Sc"][0]
+            post_p = m.frame["Nt"][1] if role == "Z" else m.frame["Sc"][1]
+            post_h = m.frame["St"][1] if role == "Y" else None
+            for p, _ in partners:
+                self.prep(p, pre_p)
         if strat == "compact":
             self._compact({p for p, _ in partners})
             strat = "rotate"
@@ -1069,11 +1138,12 @@ class Executor:
             seq = [p for p, _ in order]
             for p in seq:
                 self._serve(p)
-            for p, th in partners:
-                m.apply1(p, _rx(th))
-                m.flush(p)
-            for p in reversed(seq):
-                self._serve(p)
+            if not single:
+                for p, th in partners:
+                    m.apply1(p, _rx(th))
+                    m.flush(p)
+                for p in reversed(seq):
+                    self._serve(p)
         else:
             pset = {p for p, _ in partners}
             rlo = min(m.pos[p][1] for p in pset)
@@ -1120,17 +1190,19 @@ class Executor:
                     self._rotate(rt, forward)
 
             sweep(set(pset), True)
-            for p, th in partners:
-                m.apply1(p, _rx(th))
-                m.flush(p)
-            sweep(set(pset), False)
+            if not single:
+                for p, th in partners:
+                    m.apply1(p, _rx(th))
+                    m.flush(p)
+                sweep(set(pset), False)
         if hub_home in m.occ:
             hub_home = self.nearest_free(m.pos[hub])
         self.go(hub, hub_home)
-        for p, _ in partners:
-            m.apply1(p, post_p)
-        if role == "Y":
-            m.apply1(hub, m.frame["St"][1])
+        if post_p is not None:
+            for p, _ in partners:
+                m.apply1(p, post_p)
+        if post_h is not None:
+            m.apply1(hub, post_h)
 
 
 def default_layout(n, hub):
@@ -1184,6 +1256,9 @@ DEPTH_W = 0.2 / 13364 / (0.8 / 163364.298)  # distance units per depth unit (~3.
 def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=False, allowed=None):
     hub = n - 1
     frame = dict(opts).get("FRAME", "S")
+    if frame != "S" and any(b.kind != "G" for b in blocks):
+        # the special-angle forms are written for the S-frame; elsewhere use the generic form
+        blocks = [Block(b.c, b.t, b.th, b.idx) for b in blocks]
     ex = Executor(n, hub, home, emit=emit, frame=frame)
     ex.allowed = allowed if allowed is not None else frozenset(frozenset(b.qubits()) for b in blocks)
     ex.LOOK = lam
@@ -1260,6 +1335,8 @@ def _budget(n, nblocks):
 def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
     allowed = frozenset(frozenset(b.qubits()) for b in blocks)  # every pair of the input (incl. th == 0)
     blocks = [b for b in blocks if b.th != 0.0]
+    for b in blocks:
+        b.kind, b.s = classify(b.th)
     for i, b in enumerate(blocks):
         b.idx = i
     hub = n - 1
