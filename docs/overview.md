@@ -191,7 +191,12 @@ older compilers):
 | portfolio (systolic, hubstream, rectbatch, gates) | 20 | +85.50 | previous official |
 | **portfolio_po** (all `*_po`) | **20 (+13 sanity, full mode)** | **+86.63** | **current best, `submission/portfolio_po.py`** |
 
-## 8. Where the remaining points are
+## 8. The movement layer's input
+
+[l3-input.md](l3-input.md): the exact pulse schedule and storage obligations every movement planner
+has to realise (`bench/l3_input.py`), with a full 12q example and the scale at 50q.
+
+## 9. Where the remaining points are
 
 - 50q circuits are 61 % of the scored distance; there the matching rounds of systolic cost ~77 per
   round where ~5 is possible in principle. The plan is [ideas/systolic2.md](ideas/systolic2.md)
