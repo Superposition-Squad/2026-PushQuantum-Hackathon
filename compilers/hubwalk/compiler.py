@@ -587,7 +587,7 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True):
     best = costs.eval(assign)
     rng = np.random.default_rng(12345)
     keys = list(assign)
-    for _ in range(40 * len(keys)):
+    for _ in range(200 * len(keys)):
         i, j = rng.integers(0, len(keys), 2)
         if i == j:
             continue
@@ -641,7 +641,11 @@ class _LayoutCost:
             else:
                 for b in group:
                     if b.u in pos and b.v in pos:
-                        cost += float(np.hypot(pos[b.u][0] - pos[b.v][0], pos[b.u][1] - pos[b.v][1]))
+                        dx = abs(pos[b.u][0] - pos[b.v][0])
+                        dy = pos[b.u][1] - pos[b.v][1]
+                        dd = float(np.hypot(max(dx - 0.3, 0.3) if dx else 0.3, dy))
+                        # physical leaf move in and out, plus a pull toward low (shallow) rows
+                        cost += 2.0 * dd + 0.5 * min(pos[b.u][1], pos[b.v][1])
         return cost
 
 
