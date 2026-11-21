@@ -97,7 +97,7 @@ def browser_check(paths: list[Path]) -> dict[str, list[str]]:
                 page.mouse.click(box["x"] + xy["x"], box["y"] + xy["y"])
                 if state()["k"] != target:
                     problems.append(f"click on instruction {target} gave cursor {state()['k']}")
-                page.locator("#scrub").fill(str(n))
+                page.locator("#scrub").fill(str(state()["S"]))
                 if state()["k"] != n - 1:
                     problems.append("scrubber to the end failed")
                 page.keyboard.press("Home")
@@ -130,7 +130,7 @@ def nav_check(base: str, start: str) -> list[str]:
         page.on("console", lambda m: m.type == "error" and problems.append(f"console: {m.text}"))
         ready = lambda: page.wait_for_function("window.__viz !== undefined", timeout=60000)  # noqa: E731
         state = lambda: page.evaluate("window.__viz.state()")  # noqa: E731
-        progress = lambda s: (s["k"] + 1) / s["N"] if s["N"] else 0  # noqa: E731
+        progress = lambda s: (s["s"] + 1) / s["S"] if s["S"] else 0  # noqa: E731  (display steps: a move = 2)
         page.goto(f"{base.rstrip('/')}/{start}")
         ready()
         page.wait_for_function("window.__viz.state().manifestLive", timeout=15000)
@@ -146,7 +146,7 @@ def nav_check(base: str, start: str) -> list[str]:
         s1 = state()
         if s1["name"] != others[0]:
             problems.append(f"sidebar click went to {s1['name']}, not {others[0]}")
-        if abs(progress(s1) - p0) > 2 / max(1, min(s0["N"], s1["N"])) + 1e-9:
+        if abs(progress(s1) - p0) > 2 / max(1, min(s0["S"], s1["S"])) + 1e-9:
             problems.append(f"progress not kept: {p0:.4f} -> {progress(s1):.4f}")
         page.keyboard.press("]")
         ready()
@@ -171,8 +171,9 @@ def nav_check(base: str, start: str) -> list[str]:
         else:
             page.keyboard.press("ArrowRight")
             s3 = state()
-            if abs(progress(s3) - (s3["kB"] + 1) / s3["NB"]) > 2 / max(1, min(s3["N"], s3["NB"])) + 1e-9:
+            if abs(progress(s3) - (s3["sB"] + 1) / s3["SB"]) > 2 / max(1, min(s3["S"], s3["SB"])) + 1e-9:
                 problems.append("split views out of sync")
+            page.wait_for_timeout(200)
             if not page.evaluate("window.__viz.sizesOk()"):
                 problems.append("split view: a canvas is not sized to its box")
         page.keyboard.press("c")

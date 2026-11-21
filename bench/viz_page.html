@@ -38,8 +38,6 @@ main { flex: 1 1 auto; display: flex; gap: 8px; padding: 8px 12px 4px; min-heigh
 .view { display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 0; flex: 1 1 auto; }
 .vbody { display: flex; gap: 8px; flex: 1 1 auto; min-height: 0; min-width: 0; }
 .atomPane { flex: 0 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; position: relative; min-width: 150px; display: flex; flex-direction: column; }
-.acap { flex: 0 0 34px; padding: 3px 7px 0; font-size: 11.5px; line-height: 15px; color: #3a2a5c; overflow: hidden; }
-.acap div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .acv { flex: 1 1 auto; position: relative; min-height: 0; }
 .acv canvas { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .rightPane { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
@@ -223,7 +221,7 @@ footer summary { cursor: pointer; }
     band: "rgba(157,195,107,0.35)", bandEdge: "#8bb33a", storageFill: "#e8f1f9", storageEdge: "#9cc3e6",
     entEdge: "#e8762d", entInner: "#f8decf", gRx: "#3b7dd8", gRz: "#7aa63a", gCz: "#e8762d",
     gMove: "#8e5bd0", gMeas: "#7d8794", gOther: "#9aa3ad", cur: "#ffd84d", red: "#c62828",
-    pick: "rgba(140,190,80,0.26)", pickEdge: "#7da832", active: "#3f6f0e", tgt: "#b0399a", tgtFill: "rgba(176,57,154,0.10)", map: "#4a5562"
+    pick: "rgba(140,190,80,0.30)", active: "#3f6f0e", tgt: "#b0399a", tgtFill: "rgba(176,57,154,0.12)"
   };
   var K_OTHER = 0, K_RX = 1, K_RZ = 2, K_CZ = 3, K_MOVE = 4, K_MEAS = 5, K_BAR = 6;
   var KIND_OF = { rx: K_RX, rz: K_RZ, cz: K_CZ, move: K_MOVE, measure: K_MEAS, barrier: K_BAR };
@@ -273,6 +271,26 @@ footer summary { cursor: pointer; }
       frameOf[i] = f;
     }
     m.F = frameEnds.length;
+    // display steps: a replayed move is two steps, A (origin: before the move) and B (target: after
+    // it); every other instruction is one step. Frames over steps: A and B are frames of their own.
+    var nst = 0;
+    for (var i3 = 0; i3 < N; i3++) nst += mvAt[i3] >= 0 ? 2 : 1;
+    m.S = nst;
+    var stepInst = m.stepInst = new Int32Array(nst), stepPhase = m.stepPhase = new Uint8Array(nst), lastStep = m.lastStep = new Int32Array(N);
+    var sFrameOf = m.sFrameOf = new Int32Array(nst), sFrameEnds = m.sFrameEnds = [];
+    var st = 0, sf = -1, own = true;
+    for (var i4 = 0; i4 < N; i4++) {
+      var ph = mvAt[i4] >= 0 ? [1, 2] : [0];
+      for (var pj = 0; pj < ph.length; pj++) {
+        stepInst[st] = i4; stepPhase[st] = ph[pj];
+        if (ph[pj] !== 0 || kind[i4] === K_MOVE) { sf++; sFrameEnds.push(st); own = true; }
+        else { if (own) { sf++; sFrameEnds.push(st); own = false; } sFrameEnds[sf] = st; }
+        sFrameOf[st] = sf;
+        st++;
+      }
+      lastStep[i4] = st - 1;
+    }
+    m.SF = sFrameEnds.length;
     var cumDist = m.cumDist = new Float64Array(M + 1), cumWarn = m.cumWarn = new Int32Array(M + 1);
     for (var mi = 0; mi < M; mi++) {
       cumDist[mi + 1] = cumDist[mi] + MV[mi].d;
@@ -351,26 +369,15 @@ footer summary { cursor: pointer; }
   Model.prototype.colPhys = function (zi, col) {
     return zi >= 0 && this.lineX[zi] && this.lineX[zi][col] !== undefined ? this.lineX[zi][col] : col;
   };
-  // the line selection of a replayed move: picked intervals, targets and the validator's line map
-  // (`rm`/`cm` = [picked line, target line] after dropping empty lines when there are fewer targets)
-  Model.prototype.selection = function (mi) {
-    var r = this.MV[mi];
-    if (r._sel) return r._sel;
-    var rm = r.rm, cm = r.cm;
-    if (!rm) rm = (r.br || []).map(function (b) { return [Math.round(b[0]), Math.round(b[1])]; });
-    var keptR = {}, keptC = {};
-    rm.forEach(function (x) { keptR[x[0]] = 1; });
-    if (cm) cm.forEach(function (x) { keptC[x[0]] = 1; });
-    r._sel = {
-      rows: r.rows, cols: r.cols, nrows: r.nrows, ncols: r.ncols, rm: rm, cm: cm,
-      droppedR: r.rows.filter(function (x) { return !keptR[x]; }),
-      droppedC: cm ? r.cols.filter(function (x) { return !keptC[x]; }) : []
-    };
-    return r._sel;
-  };
   Model.prototype.movesAt = function (k) { return k < 0 ? 0 : this.movesUpTo[k]; };
-  Model.prototype.progressOf = function (k) { return this.N ? (k + 1) / this.N : 0; };
-  Model.prototype.kAt = function (p) { return this.N ? clamp(Math.round(p * this.N) - 1, -1, this.N - 1) : -1; };
+  // step cursor s in [-1, S-1]: instruction, phase (0 gate, 1 move origin, 2 move target), moves applied
+  Model.prototype.instOf = function (s) { return s < 0 ? -1 : this.stepInst[s]; };
+  Model.prototype.phaseOf = function (s) { return s < 0 ? 0 : this.stepPhase[s]; };
+  Model.prototype.movesAtStep = function (s) { return s < 0 ? 0 : this.movesUpTo[this.stepInst[s]] - (this.stepPhase[s] === 1 ? 1 : 0); };
+  Model.prototype.stepOfInst = function (i) { return i < 0 || !this.N ? -1 : this.lastStep[Math.min(i, this.N - 1)]; };
+  Model.prototype.firstStepOfInst = function (i) { return i < 0 ? -1 : this.lastStep[i] - (this.mvAt[i] >= 0 ? 1 : 0); };
+  Model.prototype.progressOf = function (s) { return this.S ? (s + 1) / this.S : 0; };
+  Model.prototype.kAt = function (p) { return this.S ? clamp(Math.round(p * this.S) - 1, -1, this.S - 1) : -1; };
   Model.prototype.depthAt = function (k) { return k >= 0 ? (this.I.depth[k] || 0) : 0; };
   Model.prototype.describe = function (i) {
     if (i < 0) return "initial loading";
@@ -399,38 +406,40 @@ footer summary { cursor: pointer; }
   Model.prototype.valid = function () { return !this.ERR; };
 
   // ================================================================== View: atom view + circuit view of one model
-  var ML = 1.9, MR = 1.9, MT = 2.6, MB = 1.0;   // world-unit margins around the traps (right/top: move line maps)
+  var ML = 1.9, MR = 0.7, MT = 1.7, MB = 1.0;   // world-unit margins around the traps
   var GUT = 46, PADT = 4;
 
   function View(model, cls, onJump) {
     var v = this;
     v.m = model; v.onJump = onJump;
-    v.k = -1; v.anim = null; v.cw = 14; v.scrollX = 0; v.follow = true; v.dirty = true;
+    v.s = -1; v.k = -1; v.phase = 0; v.anim = null; v.cw = 14; v.scrollX = 0; v.follow = true; v.dirty = true;
     v.S = 1; v.OX = 0; v.OY = 0; v.atomW = v.atomH = v.circW = v.circH = v.ovW = v.ovH = 0;
     v.el = document.createElement("div");
     v.el.className = "view " + (cls || "");
-    v.el.innerHTML = '<div class="vhead" hidden></div><div class="vbody"><section class="atomPane"><div class="acap mono"></div><div class="acv"><canvas></canvas></div></section>' +
+    v.el.innerHTML = '<div class="vhead" hidden></div><div class="vbody"><section class="atomPane"><div class="acv"><canvas></canvas></div></section>' +
       '<section class="rightPane"><div class="circWrap"><canvas></canvas><div class="tip" hidden></div></div>' +
       '<canvas class="ov" title="Whole instruction stream: purple = moves, orange = CZ, red = violations. Click or drag to jump."></canvas></section></div>' +
       '<div class="vstats" hidden></div>';
     v.head = v.el.querySelector(".vhead"); v.body = v.el.querySelector(".vbody");
     v.atomPane = v.el.querySelector(".atomPane"); v.right = v.el.querySelector(".rightPane");
     v.circWrap = v.el.querySelector(".circWrap"); v.tip = v.el.querySelector(".tip");
-    v.acap = v.atomPane.querySelector(".acap"); v.acv = v.atomPane.querySelector(".acv"); v.capText = "";
+    v.acv = v.atomPane.querySelector(".acv");
     v.atomCv = v.atomPane.querySelector("canvas"); v.circCv = v.circWrap.querySelector("canvas"); v.ovCv = v.el.querySelector("canvas.ov");
     v.vstats = v.el.querySelector(".vstats");
     v.actx = v.atomCv.getContext("2d"); v.cctx = v.circCv.getContext("2d"); v.octx = v.ovCv.getContext("2d");
     v.B = model.GEO.bounds || [0, 0, 9, 19];
     v.bindEvents();
   }
-  View.prototype.setCursor = function (nk, animate) {
-    var m = this.m;
-    nk = clamp(nk | 0, -1, m.N - 1);
-    var prevM = m.movesAt(this.k), newM = m.movesAt(nk), forward = nk > this.k;
-    this.k = nk;
+  // ns = step index; animates A -> B (slide to the target) and B -> A (slide back) of the same move
+  View.prototype.setCursor = function (ns, animate) {
+    var m = this.m, old = this.s;
+    ns = clamp(ns | 0, -1, m.S - 1);
+    this.s = ns; this.k = m.instOf(ns); this.phase = m.phaseOf(ns);
     this.anim = null;
-    if (animate && G.animMoves && forward && m.hasAtoms && newM === prevM + 1 && stepDuration() >= 0.06) {
-      this.anim = { m: newM - 1, t0: performance.now(), dur: Math.max(60, 850 / G.speed) };
+    if (animate && G.animMoves && m.hasAtoms && stepDuration() >= 0.06) {
+      var dur = Math.max(60, 850 / G.speed);
+      if (ns === old + 1 && this.phase === 2) this.anim = { m: m.mvAt[this.k], rev: false, t0: performance.now(), dur: dur };
+      else if (ns === old - 1 && this.phase === 1 && m.phaseOf(old) === 2) this.anim = { m: m.mvAt[this.k], rev: true, t0: performance.now(), dur: dur };
     }
     if (this.follow) this.ensureVisible(this.k);
     this.dirty = true;
@@ -440,7 +449,7 @@ footer summary { cursor: pointer; }
     var bh = v.body.clientHeight;
     var aspect = (B[2] - B[0] + ML + MR) / (B[3] - B[1] + MT + MB);
     var maxW = G.split ? v.body.clientWidth * 0.5 : Math.min(window.innerWidth * 0.42, v.body.clientWidth * 0.5);
-    var w = Math.max(G.split ? 150 : 240, Math.min(Math.round((bh - 36) * aspect), Math.round(maxW)));
+    var w = Math.max(G.split ? 150 : 240, Math.min(Math.round(bh * aspect), Math.round(maxW)));
     v.atomPane.style.width = w + "px";
     DPR = window.devicePixelRatio || 1;
     v.atomW = v.acv.clientWidth; v.atomH = v.acv.clientHeight;
@@ -513,26 +522,29 @@ footer summary { cursor: pointer; }
       ctx.fillText("no atom positions (no valid compiler output)", W / 2, 16);
       return false;
     }
-    var mm = m.movesAt(k), p = m.positionsAfter(mm), animating = false, u = 1, mvNow = -1, draw = p;
+    var mm = m.movesAtStep(v.s), p = m.positionsAfter(mm), animating = false, u = 1, draw = p;
+    var mvNow = (k >= 0 && m.mvAt[k] >= 0) ? m.mvAt[k] : -1;   // replayed move under the cursor (step A or B)
     if (v.anim) {
       u = (now - v.anim.t0) / v.anim.dur;
       if (u >= 1) { v.anim = null; u = 1; } else animating = true;
     }
-    if (k >= 0 && m.mvAt[k] >= 0 && m.mvAt[k] === mm - 1) mvNow = mm - 1;
+    var toward = v.phase === 2 ? 1 : 0;   // 0 = at the origin, 1 = at the target
     if (v.anim) {
-      mvNow = v.anim.m;
       var e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+      toward = v.anim.rev ? 1 - e : e;
       draw = p.slice();
       var r = m.MV[v.anim.m];
       for (var j = 0; j < r.q.length; j++) {
-        draw[2 * r.q[j]] = r.f[2 * j] + (r.t[2 * j] - r.f[2 * j]) * e;
-        draw[2 * r.q[j] + 1] = r.f[2 * j + 1] + (r.t[2 * j + 1] - r.f[2 * j + 1]) * e;
+        draw[2 * r.q[j]] = r.f[2 * j] + (r.t[2 * j] - r.f[2 * j]) * toward;
+        draw[2 * r.q[j] + 1] = r.f[2 * j + 1] + (r.t[2 * j + 1] - r.f[2 * j + 1]) * toward;
       }
-      v.drawSelection(v.anim.m, e);
-      v.drawGhosts(r);
-    } else if (mvNow >= 0) {
-      v.drawSelection(mvNow, null);
-      v.drawGhosts(m.MV[mvNow]);
+    }
+    if (mvNow >= 0) {
+      var rm = m.MV[mvNow];
+      if (toward < 1) v.drawOrigin(rm, 1 - toward);
+      if (toward > 0) v.drawTarget(rm, toward);
+      if (toward > 0) v.drawGhosts(rm);
+      v.drawHalo(rm, draw, toward);
     }
     if (k >= 0 && !v.anim) {
       if (m.kind[k] !== K_MOVE) {
@@ -564,25 +576,22 @@ footer summary { cursor: pointer; }
         ctx.strokeText(String(q2), lx, ly2); ctx.fillText(String(q2), lx, ly2);
       }
     }
-    var cap1 = k >= 0 ? m.describe(k) : "initial loading", cap2 = "";
     if (mvNow >= 0) {
       var rr = m.MV[mvNow];
-      cap1 = "move " + (mvNow + 1) + "/" + m.M + " · " + rr.q.length + " atom" + (rr.q.length === 1 ? "" : "s") + " · d " + fmt(rr.d, 4) + " · step " + (rr.s + 1) +
-        (rr.w && rr.w.length ? " · ⚠ spacing warning" : "");
-      var sl = m.selection(mvNow);
-      var span = function (a) { return a.length > 2 && a[a.length - 1] - a[0] === a.length - 1 ? a[0] + "–" + a[a.length - 1] : a.join(","); };
-      var drop = (sl.droppedR.length ? sl.droppedR.length + " empty row" + (sl.droppedR.length > 1 ? "s" : "") : "") +
-        (sl.droppedC.length ? (sl.droppedR.length ? ", " : "") + sl.droppedC.length + " empty col" + (sl.droppedC.length > 1 ? "s" : "") : "");
-      cap2 = "rows " + span(sl.rows) + " → " + span(sl.nrows) + " · cols " + span(sl.cols) + " → " + span(sl.ncols) + (drop ? " · dropped " + drop : "");
-    }
-    var capText = cap1 + "\n" + cap2;
-    if (capText !== v.capText) {
-      v.capText = capText;
-      v.acap.innerHTML = "<div>" + esc(cap1) + '</div><div class="muted">' + esc(cap2) + "</div>";
-      v.acap.title = cap1 + "\n" + cap2;
+      leftTag(ctx, "move " + (mvNow + 1) + "/" + m.M + " · " + rr.q.length + " atom" + (rr.q.length === 1 ? "" : "s") + " · d " + fmt(rr.d, 3) +
+        (v.anim ? (v.anim.rev ? " · back to origin" : " · moving") : v.phase === 1 ? " · A: origin (pending)" : " · B: target"), 0, false);
+      if (rr.w && rr.w.length) leftTag(ctx, "⚠ spacing warning", 1, true);
     }
     return animating;
   };
+  function leftTag(ctx, s, row, warn) {
+    ctx.font = "12px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+    var w = ctx.measureText(s).width + 10;
+    ctx.fillStyle = warn ? "rgba(255,236,204,0.95)" : "rgba(255,255,255,0.92)";
+    ctx.fillRect(6, 6 + row * 20, w, 18);
+    ctx.fillStyle = warn ? "#b25e00" : "#3a2a5c";
+    ctx.fillText(s, 11, 9 + row * 20);
+  }
   function cornerTag(ctx, W, s, row, bad) {
     ctx.font = "12px system-ui, sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "top";
     var mw = ctx.measureText(s).width + 10;
@@ -604,95 +613,51 @@ footer summary { cursor: pointer; }
     for (var i = 1; i < xs.length; i++) { var d = xs[i] - xs[i - 1]; if (d > 1e-6 && d < gap) gap = d; }
     return clamp(Math.min(0.56, gap * 0.85), 0.14, 0.56);
   }
-  // Start selection (green): the picked row interval and col interval as one band each, their
-  // intersection (every atom inside moves) outlined. Target (magenta): every target row/col line and
-  // the dashed target rectangle. Line map: connectors picked line -> target line in the right margin
-  // (rows) and the top margin (cols); a picked line dropped because it was empty gets an x.
-  // `e` (animating: 0..1) also draws the AOD lines travelling with the atoms.
-  View.prototype.drawSelection = function (mi, e) {
-    var v = this, m = v.m, ctx = v.actx, B = v.B, S = v.S, r = m.MV[mi], sel = m.selection(mi);
-    var zs = m.GEO.zones, rows = sel.rows, cols = sel.cols, nrows = sel.nrows, ncols = sel.ncols;
-    var r0 = rows[0], r1 = rows[rows.length - 1], c0 = cols[0], c1 = cols[cols.length - 1];
-    var xL = v.sx(B[0] - 0.6), xR = v.sx(B[2] + 0.6);
-    var colPad = 0.13, rowPad = 0.4;
+  // rectangle of grid rows lo..hi x cols cLo..cHi in screen coordinates, one piece per zone it touches
+  View.prototype.zoneRects = function (lo, hi, cLo, cHi, pad) {
+    var v = this, m = v.m, out = [];
+    m.GEO.zones.forEach(function (z, zi) {
+      var a = Math.max(lo, z.y0), b = Math.min(hi, z.y1);
+      if (a > b) return;
+      var x0 = v.sx(m.colPhys(zi, cLo) - pad), x1 = v.sx(m.colPhys(zi, cHi) + pad), y0 = v.sy(m.rowPhys(b) + pad), y1 = v.sy(m.rowPhys(a) - pad);
+      out.push({ zi: zi, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    });
+    return out;
+  };
+  // step A: the picked-up rectangle (picked rows x picked cols, both contiguous) as one area
+  View.prototype.drawOrigin = function (r, alpha) {
+    var v = this, ctx = v.actx;
+    ctx.save(); ctx.globalAlpha = alpha;
+    ctx.fillStyle = C.pick; ctx.strokeStyle = C.active; ctx.lineWidth = 2;
+    v.zoneRects(r.rows[0], r.rows[r.rows.length - 1], r.cols[0], r.cols[r.cols.length - 1], 0.36).forEach(function (q) {
+      ctx.fillRect(q.x, q.y, q.w, q.h); ctx.strokeRect(q.x, q.y, q.w, q.h);
+    });
+    ctx.restore();
+  };
+  // step B: the target rectangle (bounding box of new_rows x new_cols) and each target line inside it
+  View.prototype.drawTarget = function (r, alpha) {
+    var v = this, m = v.m, ctx = v.actx, nr = r.nrows, nc = r.ncols;
+    ctx.save(); ctx.globalAlpha = alpha;
+    var rects = v.zoneRects(nr[0], nr[nr.length - 1], nc[0], nc[nc.length - 1], 0.36);
+    ctx.fillStyle = C.tgtFill; ctx.strokeStyle = C.tgt; ctx.lineWidth = 2;
+    rects.forEach(function (q) { ctx.fillRect(q.x, q.y, q.w, q.h); ctx.strokeRect(q.x, q.y, q.w, q.h); });
+    ctx.lineWidth = Math.max(1, v.S * 0.04); ctx.setLineDash([4, 3]);
+    rects.forEach(function (q) {
+      ctx.beginPath();
+      nr.forEach(function (row) { if (m.zoneOfRow(row) !== q.zi) return; var y = v.sy(m.rowPhys(row)); ctx.moveTo(q.x, y); ctx.lineTo(q.x + q.w, y); });
+      nc.forEach(function (col) { var x = v.sx(m.colPhys(q.zi, col)); ctx.moveTo(x, q.y); ctx.lineTo(x, q.y + q.h); });
+      ctx.stroke();
+    });
+    ctx.restore();
+  };
+  // halo under the atoms that move (green at the origin, magenta at the target)
+  View.prototype.drawHalo = function (r, p, toward) {
+    var v = this, ctx = v.actx, R = Math.max(5, v.S * 0.26);
     ctx.save();
-    // --- start: row interval band (full width) and col interval band (per zone, full zone height)
-    ctx.fillStyle = C.pick; ctx.strokeStyle = C.pickEdge; ctx.lineWidth = 1.2; ctx.setLineDash([5, 3]);
-    var yTop = v.sy(m.rowPhys(r1) + rowPad), yBot = v.sy(m.rowPhys(r0) - rowPad);
-    ctx.fillRect(xL, yTop, xR - xL, yBot - yTop); ctx.strokeRect(xL, yTop, xR - xL, yBot - yTop);
-    function touches(lo, hi, z) { return Math.max(lo, z.y0) <= Math.min(hi, z.y1); }
-    zs.forEach(function (z, zi) {
-      var xa = v.sx(m.colPhys(zi, c0) - colPad), xb = v.sx(m.colPhys(zi, c1) + colPad);
-      var ya = v.sy(z.py1 + 0.5), yb = v.sy(z.py0 - 0.5);
-      ctx.globalAlpha = touches(r0, r1, z) ? 1 : 0.4;
-      ctx.fillRect(xa, ya, xb - xa, yb - ya); ctx.strokeRect(xa, ya, xb - xa, yb - ya);
-    });
-    ctx.globalAlpha = 1;
-    // --- target: individual lines + dashed bounding box
-    ctx.setLineDash([]); ctx.strokeStyle = C.tgt; ctx.lineWidth = Math.max(1.2, S * 0.05); ctx.globalAlpha = 0.85;
+    ctx.fillStyle = toward < 0.5 ? "rgba(63,111,14,0.30)" : "rgba(176,57,154,0.28)";
     ctx.beginPath();
-    nrows.forEach(function (row) { var y = v.sy(m.rowPhys(row)); ctx.moveTo(xL, y); ctx.lineTo(xR, y); });
-    ctx.stroke();
-    var tLo = nrows[0], tHi = nrows[nrows.length - 1];
-    zs.forEach(function (z, zi) {
-      var ya = v.sy(z.py1 + 0.5), yb = v.sy(z.py0 - 0.5);
-      ctx.globalAlpha = touches(tLo, tHi, z) ? 0.85 : 0.25;
-      ctx.beginPath();
-      ncols.forEach(function (col) { var x = v.sx(m.colPhys(zi, col)); ctx.moveTo(x, ya); ctx.lineTo(x, yb); });
-      ctx.stroke();
-    });
-    ctx.globalAlpha = 1;
-    var nr0 = nrows[0], nr1 = nrows[nrows.length - 1], nc0 = ncols[0], nc1 = ncols[ncols.length - 1];
-    function rect(lo, hi, cLo, cHi, pad) {   // rectangle rows lo..hi x cols cLo..cHi, split per zone
-      var out = [];
-      zs.forEach(function (z, zi) {
-        var a = Math.max(lo, z.y0), b = Math.min(hi, z.y1);
-        if (a > b) return;
-        var x0 = v.sx(m.colPhys(zi, cLo) - pad), x1 = v.sx(m.colPhys(zi, cHi) + pad), y0 = v.sy(m.rowPhys(b) + pad), y1 = v.sy(m.rowPhys(a) - pad);
-        out.push([x0, y0, x1 - x0, y1 - y0]);
-      });
-      return out;
-    }
-    ctx.fillStyle = C.tgtFill; ctx.strokeStyle = C.tgt; ctx.lineWidth = 1.6; ctx.setLineDash([6, 4]);
-    rect(nr0, nr1, nc0, nc1, 0.3).forEach(function (q) { ctx.fillRect(q[0], q[1], q[2], q[3]); ctx.strokeRect(q[0], q[1], q[2], q[3]); });
-    // --- active rectangle (start intersection), solid
-    ctx.setLineDash([]); ctx.strokeStyle = C.active; ctx.lineWidth = 2;
-    rect(r0, r1, c0, c1, 0.26).forEach(function (q) { ctx.strokeRect(q[0], q[1], q[2], q[3]); });
-    // --- travelling AOD lines while animating
-    if (e !== null && e !== undefined) {
-      ctx.strokeStyle = C.active; ctx.lineWidth = 1; ctx.setLineDash([2, 3]); ctx.globalAlpha = 0.7;
-      ctx.beginPath();
-      (r.br || []).forEach(function (b) { var y = v.sy(b[0] + (b[1] - b[0]) * e); ctx.moveTo(xL, y); ctx.lineTo(xR, y); });
-      (r.bc || []).forEach(function (b) { var x = v.sx(b[0] + (b[1] - b[0]) * e); ctx.moveTo(x, v.sy(B[3] + 0.6)); ctx.lineTo(x, v.sy(B[1] - 0.6)); });
-      ctx.stroke();
-      ctx.globalAlpha = 1; ctx.setLineDash([]);
-    }
-    // --- line maps (connectors)
-    var dot = Math.max(1.8, S * 0.06), fs = Math.round(clamp(S * 0.26, 8, 11));
-    ctx.font = fs + "px system-ui, sans-serif"; ctx.lineWidth = 1;
-    function connector(x0, y0, x1, y1) {
-      ctx.strokeStyle = C.map; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-      ctx.fillStyle = C.pickEdge; ctx.beginPath(); ctx.arc(x0, y0, dot, 0, 2 * Math.PI); ctx.fill();
-      ctx.fillStyle = C.tgt; ctx.beginPath(); ctx.arc(x1, y1, dot, 0, 2 * Math.PI); ctx.fill();
-    }
-    function cross(x, y) {
-      var d = dot * 1.6;
-      ctx.strokeStyle = C.red; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(x - d, y - d); ctx.lineTo(x + d, y + d); ctx.moveTo(x + d, y - d); ctx.lineTo(x - d, y + d); ctx.stroke();
-      ctx.lineWidth = 1;
-    }
-    var mxA = v.sx(B[2] + 0.75), mxB = v.sx(B[2] + 1.65);
-    sel.rm.forEach(function (x) { connector(mxA, v.sy(m.rowPhys(x[0])), mxB, v.sy(m.rowPhys(x[1]))); });
-    sel.droppedR.forEach(function (row) { cross(mxA, v.sy(m.rowPhys(row))); });
-    var zFrom = m.zoneOfRow(sel.rm.length ? sel.rm[0][0] : r0), zTo = m.zoneOfRow(nr0);
-    var myA = v.sy(B[3] + 1.1), myB = v.sy(B[3] + 2.15);
-    if (sel.cm) {
-      sel.cm.forEach(function (x) { connector(v.sx(m.colPhys(zFrom, x[0])), myA, v.sx(m.colPhys(zTo, x[1])), myB); });
-      sel.droppedC.forEach(function (col) { cross(v.sx(m.colPhys(zFrom, col)), myA); });
-    }
-    ctx.fillStyle = C.map; ctx.textBaseline = "middle";
-    ctx.textAlign = "left"; ctx.fillText("rows", mxA - 2, v.sy(B[3] + 0.9));
-    ctx.textAlign = "right"; ctx.fillText("cols", v.sx(B[0] - 0.75), (myA + myB) / 2);
+    for (var j = 0; j < r.q.length; j++) { var X = v.sx(p[2 * r.q[j]]), Y = v.sy(p[2 * r.q[j] + 1]); ctx.moveTo(X + R, Y); ctx.arc(X, Y, R, 0, 2 * Math.PI); }
+    ctx.fill();
     ctx.restore();
   };
   View.prototype.drawGhosts = function (r) {
@@ -823,6 +788,14 @@ footer summary { cursor: pointer; }
       if (cx >= GUT && cx <= W) {
         ctx.save(); ctx.strokeStyle = C.red; ctx.setLineDash([4, 3]); ctx.lineWidth = 1.2;
         ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke(); ctx.restore();
+        if (v.phase) {   // move steps: A = origin, B = target
+          ctx.save();
+          ctx.fillStyle = v.phase === 1 ? C.active : C.tgt;
+          roundRect(ctx, cx - 7, 1, 14, 13, 3); ctx.fill();
+          ctx.fillStyle = "#fff"; ctx.font = "700 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.fillText(v.phase === 1 ? "A" : "B", cx, 8);
+          ctx.restore();
+        }
       }
     }
     ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, GUT, H);
@@ -937,7 +910,7 @@ footer summary { cursor: pointer; }
       var xa = a / m.N * W, xb = Math.max(xa + 2, (b + 1) / m.N * W);
       ctx.fillRect(xa, 0, xb - xa, H); ctx.strokeRect(xa + 0.5, 0.5, xb - xa - 1, H - 1);
     }
-    var xk = (v.k + 1) / m.N * W;
+    var xk = (v.k + 1) / m.N * W;   // overview strip is per instruction
     ctx.fillStyle = "#1d2733"; ctx.fillRect(xk - 1, 0, 2, H);
     ctx.beginPath(); ctx.moveTo(xk - 5, 0); ctx.lineTo(xk + 5, 0); ctx.lineTo(xk, 6); ctx.fill();
   };
@@ -971,7 +944,7 @@ footer summary { cursor: pointer; }
     window.addEventListener("mouseup", function (e) {
       if (drag && !drag.moved && e.target === cv) {
         var r = cv.getBoundingClientRect(), i = v.pick(e.clientX - r.left, e.clientY - r.top, false);
-        if (i >= 0) { v.follow = true; v.onJump(v, i); }
+        if (i >= 0) { v.follow = true; v.onJump(v, v.m.stepOfInst(i)); }
       }
       drag = null;
     });
@@ -989,7 +962,7 @@ footer summary { cursor: pointer; }
     var ovDrag = false;
     function ovJump(e) {
       var r = v.ovCv.getBoundingClientRect(), x = clamp((e.clientX - r.left) / r.width, 0, 1);
-      v.follow = true; v.onJump(v, Math.round(x * v.m.N) - 1);
+      v.follow = true; v.onJump(v, v.m.stepOfInst(Math.round(x * v.m.N) - 1));
     }
     v.ovCv.addEventListener("mousedown", function (e) { ovDrag = true; ovJump(e); });
     window.addEventListener("mousemove", function (e) { if (ovDrag) ovJump(e); });
@@ -1019,14 +992,12 @@ footer summary { cursor: pointer; }
     return h;
   }
   View.prototype.fullStats = function () {
-    var v = this, m = v.m, k = v.k, mm = m.movesAt(k), TOT = m.TOT, NAIVE = m.NAIVE, h = "";
-    h += cell("position", (k + 1) + " / " + m.N, "", "instructions executed / total (moves and barriers included)");
-    h += cell("frame", (k >= 0 ? m.frameOf[k] + 1 : 0) + " / " + m.F, "", "frames: a move, or a block of consecutive gates between moves");
-    h += cell("instruction", esc(m.describe(k)), "w2");
-    h += cell("moves", mm + " / " + m.M, "", "replayed moves executed / total");
-    var thisMove = k >= 0 && m.mvAt[k] >= 0;
-    h += cell(thisMove ? "this move" : "last move", mm > 0 ? fmt(m.MV[mm - 1].d, 4) + (m.MV[mm - 1].w && m.MV[mm - 1].w.length ? ' <span class="warn">⚠</span>' : "") : "–", "",
-      "longest physical distance travelled by one atom of the move (= the scored distance)");
+    var v = this, m = v.m, k = v.k, mm = m.movesAtStep(v.s), TOT = m.TOT, NAIVE = m.NAIVE, h = "";
+    h += cell("step", (v.s + 1) + " / " + m.S, "", "display steps: a gate is one step, a move two (A origin, B target)");
+    h += cell("frame", (v.s >= 0 ? m.sFrameOf[v.s] + 1 : 0) + " / " + m.SF, "", "frames: a block of consecutive gates, or one half of a move (A or B)");
+    h += cell("instruction" + (k >= 0 ? " " + (k + 1) + " / " + m.N : ""), esc(v.describeStep()), "w2");
+    h += cell("moves", mm + " / " + m.M, "", "replayed moves executed / total (a move counts at its step B)");
+    h += v.moveCell();
     var total = TOT.move_distance, nd = NAIVE ? NAIVE.move_distance : null;
     var top = Math.max(total || 0, nd || 0, m.cumDist[m.M] || 0) || 1;
     var bar = '<div class="bar"><i style="width:' + (m.cumDist[mm] / top * 100).toFixed(2) + '%"></i>' +
@@ -1047,16 +1018,29 @@ footer summary { cursor: pointer; }
     h += cell("final totals (validator)", fin, "w3 wrap", "compute_metrics() of the official validator: equal to bench.py");
     return h;
   };
+  View.prototype.describeStep = function () {
+    var d = this.m.describe(this.k);
+    return this.phase === 1 ? d + "  · A origin (pending)" : this.phase === 2 ? d + "  · B target" : d;
+  };
+  // "pending move" at step A (not counted yet), "this move" at step B, else "last move"
+  View.prototype.moveCell = function () {
+    var m = this.m, mm = m.movesAtStep(this.s);
+    var tip = "longest physical distance travelled by one atom of the move (= the scored distance)";
+    if (this.phase === 1) { var r = m.MV[m.mvAt[this.k]]; return cell("pending move", "distance " + fmt(r.d, 4), "", tip + "; counted at step B"); }
+    var r2 = mm > 0 ? m.MV[mm - 1] : null;
+    return cell(this.phase === 2 ? "this move" : "last move", r2 ? fmt(r2.d, 4) + (r2.w && r2.w.length ? ' <span class="warn">⚠</span>' : "") : "–", "", tip);
+  };
   View.prototype.compactStats = function () {
-    var v = this, m = v.m, k = v.k, mm = m.movesAt(k), TOT = m.TOT, h = "";
-    h += cell("position", (k + 1) + " / " + m.N + ' <span class="muted">(' + (m.progressOf(k) * 100).toFixed(1) + "%)</span>");
+    var v = this, m = v.m, k = v.k, mm = m.movesAtStep(v.s), TOT = m.TOT, h = "";
+    h += cell("step", (v.s + 1) + " / " + m.S + ' <span class="muted">(' + (m.progressOf(v.s) * 100).toFixed(1) + "%)</span>");
     h += cell("moves", mm + " / " + m.M);
     h += cell("distance Σ / total", fmt(m.cumDist[mm], 2) + " / " + fmt(TOT.move_distance, 2), "w2");
-    h += cell("instruction", esc(m.describe(k)), "w2");
+    h += cell("instruction", esc(v.describeStep()), "w2");
+    h += v.moveCell();
     h += cell("depth / total", m.depthAt(k) + " / " + (TOT.depth === undefined ? "–" : TOT.depth));
     h += cell("cz / total", (k >= 0 ? m.czUpTo[k] : 0) + " / " + (TOT.cz === undefined ? "–" : TOT.cz));
     var vhere = (k >= 0 && m.viol.has(k)) ? ' · <span class="bad">✖ ' + esc(m.viol.get(k)[0]) + "</span>" : "";
-    h += cell("validity", validityHtml(m) + vhere + (TOT.partial ? ' · <span class="bad">partial totals</span>' : ""), "w4 wrap", m.ERR ? m.ERR.msg : "");
+    h += cell("validity", validityHtml(m) + vhere + (TOT.partial ? ' · <span class="bad">partial totals</span>' : ""), "w3 wrap", m.ERR ? m.ERR.msg : "");
     return h;
   };
 
@@ -1139,7 +1123,7 @@ footer summary { cursor: pointer; }
   var HASH = readHash();
   var CMP = HASH.cmp || "";            // name of the compiler shown in the split view
   function buildHash(over) {
-    var o = { p: A.N ? A.progressOf(views[0].k).toFixed(5) : "0", gran: G.gran, sp: G.speed.toFixed(3) };
+    var o = { p: A.S ? A.progressOf(views[0].s).toFixed(5) : "0", gran: G.gran, sp: G.speed.toFixed(3) };
     if (G.playing) o.play = "1";
     if (CMP) o.cmp = CMP;
     if (document.body.classList.contains("side-off")) o.side = "0";
@@ -1263,51 +1247,51 @@ footer summary { cursor: pointer; }
   // ================================================================== views, split view, controller
   var views = [];
   var splitState = { loading: false, msg: null, model: null, name: "" };
-  function driver() { return (views[0].m.N === 0 && views[1]) ? views[1] : views[0]; }
+  function driver() { return (views[0].m.S === 0 && views[1]) ? views[1] : views[0]; }
   function follower() { var d = driver(); return views.length > 1 ? (d === views[0] ? views[1] : views[0]) : null; }
   function syncFollower(animate) {
     var d = driver(), f = follower();
-    if (f) f.setCursor(f.m.kAt(d.m.progressOf(d.k)), animate);
+    if (f) f.setCursor(f.m.kAt(d.m.progressOf(d.s)), animate);
   }
-  function setCursor(nk, animate) {
+  function setCursor(ns, animate) {   // ns = step of the driving view
     var d = driver();
-    d.setCursor(nk, animate);
+    d.setCursor(ns, animate);
     syncFollower(animate);
     afterCursor();
   }
-  function onJump(view, i) {
+  function onJump(view, s) {   // s = step of `view`
     setPlaying(false);
-    view.setCursor(i, false);
+    view.setCursor(s, false);
     var other = views.filter(function (x) { return x !== view; })[0];
-    if (other) other.setCursor(other.m.kAt(view.m.progressOf(view.k)), false);
+    if (other) other.setCursor(other.m.kAt(view.m.progressOf(view.s)), false);
     afterCursor();
   }
   var statsDirty = true;
   function afterCursor() { statsDirty = true; writeHashSoon(); requestFrame(); }
   function step(dir, g, animate) {
-    var d = driver(), m = d.m, k = d.k;
+    var d = driver(), m = d.m, s = d.s;
     g = g || G.gran;
-    if (g === "inst") { setCursor(k + dir, animate); return; }
+    if (g === "inst") { setCursor(s + dir, animate); return; }
     if (dir > 0) {
-      if (k >= m.N - 1) return;
-      var f = k < 0 ? 0 : (k === m.frameEnds[m.frameOf[k]] ? m.frameOf[k] + 1 : m.frameOf[k]);
-      setCursor(m.frameEnds[Math.min(f, m.F - 1)], animate);
+      if (s >= m.S - 1) return;
+      var f = s < 0 ? 0 : (s === m.sFrameEnds[m.sFrameOf[s]] ? m.sFrameOf[s] + 1 : m.sFrameOf[s]);
+      setCursor(m.sFrameEnds[Math.min(f, m.SF - 1)], animate);
     } else {
-      if (k < 0) return;
-      var fp = m.frameOf[k] - (k === m.frameEnds[m.frameOf[k]] ? 1 : 0);
-      setCursor(fp < 0 ? -1 : m.frameEnds[fp], false);
+      if (s < 0) return;
+      var fp = m.sFrameOf[s] - (s === m.sFrameEnds[m.sFrameOf[s]] ? 1 : 0);
+      setCursor(fp < 0 ? -1 : m.sFrameEnds[fp], animate);
     }
   }
   function nextMove(dir) {
-    var d = driver(), mi = d.m.moveInst;
+    var d = driver(), mi = d.m.moveInst;   // lands on step A (origin) of the next / previous move
     if (!mi.length) return;
-    if (dir > 0) { var j = lowerBound(mi, d.k + 1); if (j < mi.length) setCursor(mi[j], true); }
-    else { var jj = lowerBound(mi, d.k) - 1; setCursor(jj >= 0 ? mi[jj] : -1, false); }
+    if (dir > 0) { var j = lowerBound(mi, d.k + 1); if (j < mi.length) setCursor(d.m.firstStepOfInst(mi[j]), false); }
+    else { var jj = lowerBound(mi, d.k) - 1; setCursor(jj >= 0 ? d.m.firstStepOfInst(mi[jj]) : -1, false); }
   }
   function setPlaying(p) {
     var d = driver();
-    G.playing = p && d.m.N > 0;
-    if (G.playing && d.k >= d.m.N - 1) setCursor(-1, false);
+    G.playing = p && d.m.S > 0;
+    if (G.playing && d.s >= d.m.S - 1) setCursor(-1, false);
     G.lastStepTs = performance.now();
     $("playBtn").textContent = G.playing ? "‖ pause" : "▶ play";
     writeHashSoon();
@@ -1319,7 +1303,7 @@ footer summary { cursor: pointer; }
       if (!G.split) { v.head.hidden = true; v.vstats.hidden = true; return; }
       var m = v.m, nm = m.META.name, T = m.TOT, nv = m.NAIVE;
       v.head.hidden = false; v.vstats.hidden = false;
-      v.head.innerHTML = "<b>" + (idx === 0 ? "A" : "B") + " · " + esc(nm) + "</b>" +
+      v.head.innerHTML = "<b>" + (idx === 0 ? "1" : "2") + " · " + esc(nm) + "</b>" +
         (m.ERR ? '<span class="badge sm bad">' + esc(m.ERR.stage) + "</span>" : '<span class="badge sm ok">VALID</span>') +
         '<span class="sub mono">D ' + fmt(T.move_distance, 1) + pct(T.partial ? null : T.move_distance, nv ? nv.move_distance : null) +
         " · P " + (T.depth === undefined ? "–" : T.depth) + pct(T.partial ? null : T.depth, nv ? nv.depth : null) + " · " + m.N + " instr · " + m.M + " moves</span>" +
@@ -1330,15 +1314,15 @@ footer summary { cursor: pointer; }
     if (!G.split || views.length < 2) { $("diff").innerHTML = ""; return; }
     var a = views[0], b = views[1], ma = a.m, mb = b.m;
     var rows = [
-      ["distance so far", ma.cumDist[ma.movesAt(a.k)], mb.cumDist[mb.movesAt(b.k)], 3],
+      ["distance so far", ma.cumDist[ma.movesAtStep(a.s)], mb.cumDist[mb.movesAtStep(b.s)], 3],
       ["depth so far", ma.depthAt(a.k), mb.depthAt(b.k), 0],
-      ["moves so far", ma.movesAt(a.k), mb.movesAt(b.k), 0],
+      ["moves so far", ma.movesAtStep(a.s), mb.movesAtStep(b.s), 0],
       ["cz so far", a.k >= 0 ? ma.czUpTo[a.k] : 0, b.k >= 0 ? mb.czUpTo[b.k] : 0, 0],
       ["final distance", ma.TOT.move_distance, mb.TOT.move_distance, 3],
       ["final depth", ma.TOT.depth, mb.TOT.depth, 0]
     ];
-    var h = '<table class="mono"><tr><th>at ' + (a.m.progressOf(a.k) * 100).toFixed(1) + "% of A · " + (b.m.progressOf(b.k) * 100).toFixed(1) + "% of B</th><th>A · " + esc(ma.META.name) +
-      "</th><th>B · " + esc(mb.META.name) + "</th><th>B − A</th><th>B / A</th></tr>";
+    var h = '<table class="mono"><tr><th>at ' + (a.m.progressOf(a.s) * 100).toFixed(1) + "% of 1 · " + (b.m.progressOf(b.s) * 100).toFixed(1) + "% of 2</th><th>1 · " + esc(ma.META.name) +
+      "</th><th>2 · " + esc(mb.META.name) + "</th><th>2 − 1</th><th>2 / 1</th></tr>";
     rows.forEach(function (r) {
       var d = (r[1] === undefined || r[2] === undefined) ? null : r[2] - r[1];
       var cls = d === null || Math.abs(d) < 1e-9 ? "muted" : d < 0 ? "good" : "bad";
@@ -1374,7 +1358,8 @@ footer summary { cursor: pointer; }
       stage.appendChild(ctl); stage.appendChild(df);
     }
     renderHeads();
-    $("scrub").max = driver().m.N;
+    $("scrub").max = driver().m.S;
+    renderStats();   // stats first, so the canvases are sized to their final boxes
     views.forEach(function (v) { v.layout(); });
     statsDirty = true; requestFrame();
   }
@@ -1417,7 +1402,7 @@ footer summary { cursor: pointer; }
       $("stats").innerHTML = views[0].fullStats();
     }
     var sc = $("scrub"), d = driver();
-    if (+sc.value !== d.k + 1) sc.value = d.k + 1;
+    if (+sc.value !== d.s + 1) sc.value = d.s + 1;
   }
 
   // ================================================================== main loop
@@ -1431,8 +1416,8 @@ footer summary { cursor: pointer; }
       if (!busy && now - G.lastStepTs >= dur) {
         var due = Math.min(50, Math.floor((now - G.lastStepTs) / dur));
         G.lastStepTs = due >= 50 ? now : G.lastStepTs + due * dur;
-        if (d.k >= d.m.N - 1) setPlaying(false);
-        else for (var s = 0; s < due && d.k < d.m.N - 1; s++) step(1, G.gran, due === 1);
+        if (d.s >= d.m.S - 1) setPlaying(false);
+        else for (var s = 0; s < due && d.s < d.m.S - 1; s++) step(1, G.gran, due === 1);
       }
       again = G.playing;
     }
@@ -1469,10 +1454,9 @@ footer summary { cursor: pointer; }
       ["rx (ring)", function (c) { c.fillStyle = C.rxFill; c.strokeStyle = C.rxStroke; c.beginPath(); c.arc(11, 8, 7, 0, 7); c.fill(); c.stroke(); c.fillStyle = C.atom; c.beginPath(); c.arc(11, 8, 3.5, 0, 7); c.fill(); }],
       ["rz (ring + crosshair)", function (c) { c.fillStyle = C.rzFill; c.strokeStyle = C.rzStroke; c.beginPath(); c.arc(11, 8, 7, 0, 7); c.fill(); c.stroke(); c.fillStyle = C.atom; c.beginPath(); c.arc(11, 8, 3.5, 0, 7); c.fill(); }],
       ["cz (pair)", function (c) { c.fillStyle = C.czFill; c.strokeStyle = C.czStroke; [7, 15].forEach(function (x) { c.beginPath(); c.arc(x, 8, 6, 0, 7); c.fill(); c.stroke(); }); c.fillStyle = C.atom; [7, 15].forEach(function (x) { c.beginPath(); c.arc(x, 8, 3, 0, 7); c.fill(); }); }],
-      ["move start: picked rows/cols", function (c) { c.fillStyle = C.pick; c.fillRect(0, 4, 22, 8); c.strokeStyle = C.pickEdge; c.setLineDash([3, 2]); c.strokeRect(0.5, 4.5, 21, 7); }],
-      ["active rectangle (all of it moves)", function (c) { c.strokeStyle = C.active; c.lineWidth = 2; c.strokeRect(3, 3, 16, 10); }],
-      ["move target: rows/cols + box", function (c) { c.strokeStyle = C.tgt; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0, 8); c.lineTo(22, 8); c.moveTo(11, 0); c.lineTo(11, 16); c.stroke(); c.setLineDash([3, 2]); c.strokeRect(3, 3, 16, 10); }],
-      ["line map picked → target (✕ dropped empty)", function (c) { c.strokeStyle = C.map; c.beginPath(); c.moveTo(3, 13); c.lineTo(19, 3); c.stroke(); c.fillStyle = C.pickEdge; c.beginPath(); c.arc(3, 13, 2.2, 0, 7); c.fill(); c.fillStyle = C.tgt; c.beginPath(); c.arc(19, 3, 2.2, 0, 7); c.fill(); }],
+      ["move step A: picked-up rectangle", function (c) { c.fillStyle = C.pick; c.fillRect(2, 2, 18, 12); c.strokeStyle = C.active; c.lineWidth = 2; c.strokeRect(2, 2, 18, 12); }],
+      ["move step B: target rectangle + target lines", function (c) { c.fillStyle = C.tgtFill; c.fillRect(2, 2, 18, 12); c.strokeStyle = C.tgt; c.lineWidth = 1.5; c.strokeRect(2, 2, 18, 12); c.beginPath(); c.moveTo(2, 8); c.lineTo(20, 8); c.moveTo(8, 2); c.lineTo(8, 14); c.moveTo(16, 2); c.lineTo(16, 14); c.stroke(); }],
+      ["atom that moves (halo)", function (c) { c.fillStyle = "rgba(63,111,14,0.30)"; c.beginPath(); c.arc(11, 8, 7, 0, 7); c.fill(); c.fillStyle = C.atom; c.beginPath(); c.arc(11, 8, 3.5, 0, 7); c.fill(); }],
       ["move (circuit)", function (c) { c.fillStyle = C.gMove; c.fillRect(10, 1, 2, 14); c.beginPath(); c.moveTo(11, 1); c.lineTo(14, 4); c.lineTo(11, 7); c.lineTo(8, 4); c.fill(); }],
       ["rx / rz / cz (circuit)", function (c) { c.fillStyle = C.gRx; c.fillRect(1, 3, 6, 10); c.fillStyle = C.gRz; c.fillRect(8, 3, 6, 10); c.fillStyle = C.gCz; c.beginPath(); c.arc(18, 3, 2, 0, 7); c.arc(18, 13, 2, 0, 7); c.fill(); c.fillRect(17.5, 3, 1, 10); }],
       ["current / frame", function (c) { c.fillStyle = C.cur; c.fillRect(1, 1, 9, 14); c.fillStyle = "rgba(255,216,77,0.45)"; c.fillRect(12, 1, 9, 14); }],
@@ -1522,11 +1506,11 @@ footer summary { cursor: pointer; }
   function setGran(g) { G.gran = g === "frame" ? "frame" : "inst"; $("granSel").value = G.gran; views.forEach(function (v) { v.dirty = true; }); afterCursor(); }
   function setLabels(on) { G.showLabels = on; $("labelChk").checked = on; views.forEach(function (v) { v.dirty = true; }); writeHashSoon(); requestFrame(); }
   function zoomAll(f) { views.forEach(function (v) { v.zoom(f, null); }); requestFrame(); }
-  function jumpError() { var d = driver(); if (d.m.errI >= 0) { setPlaying(false); views.forEach(function (v) { v.follow = true; }); setCursor(d.m.errI, false); } }
+  function jumpError() { var d = driver(); if (d.m.errI >= 0) { setPlaying(false); views.forEach(function (v) { v.follow = true; }); setCursor(d.m.stepOfInst(d.m.errI), false); } }
   function bindControls() {
     $("startBtn").onclick = function () { setPlaying(false); setCursor(-1, false); };
-    $("endBtn").onclick = function () { setPlaying(false); setCursor(driver().m.N - 1, false); };
-    $("backBtn").onclick = function () { setPlaying(false); step(-1); };
+    $("endBtn").onclick = function () { setPlaying(false); setCursor(driver().m.S - 1, false); };
+    $("backBtn").onclick = function () { setPlaying(false); step(-1, G.gran, true); };
     $("fwdBtn").onclick = function () { setPlaying(false); step(1, G.gran, true); };
     $("playBtn").onclick = function () { setPlaying(!G.playing); };
     $("prevMoveBtn").onclick = function () { setPlaying(false); nextMove(-1); };
@@ -1557,11 +1541,11 @@ footer summary { cursor: pointer; }
       switch (e.key) {
         case " ": setPlaying(!G.playing); break;
         case "ArrowRight": setPlaying(false); fol(); step(1, e.shiftKey ? "frame" : G.gran, true); break;
-        case "ArrowLeft": setPlaying(false); fol(); step(-1, e.shiftKey ? "frame" : G.gran); break;
+        case "ArrowLeft": setPlaying(false); fol(); step(-1, e.shiftKey ? "frame" : G.gran, true); break;
         case "ArrowUp": setPlaying(false); fol(); nextMove(-1); break;
         case "ArrowDown": setPlaying(false); fol(); nextMove(1); break;
         case "Home": setPlaying(false); fol(); setCursor(-1, false); break;
-        case "End": setPlaying(false); fol(); setCursor(driver().m.N - 1, false); break;
+        case "End": setPlaying(false); fol(); setCursor(driver().m.S - 1, false); break;
         case "g": case "G": setGran(G.gran === "inst" ? "frame" : "inst"); break;
         case "l": case "L": setLabels(!G.showLabels); break;
         case "e": case "E": jumpError(); break;
@@ -1600,7 +1584,7 @@ footer summary { cursor: pointer; }
   arrange();
   if (HASH.p) setCursor(A.kAt(clamp(parseFloat(HASH.p) || 0, 0, 1)), false);
   if (CMP) setCompare(CMP);
-  if (HASH.play === "1" && driver().k < driver().m.N - 1) setPlaying(true);
+  if (HASH.play === "1" && driver().s < driver().m.S - 1) setPlaying(true);
   loadManifest();
   requestFrame();
   // a hash typed or followed by the user (replaceState never fires this): apply it by reloading
@@ -1609,15 +1593,18 @@ footer summary { cursor: pointer; }
   window.__setSpeed = setSpeed;
   window.__viz = {
     state: function () {
-      var v = views[0], m = v.m, mm = m.movesAt(v.k);
+      var v = views[0], m = v.m, mm = m.movesAtStep(v.s);
       return { k: v.k, N: m.N, M: m.M, m: mm, gran: G.gran, playing: G.playing, anim: !!v.anim, scrollX: v.scrollX, cw: v.cw,
         dist: m.cumDist[mm], depth: m.depthAt(v.k), cz: v.k >= 0 ? m.czUpTo[v.k] : 0, warn: m.cumWarn[mm], F: m.F,
         split: G.split, cmp: CMP, kB: views[1] ? views[1].k : null, NB: views[1] ? views[1].m.N : null,
-        distB: views[1] ? views[1].m.cumDist[views[1].m.movesAt(views[1].k)] : null, manifestLive: MAN_LIVE,
+        s: v.s, S: m.S, phase: v.phase, sB: views[1] ? views[1].s : null, SB: views[1] ? views[1].m.S : null, phaseB: views[1] ? views[1].phase : null,
+        distB: views[1] ? views[1].m.cumDist[views[1].m.movesAtStep(views[1].s)] : null, manifestLive: MAN_LIVE,
         name: NAME, label: LABEL, splitMsg: splitState.msg };
     },
-    set: function (i) { setCursor(i, false); },
-    pos: function () { var v = views[0]; return Array.prototype.slice.call(v.m.positionsAfter(v.m.movesAt(v.k))); },
+    set: function (i) { setCursor(driver().m.stepOfInst(i), false); },          // instruction i (a move: its step B)
+    setA: function (i) { setCursor(driver().m.firstStepOfInst(i), false); },     // a move's step A
+    setStep: function (st) { setCursor(st, false); },
+    pos: function () { var v = views[0]; return Array.prototype.slice.call(v.m.positionsAfter(v.m.movesAtStep(v.s))); },
     colOf: function (i) { return A.I.col[i]; },
     screenOfInst: function (i) { var v = views[0]; v.ensureVisible(i); v.dirty = true; requestFrame(); var rh = v.rowH(); return { x: v.colX(A.I.col[i]) + v.cw / 2, y: v.wireY(A.lo[i] < 0 ? 0 : A.lo[i], rh) }; },
     sizesOk: function () {
