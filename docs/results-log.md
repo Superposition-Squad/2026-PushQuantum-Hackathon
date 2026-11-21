@@ -152,6 +152,13 @@ positions) and kept only if cheaper; validator-rule replay before returning. `be
 +86.63 on the v5 set (20/20 valid, full mode); sanity_circuit_12 times out (postopt on large
 circuits), fix pending before it replaces the official portfolio.
 
+## ~23:05 UTC: blockingcz (partner) and solo
+
+| compiler | v5 leaderboard set | validity | commit |
+|---|---|---|---|
+| blockingcz (partner's notebook, extracted verbatim: S-conjugation, blocking-CZ matchings, 2-leaf hub sweep) | +90.48 | full 20/20, slowest compile 23 s | 84c1d6f |
+| solo (pq-solo, Opus 5.5, implements itself) | +90.11 (fast), bf8bc79 +89.94 full | full 20/20 (bf8bc79) | ed8ef89 |
+| **portfolio (blockingcz, solo, systolic_po)** | **+90.81** | full 20/20, slowest compile 65 s | this commit |
 portfolio_po rebuilt after the optimizer-optimizer size cutoff: **+86.63, full 33/33** (20 scored +
 13 sanity, sanity_circuit_12 no longer times out). Deeper postopt variants (beam / local search over
 per-layer configurations with free pair and storage sites) did not beat the gap-wise re-plan: the
