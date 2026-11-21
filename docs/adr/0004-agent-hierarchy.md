@@ -21,7 +21,7 @@ scores. Strong models are best spent on design and judgment, cheap fast models o
 - **Implementer** (agent `pq-implementer`, `opencode-go/deepseek-v4.1-flash#high`): writes and
   debugs code in the given worktree to the planner's spec and must report bench numbers.
 - At most 4 branches run at a time (8 cores; each bench run uses 2 workers).
-- Agent definitions live in `.opencode/agents/` in this repo, symlinked into
+- Agent definitions live in `.opencode/agents/` in this repo, **copied** (not symlinked: the config watcher does not follow symlinks, so edits were not picked up) into
   `/home/hackathon/.opencode/agents/` so the main session discovers them.
 
 ## Consequences
