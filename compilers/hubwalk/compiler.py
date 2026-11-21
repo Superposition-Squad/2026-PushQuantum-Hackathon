@@ -482,6 +482,74 @@ def plan_groups(blocks, hub):
     return groups
 
 
+def _partner_of(blk, hub):
+    return blk.v if blk.u == hub else blk.u
+
+
+def _phase_cost(phases):
+    hub = sum(1 for kind, _ in phases if kind != "non")
+    return 3 * hub + (len(phases) - hub)
+
+
+def plan_phases(blocks, hub):
+    """DAG-closed `phases` of same-type blocks (replaces `plan_groups` for hub circuits).
+
+    A phase keeps pulling in same-type blocks whose predecessors are already done or inside the
+    phase, so one conveyor pre-flush / one set of star rounds serves many more blocks. Each hub
+    phase is an antichain that touches every partner at most once (a conveyor pass). The priority
+    order that yields the cheapest phase count (3 per hub phase, 1 per non-hub phase) wins.
+    """
+    n = len(blocks)
+    gens = [_block_generator(b) for b in blocks]
+    preds = [
+        {i for i in range(j) if not _commute(blocks[i], gens[i], blocks[j], gens[j])}
+        for j in range(n)
+    ]
+    cats = [_category(blk, hub) for blk in blocks]
+    best = None
+    best_cost = None
+    for prio in (
+        ("hubZ", "hubY", "non"),
+        ("non", "hubZ", "hubY"),
+        ("hubY", "hubZ", "non"),
+        ("non", "hubY", "hubZ"),
+    ):
+        done: set[int] = set()
+        phases = []
+        while len(done) < n:
+            ready = [j for j in range(n) if j not in done and preds[j] <= done]
+            kind = next((c for c in prio if any(cats[j] == c for j in ready)), None)
+            if kind is None:  # pragma: no cover - lower-index preds make ready non-empty
+                kind = cats[ready[0]]
+            phase: list[int] = []
+            inph: set[int] = set()
+            partners: set[int] = set()
+            changed = True
+            while changed:
+                changed = False
+                for j in range(n):
+                    if j in done or j in inph or cats[j] != kind:
+                        continue
+                    if not preds[j] <= (done | inph):
+                        continue
+                    if kind != "non":
+                        p = _partner_of(blocks[j], hub)
+                        if p in partners:
+                            continue
+                        if any(not _commute(blocks[j], gens[j], blocks[i], gens[i]) for i in inph):
+                            continue
+                        partners.add(p)
+                    inph.add(j)
+                    phase.append(j)
+                    changed = True
+            done |= inph
+            phases.append((kind, [blocks[j] for j in sorted(phase)]))
+        cost = _phase_cost(phases)
+        if best_cost is None or cost < best_cost:
+            best, best_cost = phases, cost
+    return best
+
+
 # ---------------------------------------------------------------- layout
 
 
@@ -1288,7 +1356,7 @@ def _runs(items):
     return runs
 
 
-def _compile_lanes(circuit, items, lay, groups):
+def _compile_lanes(circuit, items, lay, plans):
     n = circuit.num_qubits
     st = _State(n, circuit.num_clbits)
     st.load(lay["home"])
@@ -1297,27 +1365,52 @@ def _compile_lanes(circuit, items, lay, groups):
     use_conveyor = lay.get("conveyor", True)
     measures = [(it[1], it[2]) for it in items if it[0] == "measure"]
 
-    def schedule(group_list):
-        for group in group_list:
-            if use_conveyor and all(hub in (b.u, b.v) for b in group):
-                if all(b.kind == "zz" and _mid_theta(b.mid) is not None for b in group):
-                    if mach.conveyor(group):
-                        continue
-            if (
-                all(hub not in (b.u, b.v) for b in group)
-                and group
-                and all(b.kind == "zz" and _mid_theta(b.mid) is not None for b in group)
-            ):
-                if mach.star_rounds(group):
-                    continue
-            mach.matching(group)
+    def is_starrable(blocks):
+        return (
+            bool(blocks)
+            and all(hub not in (b.u, b.v) for b in blocks)
+            and all(b.kind == "zz" and _mid_theta(b.mid) is not None for b in blocks)
+        )
 
-    todo = list(groups)
+    def schedule_non(blocks):
+        """A non-hub phase is not an antichain: execute ready-set antichains one round at a time."""
+        gens = [_block_generator(b) for b in blocks]
+        m = len(blocks)
+        preds = [
+            {i for i in range(j) if not _commute(blocks[i], gens[i], blocks[j], gens[j])}
+            for j in range(m)
+        ]
+        done: set[int] = set()
+        while len(done) < m:
+            ready = [j for j in range(m) if j not in done and preds[j] <= done]
+            chunk = [blocks[j] for j in sorted(ready)]
+            if not (is_starrable(chunk) and mach.star_rounds(chunk)):
+                mach.matching(chunk)
+            done |= set(ready)
+
+    def run_phase(kind, blocks):
+        if kind == "non":
+            schedule_non(blocks)
+            return
+        if kind in ("hubZ", "hubY"):
+            if use_conveyor and mach.conveyor(blocks):
+                return
+            # conveyor refused: matching needs antichains, so split the phase by ready sets
+            for group in plan_groups(blocks, hub):
+                mach.matching(group)
+            return
+        # a plain (antichain) group from `plan_groups` on a non-hub circuit
+        if is_starrable(blocks) and mach.star_rounds(blocks):
+            return
+        mach.matching(blocks)
+
+    todo = list(plans)
     idx = 0
     while idx < len(items):
         item = items[idx]
         if item[0] == "blk":
-            schedule(todo.pop(0) if todo else [])
+            for kind, blocks in (todo.pop(0) if todo else []):
+                run_phase(kind, blocks)
             while idx < len(items) and items[idx][0] == "blk":
                 idx += 1
             continue
@@ -1374,14 +1467,18 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
         blocks = [it[1] for it in items if it[0] == "blk"]
         runs = _runs(items)
         try:
-            groups = [plan_groups(run, hub) for run in runs]
+            if use_conveyor:
+                plans = [plan_phases(run, hub) for run in runs]
+            else:
+                plans = [[(None, g) for g in plan_groups(run, hub)] for run in runs]
         except Exception:
-            groups = None
-        if groups is not None:
-            lay = plan_layout(n, hub, blocks, [g for gs in groups for g in gs], use_conveyor)
+            plans = None
+        if plans is not None:
+            phase_groups = [g for run_plan in plans for _kind, g in run_plan]
+            lay = plan_layout(n, hub, blocks, phase_groups, use_conveyor)
             if lay is not None:
                 try:
-                    st = _compile_lanes(circuit, items, lay, groups)
+                    st = _compile_lanes(circuit, items, lay, plans)
                 except AssertionError:
                     if _DEBUG:
                         raise

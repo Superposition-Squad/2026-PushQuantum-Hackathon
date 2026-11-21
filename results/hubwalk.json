@@ -5,18 +5,18 @@
  "physics_check": true,
  "set": "metric",
  "filter": null,
- "timestamp": "2026-11-21T17:01:43",
- "elapsed_s": 33.7,
+ "timestamp": "2026-11-21T17:10:23",
+ "elapsed_s": 23.8,
  "summary": {
   "n": 36,
   "valid": true,
-  "distance": 48643.807,
+  "distance": 46136.655,
   "naive_distance": 276726.913,
-  "distance_improvement": 82.422,
-  "depth": 5311,
+  "distance_improvement": 83.328,
+  "depth": 5377,
   "naive_depth": 23676,
-  "depth_improvement": 77.568,
-  "score": 81.451,
+  "depth_improvement": 77.289,
+  "score": 82.12,
   "official": true,
   "families": {
    "hea": {
@@ -24,8 +24,8 @@
     "depth_improvement": 25.81
    },
    "ihva": {
-    "distance_improvement": 79.17,
-    "depth_improvement": 75.89
+    "distance_improvement": 80.72,
+    "depth_improvement": 75.39
    },
    "qaoa": {
     "distance_improvement": 88.35,
@@ -41,7 +41,7 @@
    "family": "hea",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.54,
+   "compile_s": 0.42,
    "metrics": {
     "num_moves": 52,
     "move_steps": 52,
@@ -52,7 +52,7 @@
     "spacing_warnings": 10
    },
    "equivalence": "equivalent_up_to_global_phase",
-   "wall_s": 0.97
+   "wall_s": 0.68
   },
   {
    "label": "metric_circuit_02",
@@ -60,7 +60,7 @@
    "family": "hea",
    "ok": true,
    "qubits": 12,
-   "compile_s": 1.1,
+   "compile_s": 0.43,
    "metrics": {
     "num_moves": 152,
     "move_steps": 152,
@@ -71,7 +71,7 @@
     "spacing_warnings": 22
    },
    "equivalence": "equivalent",
-   "wall_s": 2.76
+   "wall_s": 1.65
   },
   {
    "label": "metric_circuit_03",
@@ -79,7 +79,7 @@
    "family": "hea",
    "ok": true,
    "qubits": 20,
-   "compile_s": 1.63,
+   "compile_s": 0.63,
    "metrics": {
     "num_moves": 80,
     "move_steps": 78,
@@ -90,7 +90,7 @@
     "spacing_warnings": 10
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.66
+   "wall_s": 0.69
   },
   {
    "label": "metric_circuit_04",
@@ -98,7 +98,7 @@
    "family": "hea",
    "ok": true,
    "qubits": 20,
-   "compile_s": 1.28,
+   "compile_s": 0.68,
    "metrics": {
     "num_moves": 236,
     "move_steps": 230,
@@ -109,7 +109,7 @@
     "spacing_warnings": 22
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.34
+   "wall_s": 0.71
   },
   {
    "label": "metric_circuit_05",
@@ -117,7 +117,7 @@
    "family": "hea",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.23,
+   "compile_s": 0.63,
    "metrics": {
     "num_moves": 186,
     "move_steps": 186,
@@ -128,7 +128,7 @@
     "spacing_warnings": 8
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.28
+   "wall_s": 0.66
   },
   {
    "label": "metric_circuit_06",
@@ -136,7 +136,7 @@
    "family": "hea",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.59,
+   "compile_s": 1.04,
    "metrics": {
     "num_moves": 554,
     "move_steps": 554,
@@ -147,7 +147,7 @@
     "spacing_warnings": 20
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.68
+   "wall_s": 1.08
   },
   {
    "label": "metric_circuit_07",
@@ -155,18 +155,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.54,
+   "compile_s": 0.42,
    "metrics": {
-    "num_moves": 128,
-    "move_steps": 128,
-    "move_distance": 502.79974,
-    "move_time": 749.68172,
-    "depth": 57,
-    "num_operations": 252,
-    "spacing_warnings": 48
+    "num_moves": 96,
+    "move_steps": 96,
+    "move_distance": 387.478548,
+    "move_time": 612.195434,
+    "depth": 53,
+    "num_operations": 250,
+    "spacing_warnings": 44
    },
    "equivalence": "equivalent_up_to_global_phase",
-   "wall_s": 0.63
+   "wall_s": 0.45
   },
   {
    "label": "metric_circuit_08",
@@ -174,18 +174,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 1.14,
+   "compile_s": 0.63,
    "metrics": {
-    "num_moves": 373,
-    "move_steps": 373,
-    "move_distance": 1442.945175,
-    "move_time": 2225.4283,
-    "depth": 156,
-    "num_operations": 666,
-    "spacing_warnings": 142
+    "num_moves": 288,
+    "move_steps": 288,
+    "move_distance": 1140.806779,
+    "move_time": 1810.885775,
+    "depth": 155,
+    "num_operations": 656,
+    "spacing_warnings": 130
    },
    "equivalence": "equivalent_up_to_global_phase",
-   "wall_s": 1.45
+   "wall_s": 0.72
   },
   {
    "label": "metric_circuit_09",
@@ -193,18 +193,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.58,
+   "compile_s": 0.47,
    "metrics": {
-    "num_moves": 145,
-    "move_steps": 145,
-    "move_distance": 505.060467,
-    "move_time": 796.017306,
-    "depth": 67,
-    "num_operations": 253,
-    "spacing_warnings": 46
+    "num_moves": 142,
+    "move_steps": 142,
+    "move_distance": 472.969932,
+    "move_time": 743.877831,
+    "depth": 70,
+    "num_operations": 248,
+    "spacing_warnings": 44
    },
    "equivalence": "equivalent_up_to_global_phase",
-   "wall_s": 0.63
+   "wall_s": 0.49
   },
   {
    "label": "metric_circuit_10",
@@ -212,18 +212,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.9,
+   "compile_s": 0.53,
    "metrics": {
-    "num_moves": 417,
-    "move_steps": 417,
-    "move_distance": 1514.830201,
-    "move_time": 2410.964455,
-    "depth": 176,
-    "num_operations": 693,
-    "spacing_warnings": 154
+    "num_moves": 448,
+    "move_steps": 448,
+    "move_distance": 1528.941063,
+    "move_time": 2427.82531,
+    "depth": 199,
+    "num_operations": 687,
+    "spacing_warnings": 160
    },
    "equivalence": "equivalent_up_to_global_phase",
-   "wall_s": 1.23
+   "wall_s": 0.75
   },
   {
    "label": "metric_circuit_11",
@@ -231,18 +231,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.57,
+   "compile_s": 0.42,
    "metrics": {
-    "num_moves": 145,
-    "move_steps": 145,
-    "move_distance": 505.060467,
-    "move_time": 796.017306,
-    "depth": 60,
-    "num_operations": 235,
-    "spacing_warnings": 46
+    "num_moves": 142,
+    "move_steps": 142,
+    "move_distance": 472.969932,
+    "move_time": 743.877831,
+    "depth": 63,
+    "num_operations": 230,
+    "spacing_warnings": 44
    },
    "equivalence": "equivalent_up_to_global_phase",
-   "wall_s": 0.62
+   "wall_s": 0.46
   },
   {
    "label": "metric_circuit_12",
@@ -250,18 +250,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.88,
+   "compile_s": 0.59,
    "metrics": {
-    "num_moves": 417,
-    "move_steps": 417,
-    "move_distance": 1514.830201,
-    "move_time": 2410.964455,
-    "depth": 152,
-    "num_operations": 617,
-    "spacing_warnings": 154
+    "num_moves": 448,
+    "move_steps": 448,
+    "move_distance": 1528.941063,
+    "move_time": 2427.82531,
+    "depth": 170,
+    "num_operations": 611,
+    "spacing_warnings": 160
    },
    "equivalence": "equivalent_up_to_global_phase",
-   "wall_s": 0.98
+   "wall_s": 0.65
   },
   {
    "label": "metric_circuit_13",
@@ -269,18 +269,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.78,
+   "compile_s": 0.47,
    "metrics": {
-    "num_moves": 182,
-    "move_steps": 182,
-    "move_distance": 620.229885,
-    "move_time": 895.34308,
-    "depth": 85,
-    "num_operations": 430,
-    "spacing_warnings": 50
+    "num_moves": 137,
+    "move_steps": 137,
+    "move_distance": 433.877345,
+    "move_time": 653.908341,
+    "depth": 77,
+    "num_operations": 436,
+    "spacing_warnings": 54
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 0.82
+   "wall_s": 0.5
   },
   {
    "label": "metric_circuit_14",
@@ -288,18 +288,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.85,
+   "compile_s": 0.63,
    "metrics": {
-    "num_moves": 532,
-    "move_steps": 532,
-    "move_distance": 1760.366334,
-    "move_time": 2611.209719,
-    "depth": 210,
-    "num_operations": 1130,
-    "spacing_warnings": 168
+    "num_moves": 428,
+    "move_steps": 428,
+    "move_distance": 1340.484229,
+    "move_time": 2027.250833,
+    "depth": 207,
+    "num_operations": 1120,
+    "spacing_warnings": 148
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 0.93
+   "wall_s": 0.67
   },
   {
    "label": "metric_circuit_15",
@@ -307,18 +307,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.73,
+   "compile_s": 0.47,
    "metrics": {
-    "num_moves": 180,
-    "move_steps": 180,
-    "move_distance": 666.182746,
-    "move_time": 1063.227681,
-    "depth": 82,
-    "num_operations": 468,
-    "spacing_warnings": 76
+    "num_moves": 170,
+    "move_steps": 170,
+    "move_distance": 639.582657,
+    "move_time": 1014.946971,
+    "depth": 81,
+    "num_operations": 467,
+    "spacing_warnings": 80
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 0.77
+   "wall_s": 0.51
   },
   {
    "label": "metric_circuit_16",
@@ -326,18 +326,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.9,
+   "compile_s": 0.69,
    "metrics": {
-    "num_moves": 524,
-    "move_steps": 523,
-    "move_distance": 1904.848023,
-    "move_time": 2979.677698,
-    "depth": 219,
-    "num_operations": 1203,
-    "spacing_warnings": 202
+    "num_moves": 540,
+    "move_steps": 540,
+    "move_distance": 2123.01085,
+    "move_time": 3366.042497,
+    "depth": 216,
+    "num_operations": 1162,
+    "spacing_warnings": 292
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.04
+   "wall_s": 0.78
   },
   {
    "label": "metric_circuit_17",
@@ -345,18 +345,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.74,
+   "compile_s": 0.47,
    "metrics": {
-    "num_moves": 180,
-    "move_steps": 180,
-    "move_distance": 666.182746,
-    "move_time": 1063.227681,
+    "num_moves": 170,
+    "move_steps": 170,
+    "move_distance": 639.582657,
+    "move_time": 1014.946971,
     "depth": 75,
-    "num_operations": 437,
-    "spacing_warnings": 76
+    "num_operations": 436,
+    "spacing_warnings": 80
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 0.78
+   "wall_s": 0.49
   },
   {
    "label": "metric_circuit_18",
@@ -364,18 +364,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.9,
+   "compile_s": 0.68,
    "metrics": {
-    "num_moves": 524,
-    "move_steps": 523,
-    "move_distance": 1904.848023,
-    "move_time": 2979.677698,
-    "depth": 196,
-    "num_operations": 1072,
-    "spacing_warnings": 202
+    "num_moves": 540,
+    "move_steps": 540,
+    "move_distance": 2123.01085,
+    "move_time": 3366.042497,
+    "depth": 194,
+    "num_operations": 1031,
+    "spacing_warnings": 292
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.0
+   "wall_s": 0.74
   },
   {
    "label": "metric_circuit_19",
@@ -383,18 +383,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.16,
+   "compile_s": 1.13,
    "metrics": {
-    "num_moves": 441,
-    "move_steps": 440,
-    "move_distance": 1434.2778,
-    "move_time": 1912.279605,
-    "depth": 137,
-    "num_operations": 1292,
+    "num_moves": 350,
+    "move_steps": 348,
+    "move_distance": 1115.606997,
+    "move_time": 1516.015237,
+    "depth": 135,
+    "num_operations": 1288,
     "spacing_warnings": 86
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.26
+   "wall_s": 1.18
   },
   {
    "label": "metric_circuit_20",
@@ -402,18 +402,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 2.61,
+   "compile_s": 1.96,
    "metrics": {
-    "num_moves": 1437,
-    "move_steps": 1433,
-    "move_distance": 4348.744121,
-    "move_time": 5855.986564,
-    "depth": 393,
-    "num_operations": 3326,
-    "spacing_warnings": 256
+    "num_moves": 1063,
+    "move_steps": 1061,
+    "move_distance": 3481.17509,
+    "move_time": 4760.942264,
+    "depth": 419,
+    "num_operations": 3447,
+    "spacing_warnings": 260
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 2.88
+   "wall_s": 2.11
   },
   {
    "label": "metric_circuit_21",
@@ -421,18 +421,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.25,
+   "compile_s": 0.94,
    "metrics": {
-    "num_moves": 506,
-    "move_steps": 506,
-    "move_distance": 1911.23126,
-    "move_time": 2797.429561,
-    "depth": 155,
-    "num_operations": 1299,
-    "spacing_warnings": 150
+    "num_moves": 496,
+    "move_steps": 496,
+    "move_distance": 1907.648402,
+    "move_time": 2916.526753,
+    "depth": 166,
+    "num_operations": 1329,
+    "spacing_warnings": 196
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.38
+   "wall_s": 1.03
   },
   {
    "label": "metric_circuit_22",
@@ -440,18 +440,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 2.94,
+   "compile_s": 2.12,
    "metrics": {
-    "num_moves": 1560,
-    "move_steps": 1559,
-    "move_distance": 5352.370359,
-    "move_time": 7535.821681,
-    "depth": 448,
-    "num_operations": 3462,
-    "spacing_warnings": 370
+    "num_moves": 1378,
+    "move_steps": 1378,
+    "move_distance": 5033.761192,
+    "move_time": 7408.640377,
+    "depth": 442,
+    "num_operations": 3542,
+    "spacing_warnings": 460
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 3.15
+   "wall_s": 2.29
   },
   {
    "label": "metric_circuit_23",
@@ -459,18 +459,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.29,
+   "compile_s": 0.89,
    "metrics": {
-    "num_moves": 506,
-    "move_steps": 506,
-    "move_distance": 1911.23126,
-    "move_time": 2797.429561,
-    "depth": 144,
-    "num_operations": 1201,
-    "spacing_warnings": 150
+    "num_moves": 496,
+    "move_steps": 496,
+    "move_distance": 1907.648402,
+    "move_time": 2916.526753,
+    "depth": 152,
+    "num_operations": 1231,
+    "spacing_warnings": 196
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.37
+   "wall_s": 0.98
   },
   {
    "label": "metric_circuit_24",
@@ -478,18 +478,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 3.04,
+   "compile_s": 1.88,
    "metrics": {
-    "num_moves": 1560,
-    "move_steps": 1559,
-    "move_distance": 5352.370359,
-    "move_time": 7535.821681,
-    "depth": 395,
-    "num_operations": 3070,
-    "spacing_warnings": 370
+    "num_moves": 1378,
+    "move_steps": 1378,
+    "move_distance": 5033.761192,
+    "move_time": 7408.640377,
+    "depth": 399,
+    "num_operations": 3150,
+    "spacing_warnings": 460
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 3.28
+   "wall_s": 2.12
   },
   {
    "label": "metric_circuit_25",
@@ -497,7 +497,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.57,
+   "compile_s": 0.42,
    "metrics": {
     "num_moves": 76,
     "move_steps": 76,
@@ -508,7 +508,7 @@
     "spacing_warnings": 26
    },
    "equivalence": "equivalent_up_to_global_phase",
-   "wall_s": 0.6
+   "wall_s": 0.45
   },
   {
    "label": "metric_circuit_26",
@@ -516,7 +516,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.53,
+   "compile_s": 0.47,
    "metrics": {
     "num_moves": 228,
     "move_steps": 228,
@@ -527,7 +527,7 @@
     "spacing_warnings": 78
    },
    "equivalence": "equivalent_up_to_global_phase",
-   "wall_s": 5.71
+   "wall_s": 3.94
   },
   {
    "label": "metric_circuit_27",
@@ -535,7 +535,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.78,
+   "compile_s": 0.68,
    "metrics": {
     "num_moves": 76,
     "move_steps": 76,
@@ -546,7 +546,7 @@
     "spacing_warnings": 26
    },
    "equivalence": "equivalent",
-   "wall_s": 3.67
+   "wall_s": 2.32
   },
   {
    "label": "metric_circuit_28",
@@ -554,7 +554,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.73,
+   "compile_s": 0.88,
    "metrics": {
     "num_moves": 228,
     "move_steps": 228,
@@ -565,7 +565,7 @@
     "spacing_warnings": 78
    },
    "equivalence": "equivalent",
-   "wall_s": 8.48
+   "wall_s": 6.45
   },
   {
    "label": "metric_circuit_29",
@@ -573,7 +573,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.68,
+   "compile_s": 0.88,
    "metrics": {
     "num_moves": 118,
     "move_steps": 118,
@@ -584,7 +584,7 @@
     "spacing_warnings": 24
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 0.7
+   "wall_s": 0.92
   },
   {
    "label": "metric_circuit_30",
@@ -592,7 +592,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.9,
+   "compile_s": 1.01,
    "metrics": {
     "num_moves": 354,
     "move_steps": 354,
@@ -603,7 +603,7 @@
     "spacing_warnings": 72
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 0.99
+   "wall_s": 1.08
   },
   {
    "label": "metric_circuit_31",
@@ -630,7 +630,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 20,
-   "compile_s": 2.26,
+   "compile_s": 1.25,
    "metrics": {
     "num_moves": 354,
     "move_steps": 354,
@@ -641,7 +641,7 @@
     "spacing_warnings": 72
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 2.35
+   "wall_s": 1.38
   },
   {
    "label": "metric_circuit_33",
@@ -649,7 +649,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.41,
+   "compile_s": 1.24,
    "metrics": {
     "num_moves": 311,
     "move_steps": 310,
@@ -660,7 +660,7 @@
     "spacing_warnings": 36
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.59
+   "wall_s": 1.32
   },
   {
    "label": "metric_circuit_34",
@@ -668,7 +668,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 50,
-   "compile_s": 2.4,
+   "compile_s": 1.89,
    "metrics": {
     "num_moves": 933,
     "move_steps": 930,
@@ -679,7 +679,7 @@
     "spacing_warnings": 108
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 2.7
+   "wall_s": 2.05
   },
   {
    "label": "metric_circuit_35",
@@ -687,7 +687,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.29,
+   "compile_s": 0.84,
    "metrics": {
     "num_moves": 311,
     "move_steps": 310,
@@ -698,7 +698,7 @@
     "spacing_warnings": 36
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 1.35
+   "wall_s": 0.89
   },
   {
    "label": "metric_circuit_36",
@@ -706,7 +706,7 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 50,
-   "compile_s": 2.36,
+   "compile_s": 2.02,
    "metrics": {
     "num_moves": 933,
     "move_steps": 930,
@@ -717,7 +717,7 @@
     "spacing_warnings": 108
    },
    "equivalence": "interaction pairs only (> 19 qubits)",
-   "wall_s": 2.49
+   "wall_s": 2.13
   }
  ]
 }
