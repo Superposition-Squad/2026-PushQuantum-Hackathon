@@ -719,7 +719,7 @@ def _pair_of_site(site, ent):
     return (y, ex0 + 2 * ((x - ex0) // 2))
 
 
-def plan_round_sites(pairs, pos, occupancy, ent):
+def plan_round_sites(pairs, pos, occupancy, ent, future=None, home=None):
     """Assign this round's pairs to interaction sites.
 
     Returns `(targets, ordered)` with `targets[q]` the atom site qubit q must occupy and `ordered` a
@@ -759,6 +759,14 @@ def plan_round_sites(pairs, pos, occupancy, ent):
                     continue
                 da, db = _dist(pos[a], left, ent), _dist(pos[b], right, ent)
                 cost = max(da, db) + 0.001 * (da + db)
+                if future is not None:
+                    # An atom that stays parked here for several more rounds makes every one of its
+                    # upcoming partners travel to the opposite slot, so steer its site towards the
+                    # middle of where those partners live (the hub ends up in a central column).
+                    for x, opposite in ((a, right), (b, left)):
+                        later = future(x)
+                        if later:
+                            cost += sum(_dist(home[w], opposite, ent) for w in later) / len(later)
                 if best is None or cost < best[0] - 1e-12:
                     best = (cost, site, a, b)
         if best is None:
@@ -868,8 +876,27 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
         else:
             next_pairs.append([])
             blocked_between.append(set())
+    partner_in = []
+    for i in round_at:
+        table = {}
+        for x in phases[i][1]:
+            u, v = items[x].qubits
+            table[u] = v
+            table[v] = u
+        partner_in.append(table)
+
+    def future_partners(round_index, qubit, cap=16):
+        """Partners of `qubit` in the rounds it can stay parked for, from `round_index` on."""
+        out = []
+        j = round_index
+        while len(out) < cap and j + 1 < len(round_at):
+            if qubit in blocked_between[j] or qubit not in partner_in[j + 1]:
+                break
+            out.append(partner_in[j + 1][qubit])
+            j += 1
+        return out
+
     round_no = 0
-    parked: dict[int, Site] = {}
 
     for kind, idxs in phases:
         if kind == "1q":
@@ -890,7 +917,9 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
             continue
 
         pairs = [items[idx].qubits for idx in idxs]
-        targets, ordered = plan_round_sites(pairs, pos, occupancy, ent)
+        targets, ordered = plan_round_sites(
+            pairs, pos, occupancy, ent,
+            future=lambda q, r=round_no: future_partners(r, q), home=loading)
         trips = [(q, t) for q, t in targets.items() if pos[q] != t]
         up = merge_move_records(_single_moves(trips, pos), occupancy)
         _apply(out, up, pos, occupancy, ent)

@@ -606,7 +606,7 @@ def _partition_group(row, atoms, occupancy):
         if cur:
             _q, src, dst = atom
             _pq, psrc, pdst = cur[-1]
-            if dst <= pdst or _has_ghost(row, psrc + 1, src, occupancy, {a[0] for a in cur}):
+            if dst <= pdst or _has_ghost(row, psrc + 1, src - 1, occupancy, {a[0] for a in cur}):
                 runs.append(cur)
                 cur = []
         cur.append(atom)
