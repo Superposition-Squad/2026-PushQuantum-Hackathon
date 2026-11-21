@@ -19,7 +19,7 @@ Compilers for planqc's zoned neutral-atom machine: map a circuit to `rx`/`rz` (s
 | `systolic` | +85.34 | storage homes, hub stays in the zone, row rotation, longest-path layout |
 | `optimizer-optimizer` | +81.79 | pulse-beam planner: beam search over pulses; atoms live in storage, block drops; wins most 12q iHVA |
 | `portfolio` (official, `submission/portfolio.py`) | +85.50 | systolic, hubstream, rectbatch, gates |
-| `portfolio_po` | +86.63 (full 20/20; sanity 12 times out, fix pending) | best of all `*_po` components per circuit |
+| `portfolio_po` | +86.63 (full 33/33 incl. sanity) | best of all `*_po` components per circuit |
 
 History and per-round numbers: [docs/results-log.md](docs/results-log.md).
 

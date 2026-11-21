@@ -151,3 +151,9 @@ positions) and kept only if cheaper; validator-rule replay before returning. `be
 `compilers/pulsebeam` is now `compilers/optimizer-optimizer` (team naming); `portfolio_po` full run:
 +86.63 on the v5 set (20/20 valid, full mode); sanity_circuit_12 times out (postopt on large
 circuits), fix pending before it replaces the official portfolio.
+
+portfolio_po rebuilt after the optimizer-optimizer size cutoff: **+86.63, full 33/33** (20 scored +
+13 sanity, sanity_circuit_12 no longer times out). Deeper postopt variants (beam / local search over
+per-layer configurations with free pair and storage sites) did not beat the gap-wise re-plan: the
+remaining waste is systolic's fixed, scattered storage homes (single-atom drops/lifts), which a
+per-gap optimizer cannot remove without re-planning the storage choreography over many layers.
