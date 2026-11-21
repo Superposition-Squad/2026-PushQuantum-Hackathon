@@ -324,52 +324,50 @@ class Machine:
         self.depth = [0] * n  # rough per-qubit depth estimate (for cost models)
 
     # -- moves
-    def move(self, mapping):
-        """mapping: qubit -> target site. Emits one legal rectangle move (validator rules)."""
-        mapping = dict(mapping)
-        if not mapping:
-            return
-        src = {q: self.pos[q] for q in mapping}
-        ys = sorted({s[1] for s in src.values()})
-        xs = sorted({s[0] for s in src.values()})
+    def _plan(self, mapping):
+        """Validator-exact legality of one rectangle move; returns (rows, cols, new_rows, new_cols, d)."""
+        pos, occ = self.pos, self.occ
+        src = {q: pos[q] for q in mapping}
         rmap, cmap = {}, {}
         for q, (x, y) in src.items():
             tx, ty = mapping[q]
             if rmap.setdefault(y, ty) != ty or cmap.setdefault(x, tx) != tx:
                 raise Illegal("inconsistent line map")
-        if any(rmap[a] >= rmap[b] for a, b in itertools.pairwise(ys)):
+        ys = sorted(rmap)
+        xs = sorted(cmap)
+        new_rows = [rmap[y] for y in ys]
+        new_cols = [cmap[x] for x in xs]
+        if any(a >= b for a, b in itertools.pairwise(new_rows)):
             raise Illegal("row order")
-        if any(cmap[a] >= cmap[b] for a, b in itertools.pairwise(xs)):
+        if any(a >= b for a, b in itertools.pairwise(new_cols)):
             raise Illegal("col order")
-        rows = list(range(ys[0], ys[-1] + 1))
-        cols = list(range(xs[0], xs[-1] + 1))
-        # ghosts: every atom on the rectangle must be listed
-        for (x, y), q in self.occ.items():
-            if ys[0] <= y <= ys[-1] and xs[0] <= x <= xs[-1] and q not in mapping:
-                if y in rmap and x in cmap:
-                    raise Illegal(f"ghost {q}")
-                if len(ys) == len(rows) and len(xs) == len(cols):
-                    raise Illegal(f"ghost {q}")
-                # on an empty line that is squeezed out: picked up anyway (validator selects it)
-                raise Illegal(f"ghost {q} (squeeze)")
+        y0, y1, x0, x1 = ys[0], ys[-1], xs[0], xs[-1]
+        for (x, y), q in occ.items():
+            if y0 <= y <= y1 and x0 <= x <= x1 and q not in mapping:
+                raise Illegal(f"ghost {q}")
+        z0 = None
         for q, d in mapping.items():
             if not (0 <= d[0] <= 9 and 0 <= d[1] <= 19):
                 raise Illegal("target outside")
-            o = self.occ.get(d)
+            o = occ.get(d)
             if o is not None and o not in mapping:
                 raise Illegal("deposit on occupied")
-        if len({_zone(s[1]) for s in src.values()}) > 1 or len({_zone(d[1]) for d in mapping.values()}) > 1:
+        if len({s[1] >= 10 for s in src.values()}) > 1 or len({d[1] >= 10 for d in mapping.values()}) > 1:
             raise Illegal("zone")
-        new_rows = [rmap[y] for y in ys]
-        new_cols = [cmap[x] for x in xs]
-        if len(set(new_rows)) != len(new_rows) or len(set(new_cols)) != len(new_cols):
-            raise Illegal("dup")
         d = max(_dist(src[q], mapping[q]) for q in mapping)
+        return list(range(y0, y1 + 1)), list(range(x0, x1 + 1)), new_rows, new_cols, d
+
+    def move(self, mapping):
+        """mapping: qubit -> target site. Emits one legal rectangle move (validator rules)."""
+        if not mapping:
+            return
+        rows, cols, new_rows, new_cols, d = self._plan(mapping)
         if d == 0:
             return
         qs = sorted(mapping)
         if self.emit:
             _move(self.qc, qs, rows, cols, new_rows, new_cols)
+        src = {q: self.pos[q] for q in qs}
         for q in qs:
             del self.occ[src[q]]
         for q in qs:
@@ -380,18 +378,10 @@ class Machine:
 
     def can_move(self, mapping):
         try:
-            self._check(mapping)
+            self._plan(mapping)
             return True
         except Illegal:
             return False
-
-    def _check(self, mapping):
-        saved = self.emit, self.qc, self.dist, self.nmoves, dict(self.pos), dict(self.occ)
-        self.emit = False
-        try:
-            self.move(mapping)
-        finally:
-            self.emit, self.qc, self.dist, self.nmoves, self.pos, self.occ = saved
 
     # -- gates
     def apply1(self, q, u):
@@ -616,27 +606,24 @@ class Executor:
                 o = m.occ.get(d)
                 if o is not None and o not in pending:
                     raise Illegal("relocation target held by a fixed atom")
-            # atoms whose target is free now, grouped by displacement vector
+            # atoms whose target is free now; greedy agglomeration into legal rectangle moves
             free_now = [q for q in pending if pending[q] not in m.occ]
-            groups = {}
-            for q in free_now:
-                s, d = m.pos[q], pending[q]
-                groups.setdefault((d[0] - s[0], d[1] - s[1]), []).append(q)
-            for vec in sorted(groups, key=lambda v: (-len(groups[v]), v)):
-                qs = [q for q in groups[vec] if q in pending and pending[q] not in m.occ]
-                qs.sort(key=lambda q: (m.pos[q][1], m.pos[q][0]))
-                while qs:
-                    sel = {qs[0]: pending[qs[0]]}
-                    for q in qs[1:]:
-                        trial = dict(sel)
-                        trial[q] = pending[q]
-                        if m.can_move(trial):
-                            sel = trial
-                    m.move(sel)
-                    for q in sel:
-                        del pending[q]
-                    qs = [q for q in qs if q in pending]
-                    progress = True
+            free_now.sort(key=lambda q: (-_dist(m.pos[q], pending[q]), q))
+            while free_now:
+                seed = free_now[0]
+                dseed = _dist(m.pos[seed], pending[seed])
+                sel = {seed: pending[seed]}
+                for q in free_now[1:]:
+                    if _dist(m.pos[q], pending[q]) > dseed + 1e-9:
+                        continue
+                    sel[q] = pending[q]
+                    if not m.can_move(sel):
+                        del sel[q]
+                m.move(sel)
+                for q in sel:
+                    del pending[q]
+                free_now = [q for q in free_now if q not in sel]
+                progress = True
             if not progress:
                 q = min(pending)
                 tmp = self.nearest_free(m.pos[q], avoid=reserved)
@@ -659,6 +646,7 @@ class Executor:
 
     LOOK = 0.35
     EVICT = 1.5
+    SHIFTS = (0, 1, 2)
     DUMMY_OFF = False
 
     def _lookpos(self, q):
@@ -680,34 +668,45 @@ class Executor:
                 w = j2 - j1 + 1
                 hmin = math.ceil(P / w)
                 for h in (hmin, hmin + 1):
-                    if 1 <= h <= 10 - 0 and h <= 9:
-                        rects.append((10 - h, j1, j2))
+                    for sh in self.SHIFTS:
+                        if 1 <= h and h + sh <= 9:
+                            rects.append((10 - h - sh, 9 - sh, j1, j2))
         occ_free = None
         best = None
         occ = m.occ
         EV = self.EVICT
         nonmem = lambda site: site in occ and occ[site] not in members
-        for a, j1, j2 in rects:
-            slots = [(j, y) for y in range(a, 10) for j in range(j1, j2 + 1)]
-            pen = [EV * (nonmem((2 * j, y)) + nonmem((2 * j + 1, y))) for j, y in slots]
-            cost = np.zeros((P, len(slots)))
-            orient = np.zeros((P, len(slots)), dtype=bool)
-            for i, b in enumerate(blks):
-                pa, pb = m.pos[b.c], m.pos[b.t]
-                la, lb = look[b.c], look[b.t]
-                for k, (j, y) in enumerate(slots):
-                    L, R = (2 * j, y), (2 * j + 1, y)
-                    c1 = _dist(pa, L) + _dist(pb, R)
-                    c2 = _dist(pa, R) + _dist(pb, L)
-                    if lam:
-                        if la is not None:
-                            c1 += lam * _dist(L, la)
-                            c2 += lam * _dist(R, la)
-                        if lb is not None:
-                            c1 += lam * _dist(R, lb)
-                            c2 += lam * _dist(L, lb)
-                    cost[i, k] = min(c1, c2) + pen[k]
-                    orient[i, k] = c2 < c1
+        # all 50 storage pair slots: index y*5 + j
+        Lx = np.array([2 * j for y in range(10) for j in range(5)], dtype=float)
+        Ly = np.array([y for y in range(10) for j in range(5)], dtype=float)
+        Rx = Lx + 1
+        PA = np.array([m.pos[b.c] for b in blks], dtype=float)
+        PB = np.array([m.pos[b.t] for b in blks], dtype=float)
+
+        def dd(P2, X, Y):
+            return np.hypot(P2[:, :1] - X[None, :], P2[:, 1:] - Y[None, :])
+
+        C1 = dd(PA, Lx, Ly) + dd(PB, Rx, Ly)
+        C2 = dd(PA, Rx, Ly) + dd(PB, Lx, Ly)
+        if lam:
+            for qs, sideA in ((PA, True), (PB, False)):
+                pass
+            LA = np.array([look[b.c] if look[b.c] is not None else (np.nan, np.nan) for b in blks], dtype=float)
+            LB = np.array([look[b.t] if look[b.t] is not None else (np.nan, np.nan) for b in blks], dtype=float)
+            aL = np.nan_to_num(dd(LA, Lx, Ly))
+            aR = np.nan_to_num(dd(LA, Rx, Ly))
+            bL = np.nan_to_num(dd(LB, Lx, Ly))
+            bR = np.nan_to_num(dd(LB, Rx, Ly))
+            C1 = C1 + lam * (aL + bR)
+            C2 = C2 + lam * (aR + bL)
+        PEN = np.array([EV * (nonmem((2 * j, y)) + nonmem((2 * j + 1, y))) for y in range(10) for j in range(5)])
+        CM = np.minimum(C1, C2) + PEN[None, :]
+        OR = C2 < C1
+        for a, bb, j1, j2 in rects:
+            slots = [(j, y) for y in range(a, bb + 1) for j in range(j1, j2 + 1)]
+            idx = [y * 5 + j for j, y in slots]
+            cost = CM[:, idx]
+            orient = OR[:, idx]
             ri, ci = linear_sum_assignment(cost)
             tot = float(cost[ri, ci].sum())
             used = set(ci.tolist())
@@ -723,8 +722,8 @@ class Executor:
             h = 10 - a
             tot += 4 * math.hypot(h, 0.7)
             if best is None or tot < best[0] - 1e-9:
-                best = (tot, a, j1, j2, slots, ri, ci, orient)
-        _, a, j1, j2, slots, ri, ci, orient = best
+                best = (tot, a, bb, j1, j2, slots, ri, ci, orient)
+        _, a, bb, j1, j2, slots, ri, ci, orient = best
         h = 10 - a
         targets = {}
         for i, k in zip(ri, ci):
@@ -737,7 +736,7 @@ class Executor:
                 targets[b.c], targets[b.t] = L, R
         reserved = set(targets.values())
         x1, x2 = 2 * j1, 2 * j2 + 1
-        inside = lambda s: a <= s[1] <= 9 and x1 <= s[0] <= x2
+        inside = lambda s: a <= s[1] <= bb and x1 <= s[0] <= x2
         dummies = []
         used_slots = {slots[k] for k in ci.tolist()}
         for j, y in slots:
@@ -748,7 +747,7 @@ class Executor:
                 dummies.append((ql, qr))
         keep = {q for pr in dummies for q in pr}
         for q in sorted(q for q, s in m.pos.items() if inside(s) and q not in members and q not in keep):
-            t = self.nearest_free(m.pos[q], avoid=reserved | {(x, y) for x in range(x1, x2 + 1) for y in range(a, 10)})
+            t = self.nearest_free(m.pos[q], avoid=reserved | {(x, y) for x in range(x1, x2 + 1) for y in range(a, bb + 1)})
             reserved.add(t)
             targets[q] = t
         self.relocate(targets)
