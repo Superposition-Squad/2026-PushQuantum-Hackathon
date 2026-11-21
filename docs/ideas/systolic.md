@@ -3,7 +3,49 @@
 - Branch: idea/systolic · Worktree: /home/hackathon/challenge-wt/systolic
 - Base: main f462cf5 (+ bounds d0ed179); compiler forked from `compilers/zonedwell/compiler.py`
   (the 50q winner, valid on all 49 circuits)
-- Status: in progress
+- Status: done. Final: **+85.34 % on the v5 leaderboard set** (validator v5.0.0, `idle` rule), commit `73eb5a6` (merged with main v5.0.0 at `6da6496`). See "Final verdict" right below.
+
+## Final verdict (validator v5.0.0, scored set = 18 iHVA + 12q HEA)
+
+**+85.34 %** official on the 20-circuit v5 leaderboard set (distance +86.88 %, depth +79.16 %), bench
+`--mode full` 20/20, `--set sanity --mode full` 13/13, `idle`/zone/pair rules 0 violations on all
+49 circuits under a direct replay with the validator, exact Clifford-tableau check equal on 50q
+iHVA 19–22 (two angle draws each), deterministic, max compile time 25 s. Main's portfolio
+(hubstream, rectbatch, gates) scores 82.01 on the same set; **best of portfolio + systolic ≈ 85.50**.
+Systolic wins 12 of 20 scored circuits, including every 20q/50q iHVA circuit except 50q tree p1/p3
+(21, 22), where the portfolio is ahead by 0.02 and 0.09 points. The largest wins are 50q stagger p3
+(9178 → 5386 distance, +1.84 points) and stagger p1 (+0.67).
+
+The design went through three rule regimes in one afternoon:
+1. **v0 rules (zone dwelling):** lanes of lone atoms in the zone, a vertical conveyor for the hub,
+   and dips. Best result +89.01 % (36 circuits, `4eea41c`).
+2. **ADR-0010 (no multi-row move across the zone boundary):** zone-only dips and a hub walk instead of
+   the conveyor. It cost only −0.25.
+3. **Validator v1.0.0/v5.0.0 `idle` rule (every atom in the zone must be in a cz in every cz
+   segment):** zone dwelling is dead. Storage-home redesign: homes are packed in storage rows
+   10−R..9 and the zone holds only the current pairs. No dips are needed (1q gates are free at home).
+   Matching blocks lift both atoms, pulse, send the target to the nearest free storage site for its
+   rx while the control waits alone (legal: no cz in that segment), then lift it back and pulse again.
+   The hub stream keeps the hub in the zone and lifts one partner per pulse, with storage-row rotation
+   so that partners always launch from row 9 (cost R+1 per batch, and the arrangement is restored
+   after R batches). Placement lifts whole home rows rigidly where blocks share rows.
+
+What carried over through all regimes, and should go to other compilers:
+- **Lookahead ready-set scheduling** (pick the ready category maximising
+  `|group| + 2·|ready after the step|`; note that this *penalises* large groups): +0.6 on iHVA under
+  v0 rules. The single biggest lever this branch found.
+- **Real-cost multi-start** over (schedule policy × layout), deterministic budget by circuit size.
+- **Validator-exact rectangle batcher** with fixed-point members and ADR-0010 / single-zone checks.
+- **Exact Clifford-tableau equivalence check** at 50q (`compilers/systolic/cliff_check.py`).
+
+What did not pay off (numbers further down): windows/super-rounds (three variants), direct
+transitions between matchings, pre-applying the next round's gates in the current dip, ride-along
+flushes on conveyor slides, annealing on the layout proxy, hub walk vs conveyor (pre-ADR-0010).
+
+Next step: at 50q iHVA p3, ~67 % of the distance is matching lifts/returns, ~26 % mid round trips,
+~21 % the hub stream. The remaining structural idea is per-round re-homing (pay one storage
+permutation so that the next round lifts rigidly), i.e. a real sorting network in storage, which
+the `idle` rule now makes the natural "systolic" design.
 
 ## Hypothesis
 
@@ -200,7 +242,7 @@ seeds; HEA 20q/50q → `zig0`. On 50q QAOA p3 the placement is 444 single-atom m
 zonedwell r1) plus 78 runs of 2–3 and 54 of 4–9; the run-merge fires on most matchings of 20q/12q
 (54 opportunities) but rarely wins on 50q, where the lane columns are too dense for long runs.
 
-## Verdict
+## Verdict (historical, pre-ADR-0010, invalid under validator v1.0.0+)
 
 **+88.57 %** (distance +90.50 %, depth +80.82 %) at `60279cd` (phase A: +88.01 % at `552bcb4`, up +0.49 pts from the re-seeded base
 (+87.52): 36/36 metric `--mode full`, 13/13 sanity `--mode full`, and the exact Clifford-tableau
@@ -369,3 +411,41 @@ iHVA.
 Reduced-set score (`/tmp/sy/rport.py`): **84.11 → 85.34**. Full metric +84.00 (distance 40 980.2,
 depth 4911). Validity: full 36/36, sanity 13/13, v1.0.0 replay 0 violations on all 49, Clifford
 tableaux equal on 19–22/33–36, deterministic, max compile 21.6 s CPU (50q QAOA p3).
+
+## Planner experiments (scratch, fast mode, all 36 circuits)
+
+Experiments on zonedwell r1 that did not help:
+- ASAP antichain scheduling (26 groups instead of 57 on 50q tree p3): same cost.
+- Conveyor slides as `cols 0..lane` rectangles ("ride-along") used as free storage visits for pending
+  1q flushes: 48 548 vs 48 550 distance. The expensive flushes are the next block's pre-gates.
+- Lane visiting order by hub position: −0.07.
+- Simulated annealing on zonedwell's layout proxy: proxy better, real −0.37. The proxy is saturated.
+
+On 9e27b23:
+
+| variant | score | note |
+|---|---|---|
+| 9e27b23 | +88.01 | phase A |
+| + role-aware target (`_pick_targ`: the atom whose pending gates cancel becomes the target) | +88.07 | iHVA depth |
+| + hub walk instead of conveyor when cheaper | +88.08 | rarely chosen; dip depth dominates both |
+| + pre-apply next matching's pre-gates in the current mid dip | iHVA broke, QAOA ±0 | QAOA flushes are role switches (target→control), not pre-gates |
+| schedule: non-first / largest-first / ASAP-alt | +88.03 / +88.22 / +88.09 | per-circuit best of {non, ASAP-alt} = 88.48 |
+| **schedule: lookahead** (pick the ready category maximising `ready_c + W·newly_ready`) W=0.5/1/2/3 | +88.32 / +88.41 / **+88.64** / +88.64 | iHVA only; conveyor on tree p3 846 → 476; per-circuit best of {W=0.5, W=2} = 88.70 |
+| lookahead + flush-aware placement cost | +88.64 | no change |
+| lookahead + windows (all / tails ≤3 / ≤1 blocks) | +88.53 / +88.53 / +88.59 | windows lose again |
+
+Greedy matchings already reach Δ rounds per group (118 = Σ max degree on 50q tree p3).
+
+## Rule changes during the session
+
+1. ADR-0010 (≈19:40 UTC): a multi-row move must stay in one zone. The lane conveyor and the old
+   dips (rows 10..19 → 10−d..19−d) broke it. Fix (c47a22e): dips move only zone rows 10..9+d into
+   storage rows 10−d..9; zone switches move only the L lane rows; a hub walk with one shared dip
+   replaces the conveyor; the batcher refuses spanning groups; `_State.move` asserts the rule.
+   Cost −0.25. The walk optimisations (1d7aeeb, 4eea41c) took it to +89.01.
+   The compliant portfolio without systolic was 82.23 %; with systolic 4eea41c it is ~89.23 %.
+2. Validator v1.0.0 `idle` rule (≈19:45 UTC): every atom in the entangling zone must be in a cz in
+   every cz segment. This kills zone dwelling (lone atoms on pairs) and the hub walk over parked
+   partners. Redesign: storage home, the zone holds only the current pairs; no dips are needed (1q
+   gates are free when atoms are home); the hub is streamed (it stays in the zone, and partners are
+   lifted one per pulse).
