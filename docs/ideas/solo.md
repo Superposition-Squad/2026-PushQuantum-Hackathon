@@ -12,6 +12,18 @@ swapped form found by exhaustive search over short Clifford words: rotor c gets 
 before / inverse after, the hub gets `rz(pi/2) rx(pi/2)` / inverse (one `rx` per hub role switch
 in steady state). The old frame ("R", below) and an H-swapped variant stay as search options.
 
+**Special angles (exact).** th = s*pi/2 (mod 2pi) blocks are Clifford: in the S-frame
+exp(-i s pi/4 Z_c X_t) = (I x h) . cz . (S^s x S^s) . (I x h) (global phase), i.e. ONE pulse with c
+getting S^s (diagonal, stays pending) and t getting h then S^s before / h after; no mid rotation.
+Rounds split such blocks into a single-pulse sub-round (2 band moves, no dummies); hub batches of
+them need a single pass (hub-as-target: batch-level h on the hub makes every per-block hub gate
+diagonal). th = pi (mod 2pi) is Z_c X_t: local Paulis, no cz. Only the S-frame uses these forms;
+the other frames fall back to the generic form. All 158 special blocks of the scored set are in
+the six tree_warm circuits (every non-zero block there is +-pi/2): 12q 63/22 -> 45/15, 20q 128/32 ->
+83/21, 50q 442/72 -> 262/41 (+0.39 points). The optional triangle parity network was skipped: in
+the band machine the saved cz would need a pulse ordering with mid rotations on two different
+qubits, for a small expected gain.
+
 **Gates (frame "R").** Each iHVA block `rx(pi/2)_t cx(c,t) rz(th)_t cx(c,t) rx(-pi/2)_t` is
 exp(-i th/2 Z_c M_t), realised as `t: rx(pi/2), h, [cz], rx(th), [cz], h, rx(-pi/2)` (normal form,
 rotor = t) or `c: h, [cz], rx(th), [cz], h; t: rx(pi/2), [cz], -, [cz], rx(-pi/2)` (swapped form,
@@ -73,13 +85,17 @@ portfolio covers HEA).
 | dummies restricted to input pairs + guard | 3a… | +89.80 (full, 20/20) | portfolio_po + solo est. 90.37 |
 | + layouts, partial rotation, simulated plans, pruned candidates | ed8ef89 | +90.11 (fast) | |
 | + gravity hub strategy, S-frame | | +90.36 (fast) | |
-| + HEA path | 8f5366d | **+90.86 (full, 20/20)** | portfolio_po + solo est. **90.91**; solo wins 18/20 |
+| + HEA path | 8f5366d | +90.86 (full, 20/20) | portfolio_po + solo est. 90.91; solo wins 18/20 |
+| + special-angle blocks (+-pi/2 one cz, pi local) | 682d68b | **+91.25 (full, 20/20)** | solo wins 20/20 vs portfolio_po |
 
 Per circuit vs portfolio_po (dist/depth) at 8f5366d: solo wins 18/20, e.g. 50q stagger p3 4603/471
 -> 2664/341, tree p3 5742/554 -> 3278/418, 20q stagger p3 1164/189 -> 783/150, 12q HEA p3 44/28 ->
 33/22. Portfolio keeps only 50q tree_warm p1/p3 (375/77 vs 442/72).
 
-Validity evidence: `bench --mode full` 20/20 (QCEC equivalent on all 12q), `--set sanity --mode
+Validity evidence at 682d68b: `bench --mode full` 20/20 (QCEC equivalent on all 12q), sanity 13/13
+full, strict 20q 6/6 (statevector x3), exact Clifford tableaux equal on all six 50q circuits twice:
+once as compiled (Clifford angles exercise the +-pi/2 and pi paths) and once with the special-angle
+classification forced off (generic path). Earlier evidence: `bench --mode full` 20/20 (QCEC equivalent on all 12q), `--set sanity --mode
 full` 13/13, `--mode strict --filter 20q` 6/6 (statevector x3), exact Clifford tableaux equal on all
 six 50q circuits (two angle draws each, `docs/ideas/hubwalk_cliff_check.py`), deterministic, max
 compile ~14 s (50q tree p3).
