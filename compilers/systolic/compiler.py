@@ -1033,7 +1033,7 @@ class _Machine:
     def matching_round(self, M):
         st = self.st
         self.to_zone()
-        assign = self._assign(M)
+        assign = self._choose_assign(M)
         if assign is None:
             for blk in M:
                 self.single_block(blk)
@@ -1072,33 +1072,75 @@ class _Machine:
                 st.queue_1q(q, u)
         self._unplace(moved)
 
-    def _assign(self, M):
-        """Place both atoms of every block on a free interaction pair -> [(blk, qa, qb, sa, sb, targ)]."""
+    def _assign(self, M, row_penalty=0.5, dweller_only=False):
+        """Place both atoms of every block on a free interaction pair -> [(blk, qa, qb, sa, sb, targ)].
+
+        `dweller_only` restricts a block to the pair one of its atoms already sits on, so only
+        one atom travels per block (a fused rectangle is then much likelier)."""
         st = self.st
         claimed: set = set()
         out = []
         for blk in M:
             best = None
-            for cipher in range(5):
-                for row in range(10, 10 + self.lay["L"]):
-                    a_site, b_site = (2 * cipher, row), (2 * cipher + 1, row)
-                    if a_site in claimed or b_site in claimed:
-                        continue
-                    if any(s in st.occ and st.occ[s] not in (blk.u, blk.v) for s in (a_site, b_site)):
-                        continue
-                    for (qu, su), (qv, sv) in (
-                        ((blk.u, a_site), (blk.v, b_site)),
-                        ((blk.u, b_site), (blk.v, a_site)),
-                    ):
-                        cost = _dist(st.pos[qu], su) + _dist(st.pos[qv], sv) + 0.5 * (row - 10)
-                        if best is None or cost < best[0]:
-                            best = (cost, qu, qv, su, sv)
+            options = []
+            if dweller_only:
+                pairs = []
+                for q in (blk.u, blk.v):
+                    a_site = st.pos[q]
+                    pairs.append((min(a_site, _partner_site(a_site)), max(a_site, _partner_site(a_site))))
+                options = list(dict.fromkeys(pairs))
+            else:
+                options = [((2 * cipher, row), (2 * cipher + 1, row))
+                           for cipher in range(5) for row in range(10, 10 + self.lay["L"])]
+            for a_site, b_site in options:
+                if a_site in claimed or b_site in claimed:
+                    continue
+                if any(s in st.occ and st.occ[s] not in (blk.u, blk.v) for s in (a_site, b_site)):
+                    continue
+                for (qu, su), (qv, sv) in (
+                    ((blk.u, a_site), (blk.v, b_site)),
+                    ((blk.u, b_site), (blk.v, a_site)),
+                ):
+                    cost = (_dist(st.pos[qu], su) + _dist(st.pos[qv], sv)
+                            + row_penalty * (a_site[1] - 10))
+                    if best is None or cost < best[0]:
+                        best = (cost, qu, qv, su, sv)
             if best is None:
                 return None
             _, qu, qv, su, sv = best
             claimed.update((su, sv))
             out.append((blk, qu, qv, su, sv, _targ_of(blk, qu, qv, su)))
         return out
+
+    def _assign_cost(self, assign):
+        """Simulated cost of a placement: batched outward trip + return trip + the storage dip."""
+        st = self.st
+        sites = {q: site for _, qa, qb, sa, sb, _ in assign for q, site in ((qa, sa), (qb, sb))}
+        reloc = {q: (st.pos[q], site) for q, site in sites.items() if st.pos[q] != site}
+        occ, pos = dict(st.occ), dict(st.pos)
+        cost = 0.0
+        for g in _plan_moves(reloc, occ):
+            cost += _move_cost(g)
+            _apply_atoms(occ, {q: (pos[q], d) for q, (s, d) in g.items()})
+            for q, (s, d) in g.items():
+                pos[q] = d
+        back = {q: (pos[q], st.pos[q]) for q in reloc if pos[q] != st.pos[q]}
+        cost += sum(_move_cost(g) for g in _plan_moves(back, occ))
+        targs = [t for *_, t in assign]
+        cost += 2.0 * (1 + max(0, max(pos[t][1] - 10 for t in targs)))
+        return cost
+
+    def _choose_assign(self, M):
+        """Pick the placement strategy with the cheapest simulated batched cost (deterministic)."""
+        best, best_cost = None, None
+        for penalty, dweller_only in ((0.5, False), (2.0, False), (0.5, True), (4.0, False), (1.5, True)):
+            assign = self._assign(M, penalty, dweller_only)
+            if assign is None:
+                continue
+            cost = self._assign_cost(assign)
+            if best_cost is None or cost < best_cost - 1e-12:
+                best, best_cost = assign, cost
+        return best
 
     def _place(self, assign):
         """Move every atom to its assigned site with batched rectangle moves."""
