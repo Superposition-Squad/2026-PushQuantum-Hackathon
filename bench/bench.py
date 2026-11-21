@@ -71,14 +71,26 @@ def _strict_check(gates, reference) -> str:
     a = gates.remove_final_measurements(inplace=False)
     b = reference.remove_final_measurements(inplace=False)
     if a.num_qubits <= STATEVECTOR_MAX_QUBITS:
+        try:
+            from qiskit_aer import AerSimulator  # dev-only dependency, ~1000x faster than Statevector
+            sim = AerSimulator(method="statevector", fusion_enable=True)
+        except ImportError:
+            sim = None
         rng = np.random.default_rng(1234)
         for trial in range(3):
             prep = QuantumCircuit(a.num_qubits)
             for q in range(a.num_qubits):
                 prep.u(*rng.uniform(0, 2 * np.pi, 3), q)
-            sa = Statevector(prep.compose(a))
-            sb = Statevector(prep.compose(b))
-            fid = abs(sa.inner(sb)) ** 2
+            states = []
+            for circ in (a, b):
+                full = prep.compose(circ)
+                if sim is None:
+                    states.append(Statevector(full))
+                else:
+                    full = full.decompose(reps=0)
+                    full.save_statevector()
+                    states.append(Statevector(sim.run(full).result().get_statevector()))
+            fid = abs(states[0].inner(states[1])) ** 2
             if fid < 1 - 1e-6:
                 raise NotEquivalentError(f"statevector check {trial}: fidelity {fid:.6f} < 1")
         return "statevector x3 ok"
