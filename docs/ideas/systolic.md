@@ -290,3 +290,25 @@ Tried and rejected (measured, not kept): a return-walk terminal bias towards the
 50q tree p3), two extra high-row-penalty placement strategies (never won, only cost time),
 depth-sorted matching order (50q partial 88.52 → 88.34), layout weights 8 (matching dip) and 4
 (walk dip): 88.31 / 88.53 vs 88.52.
+
+## Validator v1.0.0 `idle` rule: storage-home redesign
+
+v1.0.0 rejects lone atoms in the entangling zone during any two-qubit gate, so the zone-dwelling
+machine (and the hub walk's parked hub) is illegal. The lane path is replaced by a storage-home
+machine:
+
+* every atom's home is in storage, rows 10−R..9 with R = ceil(n/10), all ten columns; the layout
+  search is reused on those slots with a lift-distance cost proxy;
+* between rounds every atom is at home, so pending 1q gates are flushed for free (no dips, no zone
+  switches);
+* a matching round lifts the matched atoms, pulses, brings them home, applies the mid `rx` in
+  storage, lifts them again with the same placement, pulses, home again; bare cx/cz blocks do a
+  single lift/pulse/return;
+* a hub group lifts the hub once, then per partner moves the hub to the partner's pair slot at row
+  10 and lifts the partner straight up, pulses, and brings it home; after all cz #1 the partner
+  `rx` gates run in storage, then the same in reverse for cz #2, then the hub goes home;
+* `_State.pulse` asserts the zone holds exactly the pulsed atoms (the idle rule), and
+  `_State.move` keeps the ADR-0010 row rule.
+
+Interim (`v100`): all 49 circuits valid under the v1.0.0 validator (idle/zone/pair/loading), bench
+fast 36/36, score +76.27 (distance 67 879.7, depth 4858).
