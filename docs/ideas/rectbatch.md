@@ -70,6 +70,50 @@ Sources: 2505.22715 (grouping compatible moves), 2509.12083 (composite moves), 2
 colouring / matchings), 2405.06183 (cross-minimisation → monotone AOD maps), 2411.11784 (reuse),
 2611.19994 (incremental placement cost).
 
+## Planner-side cost study (before any code, `/tmp/rb-analysis`)
+
+An approximate cost model (same scheduling, same target assignment, hosts merged into one move per
+chunk, visitors one move each) over all 36 metric circuits. It fixed four design choices:
+
+| variant | 50q distance improvement | note |
+|---|---|---|
+| host = row closest to the zone | 66.5 % | the first design; visitors then travel up to 9.0 |
+| **host = topmost row** | **78.3 %** | the visitor's vertical becomes `T(host row) − y`, minimal |
+| + best of 3 initial placements | 78.3 % | `boustro` wins HEA by 1.5x, `path` wins iHVA/QAOA |
+| + incremental local search (20 s) | 81 % | re-cost only rounds touching the swapped qubits: 6 400 proposals vs 760 |
+
+Rejected after measuring: per-pair host flipping (+0.35 %, not worth the code); biasing local-search
+proposals towards expensive rounds (slightly worse than uniform).
+
+Transpiler level, summed over the 36 circuits: `optimization_level=1` gives depth 5 744 (−75.7 %)
+and distance −82.0 %; level 2 gives depth 6 951 (−70.6 %) and distance −82.5 %. Model score 80.8 vs
+80.1, so level 1 wins — and it is also the level the validator uses for its >19-qubit reference.
+Our output's `depth()` equals the transpiled circuit's `depth()` exactly, because we only reorder
+gates (depth is the DAG critical path).
+
+### Warning for every branch: `transpile(optimization_level=2|3)` is not safe
+
+Measured on the sanity benchmarks (`/tmp/rb-analysis/perm.py`, `perm2.py`):
+
+- `sample_circuit_12` (40 q) and `sample_circuit_13` (70 q) contain `swap`/`cswap`. At level 2 and 3
+  `ElidePermutations` removes them and returns a circuit that is only equivalent **up to a qubit
+  permutation** (`t.layout.final_index_layout()` is a non-trivial permutation). The validator's
+  >19-qubit check reported 81 missing and 73 extra interaction pairs; the output is genuinely wrong.
+- `sample_circuit_05` (4 q) has no swaps, yet level 2/3 output differs from the exact unitary by
+  6.9e-7 (approximate synthesis). QCEC calls that `not_equivalent`, so it fails the *official*
+  equivalence check at ≤ 19 qubits.
+- Levels 0 and 1 are exact (max deviation 1e-15, `layout is None`) on both.
+
+So `optimization_level=1` (which we want anyway for depth) is the only safe choice, and it has a
+bonus: the validator computes its required interaction pairs from `transpile(ref, opt=1)`, which is
+then exactly our own native circuit, so the >19-qubit check is satisfied by construction.
+
+Round structure (level 1/2, ASAP + greedy matching): HEA 2 rounds at p=1 and 6 at p=3 with 25 pairs
+per round at 50q (dense: one rectangle per round); iHVA/QAOA 98–322 rounds with only 1.8–3.0 pairs
+per round, because the degree-(n−1) reference qubit needs 2 rounds per edge. Sparse rounds are where
+the distance goes: with dense storage (50 atoms in rows 5–9) almost no rectangle is ghost-free, so
+most atoms move alone. Visitors (the second atom of a cross-row pair) are ~70 % of the 50q cost.
+
 ## Results
 
 | iteration | commit | score | dist % | depth % | notes |
