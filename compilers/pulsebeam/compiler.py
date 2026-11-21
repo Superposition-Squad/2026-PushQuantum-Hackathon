@@ -1,4 +1,6 @@
-"""optimizer: pulse-by-pulse scheduler + order-compatible move grouping (fresh build, round 3).
+"""pulsebeam: idle-rule pulse planner (atoms live in storage; each pulse = block drop + lifts) with beam search over pulses and drop/lift choices.
+
+(Historical notes below describe the earlier zone-resident planners kept in this file.)
 
 Pipeline (see docs/ideas/optimizer.md):
 
@@ -1680,7 +1682,7 @@ class BeamPlanner:
 
     def __init__(self, geo: Geo, ops, succ, indeg, n, opts: dict | None = None):
         self.geo, self.ops, self.succ, self.indeg, self.n = geo, ops, succ, indeg, n
-        self.opt = {"beam": 8, "lam": 2.0, "order": None, "zone_rows": 10, "layout": "line"}
+        self.opt = {"beam": 8, "lam": 2.0, "order": None, "zone_rows": 10, "layout": "line", "block": True}
         if opts:
             self.opt.update(opts)
         self.qblocks: list[list[int]] = [[] for _ in range(n)]
@@ -2300,7 +2302,7 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
     if IDLE_RULE and options.get("planner", "pulse") == "pulse":
         # deterministic effort: beam width from the problem size (n atoms x ops), both layouts
         size = max(1, comp.n * len(comp.ops))
-        beam = max(1, min(24, int(BEAM_BUDGET / size)))
+        beam = 1 if DEV_FAST else max(1, min(24, int(BEAM_BUDGET / size)))
         if options.get("pulse_opts"):
             variants = [options["pulse_opts"]]
         else:
