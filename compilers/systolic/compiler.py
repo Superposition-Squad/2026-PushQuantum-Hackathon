@@ -1,4 +1,4 @@
-"""zonedwell: zoned neutral-atom compiler with a hub *conveyor* lane.
+"""systolic: zoned neutral-atom compiler with rectangle-batched matchings and a hub walk.
 
 Self-contained (stdlib + numpy + qiskit). Only `rx`, `rz` (storage), `cz` (entangling zone),
 `move`, `measure` and `barrier` are ever emitted.
@@ -17,9 +17,12 @@ Gate algebra (all identities exact, up to global phase):
 Movement:
 
   * the hub's partners live on the even columns ("lanes", 10 slots each). A lane is parked at
-    storage rows 0..9 or entangling rows 10..19, so one bulk `move` (cost 10.0) switches zones.
-  * hub blocks are served by the conveyor: the hub parks on the lane's right slot at row 10 and
-    the lane slides down one row at a time; each partner collects `cz`, `rx` in storage, `cz`.
+    storage rows 0..9 or entangling rows 10..19, so one `move` of whole rows switches zones
+    (ADR-0010: the picked-up rows stay inside one zone).
+  * hub blocks are served by a *hub walk*: the hub steps onto the free right slot of each served
+    partner (single-atom moves, nearest-neighbour + 2-opt from its current site), one shared dip
+    carries every partner's `rx`, and the hub walks back (in whichever direction is cheaper) for the
+    second `cz`; every block commutes, so both orders are free.
   * non-hub blocks are served as matchings: both atoms are placed on an interaction pair, one
     `cz` pulse fires, the whole zone takes one bulk dip for the `rx` gates, and a second pulse
     fires. Only the atoms that moved are moved back.
@@ -28,6 +31,7 @@ Movement:
 from __future__ import annotations
 
 import itertools
+import math
 from numbers import Integral
 from typing import Any
 
@@ -116,6 +120,46 @@ def _partner_site(site):
     """The other site of the interaction pair that `site` belongs to."""
     x, y = site
     return (x + 1, y) if x % 2 == 0 else (x - 1, y)
+
+
+def _tsp_path(start, pts):
+    """Nearest-neighbour open path from `start` through `pts`, improved by 2-opt.
+
+    Returns `(order, cost)` where `order` indexes `pts` and `cost` is the path length from
+    `start`.  Deterministic (ties by index) and tiny: the walk serves at most 49 partners.
+    """
+    k = len(pts)
+    if not k:
+        return [], 0.0
+    nodes = [start] + list(pts)
+    D = [[_dist(a, b) for b in nodes] for a in nodes]
+    remaining = set(range(1, k + 1))
+    seq = [0]
+    cur = 0
+    while remaining:
+        j = min(remaining, key=lambda i: (D[cur][i], i))
+        seq.append(j)
+        remaining.discard(j)
+        cur = j
+    for _ in range(8):
+        improved = False
+        for i in range(1, k):
+            prev, a = seq[i - 1], seq[i]
+            for j in range(i + 1, k + 1):
+                b = seq[j]
+                nxt = seq[j + 1] if j < k else None
+                if nxt is None:
+                    delta = D[prev][b] - D[prev][a]
+                else:
+                    delta = D[prev][b] + D[a][nxt] - D[prev][a] - D[b][nxt]
+                if delta < -1e-12:
+                    seq[i:j + 1] = reversed(seq[i:j + 1])
+                    improved = True
+                    a = seq[i]
+        if not improved:
+            break
+    cost = sum(D[seq[i]][seq[i + 1]] for i in range(k))
+    return [j - 1 for j in seq[1:]], cost
 
 
 # ---------------------------------------------------------------- move batcher
@@ -859,7 +903,10 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True, seed=12345):
     slots = [(2 * j, 10 - L + s) for j in range(5) for s in range(L)][: len(partners)]
     assign = {slots[i]: partners[i] for i in range(len(partners))}
     costs = _LayoutCost(blocks, groups, hub, use_conveyor)
-    best = costs.eval(assign)
+    base = 10 - L
+    pos = {q: (site[0], site[1] - base) for site, q in assign.items()}
+    gcost = [costs.group_cost(k, pos) for k in range(len(groups))]
+    best = sum(gcost)
     rng = np.random.default_rng(seed)
     keys = list(assign)
     for _ in range(200 * len(keys)):
@@ -867,12 +914,20 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True, seed=12345):
         if i == j:
             continue
         a, b = keys[i], keys[j]
-        assign[a], assign[b] = assign[b], assign[a]
-        new = costs.eval(assign)
-        if new < best - 1e-12:
-            best = new
-        else:
+        qa, qb = assign[a], assign[b]
+        affected = costs.affected(qa, qb)
+        if not affected:  # no group touches either qubit: the cost is unchanged on every swap
+            continue
+        old = sum(gcost[k] for k in affected)
+        pos[qa], pos[qb] = pos[qb], pos[qa]
+        new = sum(costs.group_cost(k, pos) for k in affected)
+        if new < old - 1e-12:
+            best += new - old
+            for k in affected:
+                gcost[k] = costs.group_cost(k, pos)
             assign[a], assign[b] = assign[b], assign[a]
+        else:
+            pos[qa], pos[qb] = pos[qb], pos[qa]
     home = {q: site for site, q in assign.items()}
     home[hub] = (9, 9)
     if len(set(home.values())) != n:
@@ -980,35 +1035,98 @@ def _lanes(partners, home):
 
 
 class _LayoutCost:
-    """Cost model of a layout: one pair of moves per block plus the conveyor slides."""
+    """Cost model of a layout: one pair of moves per block plus the hub walk.
+
+    The cost decomposes per group, so the local search in `plan_layout` only recomputes the groups
+    that contain a swapped qubit (`affected`).
+    """
 
     def __init__(self, blocks, groups, hub, use_conveyor):
         self.hub = hub
         self.use_conveyor = use_conveyor
         self.groups = groups
+        self._hub_group = [use_conveyor and all(hub in (b.u, b.v) for b in group)
+                           for group in groups]
+        self._of: dict[int, list[int]] = {}
+        for idx, group in enumerate(groups):
+            for q in {q for b in group for q in (b.u, b.v)}:
+                self._of.setdefault(q, []).append(idx)
+
+    def affected(self, qa, qb):
+        return sorted(set(self._of.get(qa, ())) | set(self._of.get(qb, ())))
+
+    @staticmethod
+    def _walk_estimate(per):
+        """Cost of one hub walk: entry + 2 * snake path over the served lanes + 2 * dip depth.
+
+        Every served partner is visited twice (once before the shared storage dip, once after), so
+        the path is paid twice; the dip reaches the deepest served row.  The snake enters each lane
+        at its nearer end and sweeps it, which is what the real nearest-neighbour walk does on a
+        lane layout.  `per` maps lane -> (min row, max row) in slot coordinates.
+        """
+        deepest = max(mx for _mn, mx in per.values())
+        park_x = 8.3
+        park_y = 11.0 + deepest  # park row 9+L is one below the deepest lane row 10+L-1
+        best = None
+        for order in (sorted(per), sorted(per, reverse=True)):
+            curx, cury = park_x, park_y
+            entry = None
+            path = 0.0
+            for lane in order:
+                mn, mx = per[lane]
+                x = 2.0 * lane + 0.3
+                da = math.hypot(x - curx, 10.0 + mn - cury)
+                db = math.hypot(x - curx, 10.0 + mx - cury)
+                if da <= db:
+                    hop, curx, cury = da, x, 10.0 + mx
+                else:
+                    hop, curx, cury = db, x, 10.0 + mn
+                if entry is None:
+                    entry = hop
+                else:
+                    path += hop
+                path += mx - mn
+            total = entry + 2.0 * path + 2.0 * (1 + deepest)
+            if best is None or total < best:
+                best = total
+        return best
+
+    def group_cost(self, idx, pos):
+        group = self.groups[idx]
+        if self._hub_group[idx]:
+            per: dict[int, list[int]] = {}
+            hub = self.hub
+            for b in group:
+                p = b.v if b.u == hub else b.u
+                s = pos.get(p)
+                if s is None:
+                    continue
+                lane = s[0] // 2
+                row = s[1]
+                e = per.get(lane)
+                if e is None:
+                    per[lane] = [row, row]
+                elif row < e[0]:
+                    e[0] = row
+                elif row > e[1]:
+                    e[1] = row
+            return self._walk_estimate(per) if per else 0.0
+        cost = 0.0
+        for b in group:
+            su = pos.get(b.u)
+            sv = pos.get(b.v)
+            if su is not None and sv is not None:
+                cost += math.hypot(su[0] - sv[0], su[1] - sv[1])
+        if self.use_conveyor:
+            # matching rounds dip down to their deepest dweller: prefer a shallow endpoint
+            dd = [min(pos[b.u][1], pos[b.v][1]) for b in group if b.u in pos and b.v in pos]
+            cost += 4.0 * (1 + max(dd)) * (1 + len(dd) // 8) if dd else 0.0
+        return cost
 
     def eval(self, assign):
         base = min(site[1] for site in assign)
         pos = {q: (site[0], site[1] - base) for site, q in assign.items()}
-        cost = 0.0
-        for group in self.groups:
-            if self.use_conveyor and all(self.hub in (b.u, b.v) for b in group):
-                per = {}
-                for b in group:
-                    p = b.v if b.u == self.hub else b.u
-                    if p in pos:
-                        per.setdefault(pos[p][0] // 2, []).append(pos[p][1])
-                for _lane, ss in per.items():
-                    cost += 2.0 * (max(ss) + 1) + 2.0
-            else:
-                for b in group:
-                    if b.u in pos and b.v in pos:
-                        cost += float(np.hypot(pos[b.u][0] - pos[b.v][0], pos[b.u][1] - pos[b.v][1]))
-                if self.use_conveyor:
-                    # matching rounds dip down to their deepest dweller: prefer a shallow endpoint
-                    dd = [min(pos[b.u][1], pos[b.v][1]) for b in group if b.u in pos and b.v in pos]
-                    cost += 4.0 * (1 + max(dd)) * (1 + len(dd) // 8) if dd else 0.0
-        return cost
+        return sum(self.group_cost(k, pos) for k in range(len(self.groups)))
 
 
 # ---------------------------------------------------------------- scheduling machinery
@@ -1093,35 +1211,6 @@ class _Machine:
             self.st.move((p[1],), (p[0],), (site[1],), (site[0],))
 
     # -- conveyor ------------------------------------------------------
-    def conveyor_lane(self, col, served):
-        """`served` maps partner -> theta.  The lane's atoms must sit on entangling rows 10+slot."""
-        st = self.st
-        top = max(self.zone_home[q][1] - 10 for q in served)
-        g = top + 1
-        hp = st.pos[self.hub]
-        target = (col + 1, 10)
-        if hp != target:
-            st.move((hp[1],), (hp[0],), (target[1],), (target[0],))
-        for _ in range(g):  # D pass
-            head = st.occ.get((col, 10))
-            if head is not None and head in served:
-                st.pulse([(self.hub, head)])
-            rows = [y for (x, y) in st.occ if x == col]
-            r0, r1 = min(rows), max(rows)
-            st.move(range(r0, r1 + 1), (col,), range(r0 - 1, r1), (col,))
-        for q, theta in served.items():
-            assert _in_storage(st.pos[q]), f"conveyor mid gate for q{q} at {st.pos[q]}"
-            ang = _tight(theta)
-            if ang:
-                st.out.rx(ang, q)
-        for _ in range(g):  # U pass
-            rows = [y for (x, y) in st.occ if x == col]
-            r0, r1 = min(rows), max(rows)
-            st.move(range(r0, r1 + 1), (col,), range(r0 + 1, r1 + 2), (col,))
-            head = st.occ.get((col, 10))
-            if head is not None and head in served:
-                st.pulse([(self.hub, head)])
-
     def _conveyor_ops(self, group, targ):
         """Per-qubit `(before, after)` 1q operators for one conveyor pass, or None.
 
@@ -1197,26 +1286,34 @@ class _Machine:
         # walks over its partners for cz #1, one zone->storage dip carries every partner's rx, and
         # the hub walks back for cz #2.
         theta_of = {p: th for lane in per_lane.values() for p, th in lane.items()}
-        self.hub_walk(self._walk_order(per_lane), theta_of)
+        self.hub_walk(sorted(theta_of), theta_of)
         for q, u in after.items():
             st.queue_1q(q, u)
         return True
 
-    def _walk_order(self, per_lane):
-        """Snake over the lanes: rows ascending in one lane, descending in the next."""
-        st = self.st
-        order = []
-        for k, lane_idx in enumerate(sorted(per_lane)):
-            ps = sorted(per_lane[lane_idx], key=lambda q: (st.pos[q][1], q), reverse=bool(k % 2))
-            order.extend(ps)
-        return order
-
-    def hub_walk(self, order, theta):
+    def hub_walk(self, partners, theta):
         """cz #1 by walking the hub over the served partners (it stops on each partner's free
         partner slot), one shared dip for every rx, cz #2 on the way back.  The hub is the control
-        of every block and the partners are distinct targets, so all blocks share one window."""
+        of every block and the partners are distinct targets, so all blocks share one window.
+
+        The forward order is a nearest-neighbour + 2-opt path from the hub's current site.  The
+        return order is free (all blocks commute): take the cheaper of reversing the forward path
+        and a fresh nearest-neighbour path from its end."""
         st = self.st
         hub = self.hub
+        partners = list(partners)
+        assert partners
+        sites = {p: _partner_site(st.pos[p]) for p in partners}
+        start = st.pos[hub]
+        fwd_idx, fwd_cost = _tsp_path(start, [sites[p] for p in partners])
+        fwd = [partners[i] for i in fwd_idx]
+        end = sites[fwd[-1]]
+        back_idx, back_cost = _tsp_path(end, [sites[p] for p in partners])
+        back = [partners[i] for i in back_idx]
+        entry = _dist(start, sites[fwd[0]]) if len(fwd_idx) > 1 else fwd_cost
+        if fwd_cost - entry <= back_cost + 1e-12:
+            back = list(reversed(fwd))
+        depth = 1 + max(st.pos[p][1] - 10 for p in partners)
 
         def go(p):
             hp = st.pos[hub]
@@ -1228,19 +1325,18 @@ class _Machine:
                 st.move((hp[1],), (hp[0],), (s[1],), (s[0],))
             st.pulse([(hub, p)])
 
-        for p in order:
+        for p in fwd:
             go(p)
-        depth = 1 + max(st.pos[p][1] - 10 for p in order)
 
         def mid():
-            for p in order:
+            for p in partners:
                 assert _in_storage(st.pos[p]), f"walk mid gate for q{p} at {st.pos[p]}"
                 ang = _tight(theta[p])
                 if ang:
                     st.out.rx(ang, p)
 
         self.dip(depth, mid)
-        for p in reversed(order):
+        for p in back:
             go(p)
 
     # -- matchings -----------------------------------------------------

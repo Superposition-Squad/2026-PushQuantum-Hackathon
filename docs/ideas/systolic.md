@@ -208,3 +208,58 @@ check equal on 50q circuits 19–22 and 33–36 (two angle draws each). Every sa
 qubits is `equivalent_up_to_global_phase` under QCEC. Remaining distance on 50q QAOA p3
 (2455): placement 1395, conveyor 404, dips 353, zone moves 20 — placement is still the lever, but
 it is now ~1.6 per atom-move, i.e. close to the ~1.04 geometric floor of a visitor hop.
+
+## ADR-0010 (zone-span) and the hub walk
+
+ADR-0010 forbids a `move` that picks up (or drops on) more than one row spanning both zones, so the
+lane conveyor and the old whole-zone dips became illegal. `c47a22e` replaced them:
+
+* `dip(d)` moves only zone rows 10..9+d down to storage rows 10−d..9 and back (same cost, the rows
+  above stay); `to_storage`/`to_zone` move only the `L` lane rows; the batcher refuses zone-spanning
+  groups and `_State.move` asserts the rule.
+* `conveyor()` now runs a **hub walk**: the hub steps onto each served partner's free right slot
+  (a single-row move), one dip carries every partner's `rx`, then the hub walks back for the second
+  `cz`. `conveyor_lane` is deleted. The blocks of a hub group commute, so the walk order is free.
+
+`<this commit>` optimises the walk and the layout search that feeds it:
+
+* forward order = nearest-neighbour + 2-opt over the partner slots from the hub's current site
+  (`_tsp_path`, ≤ 49 points); the return order is the cheaper of reversing the forward path and a
+  fresh 2-opt path from its end (measured on 50q the old per-lane snake was already optimal for the
+  full 5×10 grid, which is why 50q QAOA is unchanged; iHVA hub groups are sparse and gain).
+* the walk dip depth is `1 + deepest served row`, as before (all served partners are in rows
+  10..9+d by construction).
+* `_LayoutCost`'s conveyor term is now the walk cost, `entry + 2·path + 2·(1 + deepest row)`
+  (the path is paid twice), so the layout search groups a hub's partners in adjacent lanes/rows
+  and keeps them shallow.
+* the layout local search is incremental: the cost decomposes per group, so a swap re-evaluates
+  only the groups containing the two swapped qubits (verified identical to full re-evaluation).
+  This is what pays for the more expensive walk term: 50q iHVA p3 59 s → ~16 s CPU, so the
+  deterministic multi-start budget stays at 12/8/4 candidates.
+
+Not done (not obviously good): overlapping the next non-hub matching with the hub's return walk.
+Moves are serialised, so this only helps if the relocations can be fused into one rectangle; the
+hub hops are single atoms on the partner columns and the matching placements use other lanes, and
+merging them with the shared dip would break the "one dip, every rx" window.
+
+Results, `c47a22e` → this commit (fast and full mode give the same D/P):
+
+| circuit | c47 D/P | now D/P |
+|---|---|---|
+| 19 50q iHVA stagger p1 | 1070.8 / 152 | **1024.5 / 146** |
+| 20 50q iHVA stagger p3 | 3480.6 / 390 | **3329.8 / 380** |
+| 21 50q iHVA tree p1 | 1573.4 / 139 | **1444.9 / 140** |
+| 22 50q iHVA tree p3 | 4394.7 / 422 | 4410.2 / **413** |
+| 29 20q QAOA p1 | 230.6 / 66 | 232.5 / **61** |
+| 30 20q QAOA p3 | 693.1 / 182 | **684.4 / 179** |
+| 31 20q QAOA warm p1 | 230.6 / 66 | 232.5 / **61** |
+| 32 20q QAOA warm p3 | 693.1 / 182 | **684.4 / 179** |
+| 33 50q QAOA p1 | 805.4 / 137 | **783.3 / 131** |
+| 34 50q QAOA p3 | 2416.2 / 389 | **2362.8 / 376** |
+| 35 50q QAOA warm p1 | 805.4 / 137 | **783.3 / 131** |
+| 36 50q QAOA warm p3 | 2416.2 / 389 | **2362.8 / 378** |
+
+**+88.63 % → +88.95 %** (distance 26 398.5 → 25 733.3, depth 4426 → 4272; full `--mode full`).
+36/36 metric full, 13/13 sanity full, exact Clifford tableaux equal on 19–22 and 33–36 (two angle
+draws each), bench zone-span check clean on every circuit, deterministic on 50q p3, max compile
+time 16.5 s CPU (50q QAOA warm p3, idle).
