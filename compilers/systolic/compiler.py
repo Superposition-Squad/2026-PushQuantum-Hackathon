@@ -2078,7 +2078,38 @@ def _pairing_layout(n, hub, blocks, use_conveyor, variant=0):
             "partners": [q for q in range(n) if q != hub]}
 
 
-def _layout_stream_storage(n, hub, blocks, groups, use_conveyor, pool_groups):
+def _path_layout(n, hub, blocks, use_conveyor=True):
+    """Boustrophedon longest-path layout: the non-hub block graph's longest simple path is laid
+    along storage slots row by row (snaking), so every path edge is an adjacent column pair in one
+    home row.  Sparse families (iHVA trees/stagger, HEA chains) then lift whole rows / shifted rows
+    in one move per row."""
+    rows = _storage_rows(n)
+    slots = []
+    for k, y in enumerate(reversed(rows)):
+        xs = range(10) if k % 2 == 0 else range(9, -1, -1)
+        slots.extend((x, y) for x in xs)
+    if len(slots) < n:
+        return None
+    adj: dict[int, set] = {}
+    for b in blocks:
+        if hub in (b.u, b.v):
+            continue
+        adj.setdefault(b.u, set()).add(b.v)
+        adj.setdefault(b.v, set()).add(b.u)
+    partners = [q for q in range(n) if q != hub]
+    path = _longest_path(sorted(partners), adj)
+    on = set(path)
+    order = path + [q for q in partners if q not in on]
+    order.append(hub)
+    assign = {slots[i]: order[i] for i in range(n)}
+    home = {q: site for site, q in assign.items()}
+    if len(home) != n or len(set(home.values())) != n:
+        return None
+    return {"home": home, "hub": hub, "R": len(rows), "conveyor": use_conveyor,
+            "partners": [q for q in range(n) if q != hub]}
+
+
+def _layout_stream_storage(n, hub, blocks, groups, use_conveyor, pool_groups, offset=0):
     """Best-guess-first stream.  Large circuits start with the block-pairing layout (its rigid
     lifts are what make the batcher pay); smaller ones start with the local-search layout and
     still get the pairing layout as the second candidate of every schedule."""
@@ -2088,9 +2119,12 @@ def _layout_stream_storage(n, hub, blocks, groups, use_conveyor, pool_groups):
     def seed(s):
         return plan_layout_storage(n, hub, blocks, pool_groups, use_conveyor, s)
 
-    pairs = [("pair0", lambda: pair(0)), ("pair1", lambda: pair(1))]
+    pairs = [("pair0", lambda: pair(0)), ("pair1", lambda: pair(1)),
+             ("path", lambda: _path_layout(n, hub, blocks, use_conveyor))]
     seeds = [(f"seed{s}", (lambda s=s: seed(s))) for s in LAYOUT_SEEDS]
     order = pairs + seeds if n > 34 else [seeds[0]] + pairs + seeds[1:]
+    if offset:
+        order = order[offset % len(order):] + order[:offset % len(order)]
     for name, thunk in order:
         lay = thunk()  # lazy: only the layouts a candidate budget actually reaches are computed
         if lay is not None:
@@ -2558,7 +2592,8 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
             streams = []
             for policy, gs in scheds:
                 pool = [g for gg in gs for g in gg]
-                streams.append((policy, _layout_stream_storage(n, hub, blocks, gs, use_conveyor, pool)))
+                streams.append((policy, _layout_stream_storage(
+                    n, hub, blocks, gs, use_conveyor, pool, len(streams))))
             # round-robin over the schedules, so a short budget still tries every policy
             sched_groups = {policy: gs for policy, gs in scheds}
             # policies that yield the same grouping are the same candidate: dedupe on the groups
