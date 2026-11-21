@@ -734,7 +734,62 @@ def plan_groups(blocks, hub):
 # ---------------------------------------------------------------- layout
 
 
-def plan_layout(n, hub, blocks, groups, use_conveyor=True):
+SCHEDULES = ("non", "largest", "asap", "hub")
+_CANON = ("hubZ", "hubY", "non")
+
+
+def _plan_groups_for(blocks, hub, policy):
+    """Ready-set scheduling of one run of blocks under a policy.
+
+    Every ready set of the commutation DAG is an antichain, so its members pairwise commute and
+    may be emitted in any order; the policy only decides which category is served first.
+    """
+    if policy == "asap":
+        return _asap_groups(blocks, hub)
+    if policy == "hub":
+        return plan_groups(blocks, hub)
+    n = len(blocks)
+    gens = [_block_generator(b) for b in blocks]
+    preds = [{i for i in range(j) if not _commute(blocks[i], gens[i], blocks[j], gens[j])}
+             for j in range(n)]
+    done: set[int] = set()
+    groups = []
+    while len(done) < n:
+        ready = [j for j in range(n) if j not in done and not (preds[j] - done)]
+        if not ready:  # pragma: no cover - defensive
+            ready = [j for j in range(n) if j not in done]
+        buckets = {cat: [j for j in ready if _category(blocks[j], hub) == cat] for cat in _CANON}
+        if policy == "largest":
+            cat = max(_CANON, key=lambda c: (len(buckets[c]), -_CANON.index(c)))
+        else:  # "non": non-hub blocks first, then the hub's Z side, then its Y side
+            cat = next(c for c in ("non", "hubZ", "hubY") if buckets[c])
+        chosen = buckets[cat]
+        groups.append([blocks[j] for j in chosen])
+        done |= set(chosen)
+    return groups
+
+
+def _asap_groups(blocks, hub):
+    """ASAP antichain layering: level = longest path in the commutation DAG; per level the hub
+    part and the non-hub part are separate groups, alternating which one comes first."""
+    n = len(blocks)
+    gens = [_block_generator(b) for b in blocks]
+    preds = [[i for i in range(j) if not _commute(blocks[i], gens[i], blocks[j], gens[j])]
+             for j in range(n)]
+    level = []
+    for j in range(n):
+        level.append(1 + max((level[i] for i in preds[j]), default=-1))
+    out = []
+    for k in sorted(set(level)):
+        members = [blocks[j] for j in range(n) if level[j] == k]
+        hubp = [b for b in members if hub in (b.u, b.v)]
+        nonp = [b for b in members if hub not in (b.u, b.v)]
+        parts = (hubp, nonp) if k % 2 == 0 else (nonp, hubp)
+        out.extend(p for p in parts if p)
+    return out
+
+
+def plan_layout(n, hub, blocks, groups, use_conveyor=True, seed=12345):
     """Pack the partners into the five even lanes (10 slots each) and improve the packing."""
     first = {}
     for idx, blk in enumerate(blocks):
@@ -751,7 +806,7 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True):
     assign = {slots[i]: partners[i] for i in range(len(partners))}
     costs = _LayoutCost(blocks, groups, hub, use_conveyor)
     best = costs.eval(assign)
-    rng = np.random.default_rng(12345)
+    rng = np.random.default_rng(seed)
     keys = list(assign)
     for _ in range(200 * len(keys)):
         i, j = rng.integers(0, len(keys), 2)
@@ -767,6 +822,84 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True):
     home = {q: site for site, q in assign.items()}
     home[hub] = (9, 9)
     if len(set(home.values())) != n:
+        return None
+    zone_home = {q: (s[0], s[1] + L) for q, s in home.items()}
+    if (8, 9) in assign or (8, 9 + L) in zone_home.values():
+        return None
+    occupied = {v for q, v in zone_home.items() if q != hub}
+    park = None
+    for y in ([9 + L] if 9 + L <= 19 else []) + list(range(10, 10 + L)):
+        if (9, y) not in occupied and (8, y) not in occupied:
+            park = (9, y)
+            break
+    if park is None or park[1] > 9 + L:
+        return None
+    return {"home": home, "zone_home": zone_home, "lanes": _lanes(partners, home), "hub": hub,
+            "partners": partners, "conveyor": use_conveyor, "L": L, "park": park}
+
+
+def _longest_path(vertices, adj):
+    """Longest simple path through the non-hub graph: Warnsdorff-style greedy DFS from every start
+    (always extend to the unvisited neighbour with the fewest unvisited neighbours, ties by index).
+    Deterministic: the longest path wins, ties by the lexicographically smallest vertex sequence."""
+    best = []
+    for start in sorted(vertices):
+        path = [start]
+        seen = {start}
+        while True:
+            cand = [w for w in adj.get(path[-1], ()) if w not in seen]
+            if not cand:
+                break
+            cand.sort(key=lambda w: (sum(1 for x in adj.get(w, ()) if x not in seen), w))
+            seen.add(cand[0])
+            path.append(cand[0])
+        if len(path) > len(best) or (len(path) == len(best) and path < best):
+            best = path
+    return best
+
+
+def _zigzag_layouts(n, hub, blocks, groups, use_conveyor):
+    """Path zig-zag layouts: the non-hub block graph is laid along a long path whose consecutive
+    vertices alternate between two lanes, one row per step.  Then edge (p2k,p2k+1) is a same-row
+    pair and edge (p2k+1,p2k+2) an offset-+1 pair, so whole lane runs can be re-paired by one
+    rectangle move."""
+    partners = [q for q in range(n) if q != hub]
+    if not partners or len(partners) > 49:
+        return
+    L = max(1, min(10, -(-(len(partners) + 1) // 5)))
+    adj: dict[int, set] = {}
+    for blk in blocks:
+        if hub in (blk.u, blk.v):
+            continue
+        adj.setdefault(blk.u, set()).add(blk.v)
+        adj.setdefault(blk.v, set()).add(blk.u)
+    path = _longest_path(partners, adj)
+    on_path = set(path)
+    order = path + [q for q in partners if q not in on_path]
+    palettes = ((((0, 1), (2, 3)), 4), (((1, 2), (3, 4)), 0), (((0, 1), (3, 4)), 2))
+    for pairs, tail in palettes:
+        for rev in (False, True):
+            seq = []
+            for la, lb in pairs:
+                for row in range(L):
+                    seq.append((2 * la, row))
+                    seq.append((2 * lb, row))
+            if tail is not None:
+                for row in range(L):
+                    seq.append((2 * tail, row))
+            if len(seq) < len(partners):
+                continue
+            ver = list(reversed(order)) if rev else list(order)
+            assign = {((lane, 10 - L + row)): ver[i] for i, (lane, row) in enumerate(seq[: len(ver)])}
+            yield _make_layout(n, hub, partners, assign, use_conveyor)
+
+
+def _make_layout(n, hub, partners, assign, use_conveyor):
+    """Finish a layout dict from a slot -> qubit assignment (same shape as `plan_layout`)."""
+    L = max(1, min(10, -(-(len(partners) + 1) // 5)))
+    home = {q: site for site, q in assign.items()}
+    home[hub] = (9, 9)
+    if len(home) != n or len(set(home.values())) != n:
         return None
     zone_home = {q: (s[0], s[1] + L) for q, s in home.items()}
     if (8, 9) in assign or (8, 9 + L) in zone_home.values():
@@ -1072,6 +1205,26 @@ class _Machine:
                 st.queue_1q(q, u)
         self._unplace(moved)
 
+    def _pick_targ(self, blk, qu, qv, su):
+        """Which atom carries the middle 1q gate: prefer the one that needs no extra flush."""
+        default = _targ_of(blk, qu, qv, su)
+        if blk.kind != "zz":
+            return default
+        st = self.st
+        eye = np.eye(2)
+
+        def dirty(t):
+            n = 0
+            for q in (blk.u, blk.v):
+                pending = st.pending.get(q, eye)
+                ops = _fold([u for qq, u in _block_pre(blk, t) if qq == q])
+                if not _eq_phase(ops @ pending, eye, 1e-9):
+                    n += 1
+            return n
+
+        other = blk.u if default == blk.v else blk.v
+        return other if dirty(other) < dirty(default) else default
+
     def _assign(self, M, row_penalty=0.5, dweller_only=False):
         """Place both atoms of every block on a free interaction pair -> [(blk, qa, qb, sa, sb, targ)].
 
@@ -1109,7 +1262,7 @@ class _Machine:
                 return None
             _, qu, qv, su, sv = best
             claimed.update((su, sv))
-            out.append((blk, qu, qv, su, sv, _targ_of(blk, qu, qv, su)))
+            out.append((blk, qu, qv, su, sv, self._pick_targ(blk, qu, qv, su)))
         return out
 
     def _assign_cost(self, assign):
@@ -1437,7 +1590,45 @@ def _parked_qubit(items, n):
 # ---------------------------------------------------------------- entry point
 
 
+def _scored_depth(qc):
+    """Depth of the compiled circuit with the (unscored) moves and barriers stripped."""
+    out = QuantumCircuit(qc.num_qubits, qc.num_clbits)
+    for inst in qc.data:
+        if inst.operation.name in ("move", "barrier"):
+            continue
+        out.append(inst.operation, inst.qubits, inst.clbits)
+    return out.depth()
+
+
+LAYOUT_SEEDS = (12345, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+
+
+def _candidate_budget(n, nblocks):
+    """Deterministic number of (schedule, layout) candidates to compile (time stays bounded)."""
+    if n <= 20:
+        return 12
+    if n <= 34:
+        return 8
+    return 4
+
+
+def _layout_stream(n, hub, blocks, groups, use_conveyor, pool_groups):
+    """Deterministic, best-guess-first stream of layout candidates."""
+    lay = plan_layout(n, hub, blocks, pool_groups, use_conveyor, LAYOUT_SEEDS[0])
+    if lay is not None:
+        yield f"seed{LAYOUT_SEEDS[0]}", lay
+    for k, lay in enumerate(_zigzag_layouts(n, hub, blocks, pool_groups, use_conveyor)):
+        if lay is not None:
+            yield f"zig{k}", lay
+    for seed in LAYOUT_SEEDS[1:]:
+        lay = plan_layout(n, hub, blocks, pool_groups, use_conveyor, seed)
+        if lay is not None:
+            yield f"seed{seed}", lay
+
+
 def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
+    import time as _time
+
     n = circuit.num_qubits
     items = parse_blocks(circuit)
     st = None
@@ -1453,15 +1644,52 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
         except Exception:
             groups = None
         if groups is not None:
-            lay = plan_layout(n, hub, blocks, [g for gs in groups for g in gs], use_conveyor)
-            if lay is not None:
+            budget = _candidate_budget(n, len(blocks))
+            t0 = _time.process_time()
+            best_cost = None
+            seen = set()
+            scheds = []
+            for policy in SCHEDULES:
                 try:
-                    st = _compile_lanes(circuit, items, lay, groups)
-                except AssertionError:
-                    _STATS["fell_back"] += 1
-                    if _DEBUG:
-                        raise
-                    st = None
+                    scheds.append((policy, [_plan_groups_for(run, hub, policy) for run in runs]))
+                except Exception:  # pragma: no cover - defensive
+                    continue
+            if not scheds:  # pragma: no cover - defensive
+                scheds = [(SCHEDULES[0], groups)]
+            streams = []
+            for policy, gs in scheds:
+                pool = [g for gg in gs for g in gg]
+                streams.append((policy, _layout_stream(n, hub, blocks, gs, use_conveyor, pool)))
+            # round-robin over the schedules, so a short budget still tries every policy
+            sched_groups = {policy: gs for policy, gs in scheds}
+            alive = set(range(len(streams)))
+            while budget > 0 and alive and _time.process_time() - t0 < 120.0:
+                for k, (policy, stream) in enumerate(streams):
+                    if k not in alive:
+                        continue
+                    item = next(stream, None)
+                    if item is None:
+                        alive.discard(k)
+                        continue
+                    name, lay = item
+                    key = (policy, tuple(sorted((q, site) for q, site in lay["home"].items())))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    budget -= 1
+                    try:
+                        cand = _compile_lanes(circuit, items, lay, sched_groups[policy])
+                    except AssertionError:
+                        _STATS["fell_back"] += 1
+                        if _DEBUG:
+                            raise
+                        continue
+                    cost = cand.distance + 2.922 * _scored_depth(cand.out)
+                    if best_cost is None or cost < best_cost - 1e-9:
+                        best_cost, st = cost, cand
+                        _STATS["layout"] = f"{name}/{policy}"
+                    if budget <= 0 or _time.process_time() - t0 > 120.0:
+                        break
     if st is None:
         _STATS["generic"] += 1
         st = _compile_generic(circuit, architecture_spec)
