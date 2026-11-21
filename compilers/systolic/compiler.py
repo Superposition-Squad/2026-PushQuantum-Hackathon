@@ -180,7 +180,15 @@ def _group_params(atoms, occ):
             return None
     new_rows = tuple(row_map[y] for y in src_rows)
     new_cols = tuple(col_map[x] for x in src_cols)
+    if _spans_zones(rows) or _spans_zones(new_rows):  # ADR-0010
+        return None
     return rows, cols, new_rows, new_cols, seen
+
+
+def _spans_zones(rows):
+    """ADR-0010: a move that picks (or deposits on) two or more rows must stay inside one zone."""
+    rows = list(rows)
+    return len(rows) >= 2 and min(rows) < 10 <= max(rows)
 
 
 def _apply_atoms(occ, atoms):
@@ -412,6 +420,7 @@ class _State:
         new_rows = tuple(int(v) for v in new_rows)
         new_cols = tuple(int(v) for v in new_cols)
         assert rows == tuple(range(rows[0], rows[0] + len(rows))), rows
+        assert not _spans_zones(rows) and not _spans_zones(new_rows), f"ADR-0010 zone span {rows}->{new_rows}"
         assert cols == tuple(range(cols[0], cols[0] + len(cols))), cols
         assert all(b > a for a, b in itertools.pairwise(new_rows)), new_rows
         assert all(b > a for a, b in itertools.pairwise(new_cols)), new_cols
@@ -1023,14 +1032,14 @@ class _Machine:
     def to_storage(self):
         if self.st.in_zone:
             L = self.lay["L"]
-            self.st.move(range(10, 20), range(0, 10), range(10 - L, 20 - L), range(0, 10))
+            self.st.move(range(10, 10 + L), range(0, 10), range(10 - L, 10), range(0, 10))
             self.st.in_zone = False
 
     def to_zone(self):
         if not self.st.in_zone:
             self.st.flush_all()
             L = self.lay["L"]
-            self.st.move(range(10 - L, 20 - L), range(0, 10), range(10, 20), range(0, 10))
+            self.st.move(range(10 - L, 10), range(0, 10), range(10, 10 + L), range(0, 10))
             self.st.in_zone = True
 
     def storage_phase(self):
@@ -1048,9 +1057,10 @@ class _Machine:
         assert st.in_zone
         depth = max(1, min(int(depth), 10))
         before = dict(st.pos)
-        st.move(range(10, 20), range(0, 10), range(10 - depth, 20 - depth), range(0, 10))
+        # ADR-0010: only the bottom `depth` zone rows go down (zone -> storage, one zone each side)
+        st.move(range(10, 10 + depth), range(0, 10), range(10 - depth, 10), range(0, 10))
         action()
-        st.move(range(10 - depth, 20 - depth), range(0, 10), range(10, 20), range(0, 10))
+        st.move(range(10 - depth, 10), range(0, 10), range(10, 10 + depth), range(0, 10))
         assert st.pos == before, "dip did not restore the positions"
 
     def flush_dip(self, qubits):
@@ -1183,11 +1193,55 @@ class _Machine:
                     st.move((hp[1],), (hp[0],), (tgt[1],), (tgt[0],))
             self.flush_dip(need)
             assert not self._needs_flush(involved)
-        for lane_idx in sorted(per_lane):
-            self.conveyor_lane(2 * lane_idx, per_lane[lane_idx])
+        # ADR-0010 forbids the lane conveyor (a multi-row move across the zone boundary), so the hub
+        # walks over its partners for cz #1, one zone->storage dip carries every partner's rx, and
+        # the hub walks back for cz #2.
+        theta_of = {p: th for lane in per_lane.values() for p, th in lane.items()}
+        self.hub_walk(self._walk_order(per_lane), theta_of)
         for q, u in after.items():
             st.queue_1q(q, u)
         return True
+
+    def _walk_order(self, per_lane):
+        """Snake over the lanes: rows ascending in one lane, descending in the next."""
+        st = self.st
+        order = []
+        for k, lane_idx in enumerate(sorted(per_lane)):
+            ps = sorted(per_lane[lane_idx], key=lambda q: (st.pos[q][1], q), reverse=bool(k % 2))
+            order.extend(ps)
+        return order
+
+    def hub_walk(self, order, theta):
+        """cz #1 by walking the hub over the served partners (it stops on each partner's free
+        partner slot), one shared dip for every rx, cz #2 on the way back.  The hub is the control
+        of every block and the partners are distinct targets, so all blocks share one window."""
+        st = self.st
+        hub = self.hub
+
+        def go(p):
+            hp = st.pos[hub]
+            s = _partner_site(st.pos[p])
+            assert _in_zone(st.pos[p]), f"walk partner q{p} not in the zone"
+            if hp != s:
+                o = st.occ.get(s)
+                assert o is None, f"walk site {s} taken by q{o}"
+                st.move((hp[1],), (hp[0],), (s[1],), (s[0],))
+            st.pulse([(hub, p)])
+
+        for p in order:
+            go(p)
+        depth = 1 + max(st.pos[p][1] - 10 for p in order)
+
+        def mid():
+            for p in order:
+                assert _in_storage(st.pos[p]), f"walk mid gate for q{p} at {st.pos[p]}"
+                ang = _tight(theta[p])
+                if ang:
+                    st.out.rx(ang, p)
+
+        self.dip(depth, mid)
+        for p in reversed(order):
+            go(p)
 
     # -- matchings -----------------------------------------------------
     def _ensure_hub_lone(self):
