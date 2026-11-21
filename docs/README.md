@@ -1,5 +1,8 @@
 # Docs index
 
+- **[overview.md](overview.md): start here.** Walkthrough of the task, the core ideas, what worked and
+  what did not, shared parts, and every compiler in detail.
+
 - [scoring.md](scoring.md): the leaderboard metric, validity checks, architecture geometry, move
   rules, benchmark structure.
 - [harness.md](harness.md): `bench/bench.py`, `bench/compare.py`, `bench/package.py`, modes and
