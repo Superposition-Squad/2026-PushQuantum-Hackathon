@@ -416,15 +416,16 @@ class Machine:
         self.depth[q] += len(seq)
         self.pend[q] = _I2.copy()
 
-    def pulse(self, pairs):
+    def pulse(self, pairs, dummy=()):
         inzone = {q for q, s in self.pos.items() if s[1] >= 10}
         used = set()
+        dummy = set(dummy)
         for a, b in pairs:
             (xa, ya), (xb, yb) = self.pos[a], self.pos[b]
             if ya < 10 or ya != yb or min(xa, xb) % 2 or abs(xa - xb) != 1:
                 raise Illegal("not a pair")
             for q in (a, b):
-                if not _is_diag(self.pend[q]):
+                if q not in dummy and not _is_diag(self.pend[q]):
                     raise Illegal(f"non-diagonal pending on {q} at cz")
             used |= {a, b}
         if used != inzone:
@@ -449,7 +450,12 @@ class Machine:
 
 
 def schedule(blocks, preds, succs, hub, policy=("look", 2.0)):
-    """Steps: ("hub", [block...], role) or ("round", [block...])."""
+    return list(schedule_gen(blocks, preds, succs, hub, policy))
+
+
+def schedule_gen(blocks, preds, succs, hub, policy=("look", 2.0), posfn=None, mu=None):
+    """Yields steps ("hub", [block...]) or ("round", [block...]); the caller may execute each step
+    before the next one is chosen (`posfn()` gives the current positions for `mu`)."""
     m = len(blocks)
     npred = [len(p) for p in preds]
     ready = {i for i in range(m) if npred[i] == 0}
@@ -465,7 +471,12 @@ def schedule(blocks, preds, succs, hub, policy=("look", 2.0)):
         pool = non + (hubZ + hubY if hubround else [])
         if pool:
             used = set()
-            for i in sorted(pool, key=lambda i: (-len(succs[i]), i)):
+            if mu is None or posfn is None:
+                key = lambda i: (-len(succs[i]), i)
+            else:
+                pos = posfn()
+                key = lambda i: (_dist(pos[blocks[i].c], pos[blocks[i].t]) - mu * len(succs[i]), i)
+            for i in sorted(pool, key=key):
                 b = blocks[i]
                 if b.c in used or b.t in used:
                     continue
@@ -508,7 +519,7 @@ def schedule(blocks, preds, succs, hub, policy=("look", 2.0)):
             kind, sel = cands[0]
         if kind == "round" and len(sel) == 0:
             continue
-        steps.append((kind, [blocks[i] for i in sel]))
+        yield (kind, [blocks[i] for i in sel])
         for i in sel:
             ready.discard(i)
             done += 1
@@ -517,7 +528,6 @@ def schedule(blocks, preds, succs, hub, policy=("look", 2.0)):
                 if npred[j] == 0:
                     ready.add(j)
     assert done == m
-    return steps
 
 
 # ---------------------------------------------------------------- executor
@@ -648,6 +658,8 @@ class Executor:
         return best[1]
 
     LOOK = 0.35
+    EVICT = 1.5
+    DUMMY_OFF = False
 
     def _lookpos(self, q):
         nx = self.nxt.get(q) if self.nxt else None
@@ -672,8 +684,12 @@ class Executor:
                         rects.append((10 - h, j1, j2))
         occ_free = None
         best = None
+        occ = m.occ
+        EV = self.EVICT
+        nonmem = lambda site: site in occ and occ[site] not in members
         for a, j1, j2 in rects:
             slots = [(j, y) for y in range(a, 10) for j in range(j1, j2 + 1)]
+            pen = [EV * (nonmem((2 * j, y)) + nonmem((2 * j + 1, y))) for j, y in slots]
             cost = np.zeros((P, len(slots)))
             orient = np.zeros((P, len(slots)), dtype=bool)
             for i, b in enumerate(blks):
@@ -690,15 +706,20 @@ class Executor:
                         if lb is not None:
                             c1 += lam * _dist(R, lb)
                             c2 += lam * _dist(L, lb)
-                    cost[i, k] = min(c1, c2)
+                    cost[i, k] = min(c1, c2) + pen[k]
                     orient[i, k] = c2 < c1
             ri, ci = linear_sum_assignment(cost)
             tot = float(cost[ri, ci].sum())
-            x1, x2 = 2 * j1, 2 * j2 + 1
-            ev = [q for q, (x, y) in m.pos.items() if y >= a and y <= 9 and x1 <= x <= x2 and q not in members]
-            for q in ev:
-                x, y = m.pos[q]
-                tot += min(y - a + 1, x - x1 + 1 if x1 > 0 else 99, x2 - x + 1 if x2 < 9 else 99)
+            used = set(ci.tolist())
+            for k, (j, y) in enumerate(slots):
+                if k in used:
+                    continue
+                nl, nr = nonmem((2 * j, y)), nonmem((2 * j + 1, y))
+                if nl != nr and not self.DUMMY_OFF:
+                    tot += EV
+                elif nl and nr and self.DUMMY_OFF:
+                    tot += 2 * EV
+            
             h = 10 - a
             tot += 4 * math.hypot(h, 0.7)
             if best is None or tot < best[0] - 1e-9:
@@ -717,7 +738,16 @@ class Executor:
         reserved = set(targets.values())
         x1, x2 = 2 * j1, 2 * j2 + 1
         inside = lambda s: a <= s[1] <= 9 and x1 <= s[0] <= x2
-        for q in sorted(q for q, s in m.pos.items() if inside(s) and q not in members):
+        dummies = []
+        used_slots = {slots[k] for k in ci.tolist()}
+        for j, y in slots:
+            if (j, y) in used_slots or self.DUMMY_OFF:
+                continue
+            ql, qr = occ.get((2 * j, y)), occ.get((2 * j + 1, y))
+            if ql is not None and qr is not None and ql not in members and qr not in members:
+                dummies.append((ql, qr))
+        keep = {q for pr in dummies for q in pr}
+        for q in sorted(q for q, s in m.pos.items() if inside(s) and q not in members and q not in keep):
             t = self.nearest_free(m.pos[q], avoid=reserved | {(x, y) for x in range(x1, x2 + 1) for y in range(a, 10)})
             reserved.add(t)
             targets[q] = t
@@ -725,17 +755,19 @@ class Executor:
         for b in blks:
             m.flush(b.c)
             self.prep(b.t, _PRE_T)
-        up = {q: (m.pos[q][0], m.pos[q][1] + h) for q in members}
-        down = {q: m.pos[q] for q in members}
+        riders = members | keep
+        up = {q: (m.pos[q][0], m.pos[q][1] + h) for q in riders}
+        down = {q: m.pos[q] for q in riders}
         pairs = [(b.c, b.t) if m.pos[b.c][0] < m.pos[b.t][0] else (b.t, b.c) for b in blks]
+        pairs += dummies
         m.move(up)
-        m.pulse(pairs)
+        m.pulse(pairs, keep)
         m.move(down)
         for b in blks:
             m.apply1(b.t, _rx(b.th))
             m.flush(b.t)
         m.move(up)
-        m.pulse(pairs)
+        m.pulse(pairs, keep)
         m.move(down)
         for b in blks:
             m.apply1(b.t, _POST_T)
@@ -919,7 +951,43 @@ POLICIES = [("look", 2.0), ("look", 0.0), ("look", 1.0), ("look", 4.0), ("thresh
 DEPTH_W = 0.2 / 13364 / (0.8 / 163364.298)  # distance units per depth unit (~3.06)
 
 
-def compile_ihva(n, blocks, policies=None, emit=True):
+def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, emit):
+    hub = n - 1
+    ex = Executor(n, hub, home, emit=emit)
+    ex.LOOK = lam
+    byq = {}
+    for b in blocks:
+        for q in b.qubits():
+            byq.setdefault(q, []).append(b)
+    ptr = {q: 0 for q in byq}
+    done = set()
+    for kind, blks in schedule_gen(blocks, preds, succs, hub, pol, posfn=lambda: ex.m.pos, mu=mu):
+        cur = {b.idx for b in blks}
+        nxt = {}
+        for b in blks:
+            for q in b.qubits():
+                lst = byq[q]
+                k = ptr[q]
+                while k < len(lst) and lst[k].idx in done:
+                    k += 1
+                ptr[q] = k
+                while k < len(lst) and (lst[k].idx in done or lst[k].idx in cur):
+                    k += 1
+                if k < len(lst):
+                    o = lst[k]
+                    nxt[q] = o.t if o.c == q else o.c
+        ex.nxt = nxt
+        (ex.run_round_band if kind == "round" else ex.run_hub)(blks)
+        done |= cur
+    ex.m.finish()
+    return ex
+
+
+CANDS = [(pol, lam, mu) for mu in (None, 1.0) for lam in (0.0, 0.35) for pol in (
+    ("look", 2.0, True, 8), ("look", 2.0, True, 20), ("thresh", 20, True), ("rounds",), ("thresh", 45))]
+
+
+def compile_ihva(n, blocks, cands=None, emit=True):
     blocks = [b for b in blocks if b.th != 0.0]
     for i, b in enumerate(blocks):
         b.idx = i
@@ -927,30 +995,19 @@ def compile_ihva(n, blocks, policies=None, emit=True):
     preds, succs = build_dag(blocks)
     home = default_layout(n, hub)
     best = None
-    for pol in policies or POLICIES:
+    for cand in cands or CANDS:
         try:
-            steps = schedule(blocks, preds, succs, hub, pol)
-            ex = Executor(n, hub, home, emit=False)
-            nx = next_partners(steps)
-            for k, (kind, blks) in enumerate(steps):
-                ex.nxt = nx[k]
-                (ex.run_round_band if kind == "round" else ex.run_hub)(blks)
-            ex.m.finish()
+            ex = run_candidate(n, blocks, preds, succs, home, *cand, emit=False)
         except Illegal:
             continue
         c = ex.m.dist + DEPTH_W * (max(ex.m.depth) + 1)
         if best is None or c < best[0] - 1e-9:
-            best = (c, pol, steps)
+            best = (c, cand)
     if best is None:
         raise Illegal("no candidate")
     if not emit:
         return best
-    ex = Executor(n, hub, home)
-    nx = next_partners(best[2])
-    for k, (kind, blks) in enumerate(best[2]):
-        ex.nxt = nx[k]
-        (ex.run_round_band if kind == "round" else ex.run_hub)(blks)
-    ex.m.finish()
+    ex = run_candidate(n, blocks, preds, succs, home, *best[1], emit=True)
     return ex.m.qc, home
 
 
