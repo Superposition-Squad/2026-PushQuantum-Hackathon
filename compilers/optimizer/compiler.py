@@ -1734,6 +1734,7 @@ def _naive(circuit: QuantumCircuit, spec: Any):
 # ---------------------------------------------------------------- entry point
 
 
+DEV_FAST = False  # dev iteration only (bench/devbench.sh flips it in a scratch copy): one plan, no search
 DEPTH_WEIGHT = 276726.912853 / (4 * 23676)  # one depth unit = 2.92 distance units in the score
 
 
@@ -1750,7 +1751,10 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
     comp = Compiler(circuit, spec, options)
     hub = find_hub(comp.ops, comp.n)
     if hub is not None and options.get("planner", "cycle") == "cycle":
-        orders = [None] + [sa_order(comp.geo, comp.ops, comp.n, hub, seed) for seed in (1, 2, 3)]
+        dev = DEV_FAST
+        if dev:
+            options = {**options, "budget": -1}
+        orders = [None] + ([] if dev else [sa_order(comp.geo, comp.ops, comp.n, hub, seed) for seed in (1, 2, 3)])
         space = {
             "order": list(range(len(orders))),
             "match": ["index", "work"],
@@ -1761,6 +1765,7 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
         }
         cur = {k: v[0] for k, v in space.items()}
         cur["order"] = 2 if len(orders) > 2 else 0
+        space["order"] = list(range(len(orders)))
         fixed = {k: options[k] for k in space if k in options}
         cur.update(fixed)
         seen: dict = {}
