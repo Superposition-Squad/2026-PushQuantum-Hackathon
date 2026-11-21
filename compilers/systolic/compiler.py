@@ -1785,6 +1785,9 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
                 streams.append((policy, _layout_stream(n, hub, blocks, gs, use_conveyor, pool)))
             # round-robin over the schedules, so a short budget still tries every policy
             sched_groups = {policy: gs for policy, gs in scheds}
+            # policies that yield the same grouping are the same candidate: dedupe on the groups
+            sig = {policy: tuple(tuple(sorted(id(b) for b in g)) for gg in gs for g in gg)
+                   for policy, gs in scheds}
             alive = set(range(len(streams)))
             while budget > 0 and alive and _time.process_time() - t0 < 120.0:
                 for k, (policy, stream) in enumerate(streams):
@@ -1795,7 +1798,7 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
                         alive.discard(k)
                         continue
                     name, lay = item
-                    key = (policy, tuple(sorted((q, site) for q, site in lay["home"].items())))
+                    key = (sig[policy], tuple(sorted((q, site) for q, site in lay["home"].items())))
                     if key in seen:
                         continue
                     seen.add(key)
