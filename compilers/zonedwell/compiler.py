@@ -583,6 +583,10 @@ class _LayoutCost:
                 for b in group:
                     if b.u in pos and b.v in pos:
                         cost += float(np.hypot(pos[b.u][0] - pos[b.v][0], pos[b.u][1] - pos[b.v][1]))
+                if self.use_conveyor:
+                    # matching rounds dip down to their deepest dweller: prefer a shallow endpoint
+                    dd = [min(pos[b.u][1], pos[b.v][1]) for b in group if b.u in pos and b.v in pos]
+                    cost += 4.0 * (1 + max(dd)) * (1 + len(dd) // 8) if dd else 0.0
         return cost
 
 
