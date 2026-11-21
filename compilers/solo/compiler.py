@@ -706,6 +706,7 @@ class Executor:
     KAPPA = 0.0
     HUBDEP = True
     RECT_SIM = 6
+    NPULSE = 2
     KFLOOR = 0.0
 
     def floor_row(self):
@@ -784,7 +785,7 @@ class Executor:
                 elif nl or nr:
                     tot += EV
             h = 10 - a
-            tot += 4 * math.hypot(h, 1.0 if par else 0.7)
+            tot += 2 * self.NPULSE * math.hypot(h, 1.0 if par else 0.7)
             plans.append((tot, len(plans), (a, bb, j1, j2, par, slots, ri, ci, orient)))
         plans.sort(key=lambda t: (t[0], t[1]))
         if self.RECT_SIM > 1 and len(plans) > 1:
@@ -837,6 +838,17 @@ class Executor:
             reserved.add(t)
             targets[q] = t
         self.relocate(targets)
+        if self.NPULSE == 1:
+            riders = members | keep
+            for q in riders:
+                m.flush(q)
+            up = {q: (m.pos[q][0] + par, m.pos[q][1] + h) for q in riders}
+            down = {q: m.pos[q] for q in riders}
+            pairs = [(b.c, b.t) if m.pos[b.c][0] < m.pos[b.t][0] else (b.t, b.c) for b in blks]
+            m.move(up)
+            m.pulse(pairs, ())
+            m.move(down)
+            return
         forms = {}
         for b in blks:
             forms[b.idx] = f = self.choose_form(b)
@@ -1303,6 +1315,104 @@ def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
     return qc, home
 
 
+# ---------------------------------------------------------------- generic cz-layer path (HEA)
+
+
+def parse_cz_program(circuit: QuantumCircuit):
+    """(n, ops) with ops = ("1q", q, 2x2) / ("cz", a, b), final measurements q -> q; None otherwise."""
+    from qiskit.quantum_info import Operator
+
+    n = circuit.num_qubits
+    if circuit.num_clbits < n:
+        return None
+    index = {bit: i for i, bit in enumerate(circuit.qubits)}
+    ops = []
+    measured = set()
+    for inst in circuit.data:
+        op = inst.operation
+        qs = [index[q] for q in inst.qubits]
+        if op.name == "barrier":
+            continue
+        if op.name == "measure":
+            if qs[0] != circuit.find_bit(inst.clbits[0]).index or qs[0] in measured:
+                return None
+            measured.add(qs[0])
+            continue
+        if measured & set(qs):
+            return None
+        if len(qs) == 1:
+            try:
+                u = Operator(op).data
+            except Exception:  # noqa: BLE001
+                return None
+            ops.append(("1q", qs[0], u))
+        elif op.name in ("cx", "cz") and len(qs) == 2:
+            a, b = qs
+            if op.name == "cx":
+                ops.append(("1q", b, _H))
+                ops.append(("cz", a, b))
+                ops.append(("1q", b, _H))
+            else:
+                ops.append(("cz", a, b))
+        else:
+            return None
+    if measured != set(range(n)):
+        return None
+    return n, ops
+
+
+def snake_layout(n):
+    """Two-row snake (row 9 left to right, row 8 right to left) for chains; plain rows otherwise."""
+    W = (n + 1) // 2
+    home = {}
+    if W <= 10:
+        for q in range(n):
+            home[q] = (q, 9) if q < W else (W - 1 - (q - W), 8)
+        return home
+    for q in range(n):
+        home[q] = (q % 10, 9 - q // 10)
+    return home
+
+
+def compile_cz_program(n, ops, home, emit=True, rect_sim=6, lazy=True):
+    ex = Executor(n, -1, home, emit=emit, frame="R")
+    m = ex.m
+    m.LAZY = lazy
+    m.pend = [_I2.copy() for _ in range(n)]
+    ex.NPULSE = 1
+    ex.DUMMY_OFF = True
+    ex.RECT_SIM = rect_sim
+    ex.allowed = frozenset()
+    rnd, used, after = [], set(), {}
+
+    def close():
+        nonlocal rnd, used, after
+        if rnd:
+            ex.nxt = {}
+            ex.run_round_band([Block(a, b, 0.0, k) for k, (a, b) in enumerate(rnd)])
+            for q, us in after.items():
+                for u in us:
+                    m.apply1(q, u)
+        rnd, used, after = [], set(), {}
+
+    for op in ops:
+        if op[0] == "1q":
+            _, q, u = op
+            if q in used:
+                after.setdefault(q, []).append(u)
+            else:
+                m.apply1(q, u)
+        else:
+            _, a, b = op
+            if a in used or b in used:
+                close()
+            rnd.append((a, b))
+            used |= {a, b}
+    close()
+    m.finish()
+    return ex
+
+
 def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
     parsed = None
     try:
@@ -1318,4 +1428,26 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
                 return qc, Architecture(home, spec=architecture_spec)
             except Illegal:
                 pass
+    try:
+        prog = parse_cz_program(circuit)
+        ncz = sum(1 for op in prog[1] if op[0] == "cz") if prog is not None else 0
+        if prog is not None and prog[0] <= 20 and ncz <= 240:
+            n, ops = prog
+            best = None
+            big = ncz > 60  # fixed work budget: one variant for larger programs
+            for home in (snake_layout(n),) + (() if big else (default_layout(n, n - 1),)):
+                for rs in ((1,) if big else (6, 1)):
+                    for lz in ((True,) if big else (True, False)):
+                        try:
+                            ex = compile_cz_program(n, ops, home, emit=False, rect_sim=rs, lazy=lz)
+                        except Illegal:
+                            continue
+                        c = ex.m.dist + DEPTH_W * (max(ex.m.depth) + 1)
+                        if best is None or c < best[0] - 1e-9:
+                            best = (c, home, rs, lz)
+            if best is not None:
+                ex = compile_cz_program(n, ops, best[1], emit=True, rect_sim=best[2], lazy=best[3])
+                return ex.m.qc, Architecture(best[1], spec=architecture_spec)
+    except Illegal:
+        pass
     return _naive(circuit, architecture_spec)
