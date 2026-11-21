@@ -116,6 +116,185 @@ def _partner_site(site):
     return (x + 1, y) if x % 2 == 0 else (x - 1, y)
 
 
+# ---------------------------------------------------------------- move batcher
+#
+# A `Move` picks a contiguous row range and a contiguous column range and applies one strictly
+# increasing row map and one strictly increasing column map to every atom in the rectangle, at a
+# cost of only the longest displacement.  So the cheapest way to realise a set of relocations is
+# to fuse as many as possible into one move.  `_group_params` re-implements the validator rules
+# (cf. `compilers/rectbatch/compiler.py:move_params`, but zone crossing is allowed here).
+
+
+def _move_cost(atoms):
+    """Scored cost of a (legal or candidate) move: the longest physical displacement."""
+    return max((_dist(s, d) for s, d in atoms.values()), default=0.0)
+
+
+def _group_params(atoms, occ):
+    """Validator-exact parameters of one batched move, or None.
+
+    `atoms` maps qubit -> (source site, target site); `occ` maps site -> qubit.  Returns
+    `(rows, cols, new_rows, new_cols, members)` where `members` additionally contains atoms that
+    are picked up because they sit inside the source rectangle and are fixed points of both maps.
+    """
+    atoms = {q: (tuple(s), tuple(d)) for q, (s, d) in atoms.items()}
+    if not atoms:
+        return None
+    seen = dict(atoms)
+    while True:
+        row_map: dict[int, int] = {}
+        col_map: dict[int, int] = {}
+        for src, dst in seen.values():
+            sx, sy = src
+            dx, dy = dst
+            if not (0 <= sx <= 9 and 0 <= dx <= 9 and 0 <= sy <= 19 and 0 <= dy <= 19):
+                return None
+            if row_map.setdefault(sy, dy) != dy:
+                return None
+            if col_map.setdefault(sx, dx) != dx:
+                return None
+        src_rows = sorted(row_map)
+        src_cols = sorted(col_map)
+        if any(row_map[b] <= row_map[a] for a, b in itertools.pairwise(src_rows)):
+            return None
+        if any(col_map[b] <= col_map[a] for a, b in itertools.pairwise(src_cols)):
+            return None
+        rows = tuple(range(src_rows[0], src_rows[-1] + 1))
+        cols = tuple(range(src_cols[0], src_cols[-1] + 1))
+        added = False
+        for (x, y), q in occ.items():
+            if x in cols and y in rows and q not in seen:
+                if row_map.get(y) == y and col_map.get(x) == x:
+                    seen[q] = ((x, y), (x, y))
+                    added = True
+                else:
+                    return None
+        if not added:
+            break
+    members = set(seen)
+    for dst in (d for _, d in seen.values()):
+        other = occ.get(dst)
+        if other is not None and other not in members:
+            return None
+    new_rows = tuple(row_map[y] for y in src_rows)
+    new_cols = tuple(col_map[x] for x in src_cols)
+    return rows, cols, new_rows, new_cols, seen
+
+
+def _apply_atoms(occ, atoms):
+    for q, (src, dst) in atoms.items():
+        if occ.get(src) == q:
+            del occ[src]
+        occ[dst] = q
+
+
+def _free_site(occ, zone_only=False):
+    """A deterministic free site that does not form an interaction pair with a lone atom."""
+    for row in range(19, 9, -1):
+        for col in range(10):
+            s = (col, row)
+            if s not in occ and _partner_site(s) not in occ:
+                return s
+    if zone_only:
+        return None
+    for row in range(9, -1, -1):
+        for col in range(10):
+            s = (col, row)
+            if s not in occ:
+                return s
+    raise AssertionError("no free site")
+
+
+def _plan_moves(reloc, occ):
+    """Fuse relocations `{q: (src, dst)}` into as few legal rectangle moves as possible.
+
+    Returns an ordered list of groups `{q: (src, dst)}` that can be emitted in order on `occ`
+    (destinations free, or vacated by the group itself).  No emission happens here.
+    """
+    reloc = {q: (tuple(s), tuple(d)) for q, (s, d) in reloc.items() if tuple(s) != tuple(d)}
+    if not reloc:
+        return []
+    groups = [{q: reloc[q]} for q in sorted(reloc)]
+    while True:
+        best = None
+        n = len(groups)
+        for i in range(n):
+            ai = groups[i]
+            for j in range(i + 1, n):
+                aj = groups[j]
+                if not ai.keys().isdisjoint(aj.keys()):
+                    continue
+                merged = {**ai, **aj}
+                if _group_params(merged, occ) is None:
+                    continue
+                saving = _move_cost(ai) + _move_cost(aj) - _move_cost(merged)
+                if saving < -1e-12:
+                    continue
+                key = (saving, -i, -j)
+                if best is None or key > best[0]:
+                    best = (key, i, j)
+        if best is None:
+            break
+        _, i, j = best
+        groups[i] = {**groups[i], **groups[j]}
+        groups.pop(j)
+
+    # Order the groups so that every destination is free (or vacated by the group itself) when it
+    # runs.  A group is ready when none of its destinations is still occupied by another pending
+    # group; that is a topological sort of the "destinations are other groups' sources" relation.
+    # A cycle is broken by parking one atom on a free site for the duration.
+    order = []
+    busy = set(occ)
+    for g in groups:
+        busy.update(d for _, d in g.values())
+    remaining = list(range(len(groups)))
+    guard = 2 * len(reloc) + 8
+    while remaining and guard:
+        guard -= 1
+        owner = {}
+        for i in remaining:
+            for src, _ in groups[i].values():
+                owner[src] = i
+        ready = []
+        for i in remaining:
+            if all(d not in owner or owner[d] == i for _, d in groups[i].values()):
+                ready.append(i)
+        if ready:
+            for i in ready:
+                order.append(groups[i])
+                remaining.remove(i)
+            continue
+        # cycle: park one atom of the first pending group on a site that stays free
+        i = remaining[0]
+        g = groups[i]
+        for q in sorted(g):
+            src, dst = g[q]
+            if dst in owner and owner[dst] != i:
+                tmp = _free_site_away(busy)
+                order.append({q: (src, tmp)})
+                busy.add(tmp)
+                g[q] = (tmp, dst)
+                break
+        else:  # pragma: no cover - defensive: nothing to break, release as single atoms
+            remaining.remove(i)
+            for q in sorted(g):
+                order.append({q: g[q]})
+    for i in remaining:  # pragma: no cover - defensive
+        for q in sorted(groups[i]):
+            order.append({q: groups[i][q]})
+    return order
+
+
+def _free_site_away(busy):
+    """A free zone site (and partner) that is not in `busy` and so stays free for a whole plan."""
+    for row in range(19, 9, -1):
+        for col in range(10):
+            s = (col, row)
+            if s not in busy and _partner_site(s) not in busy:
+                return s
+    raise AssertionError("no free zone site for a cycle break")
+
+
 # ---------------------------------------------------------------- 1q algebra
 
 _H = np.array([[1.0, 1.0], [1.0, -1.0]], dtype=complex) / np.sqrt(2.0)
@@ -270,6 +449,46 @@ class _State:
             assert _in_zone(self.pos[a]) and _in_zone(self.pos[b]), (a, b, self.pos[a], self.pos[b])
             assert _partner_site(self.pos[a]) == self.pos[b], (self.pos[a], self.pos[b])
             self.out.cz(a, b)
+
+
+def _emit_plan(st, plan):
+    """Emit a plan produced by `_plan_moves`, rechecking legality on the live state."""
+    for g in plan:
+        g = {q: (tuple(s), tuple(d)) for q, (s, d) in g.items()}
+        g = {q: sv for q, sv in g.items() if st.pos[q] != sv[1]}
+        if not g:
+            continue
+        if len(g) > 1:
+            params = _group_params(g, st.occ)
+            if params is not None:
+                rows, cols, new_rows, new_cols, _ = params
+                st.move(rows, cols, new_rows, new_cols)
+                continue
+        _emit_singles(st, g)
+
+
+def _emit_singles(st, atoms):
+    """One atom at a time: destination-free first, and a temporary site only for a swap cycle."""
+    todo = {q: d for q, (s, d) in atoms.items() if st.pos[q] != d}
+    guard = 2 * len(todo) + 4
+    while todo and guard:
+        guard -= 1
+        for q in sorted(todo):
+            d = todo[q]
+            if d in st.occ and st.occ[d] != q:
+                continue
+            cur = st.pos[q]
+            st.move((cur[1],), (cur[0],), (d[1],), (d[0],))
+            del todo[q]
+            break
+        else:
+            if not todo:
+                break
+            q = min(todo)  # pragma: no cover - only reachable for a swap cycle
+            cur = st.pos[q]
+            tmp = _free_site(st.occ, zone_only=_in_zone(cur))
+            st.move((cur[1],), (cur[0],), (tmp[1],), (tmp[0],))
+    assert not todo, f"could not place {sorted(todo)}"
 
 
 # ---------------------------------------------------------------- parsing
@@ -722,12 +941,94 @@ class _Machine:
             self.park_hub()
 
     def matching(self, group):
+        """Serve an antichain of blocks: bare blocks one matching at a time, `zz` blocks in
+        *windows* (several matchings share one storage dip)."""
         self._ensure_hub_lone()
-        for sub in ([b for b in group if b.mid is not None], [b for b in group if b.mid is None]):
-            if not sub:
-                continue
-            for M in _greedy_matchings(sub):
+        bare = [b for b in group if b.mid is None]
+        if bare:
+            for M in _greedy_matchings(bare):
                 self.matching_round(M)
+        zz = [b for b in group if b.mid is not None]
+        if not zz:
+            return
+        for win in _pack_windows(_greedy_matchings(zz)):
+            if not self.window_round(win):
+                for M, _targ in win:
+                    self.matching_round(M)
+
+    def window_round(self, win):
+        """Place M1, pulse, re-pair to M2, pulse, ..., one dip with every target's `rx`, then the
+        pulses back down to M1, then home.  Returns False if a placement could not be found."""
+        st = self.st
+        self.to_zone()
+        targ = {}
+        for blocks, choice in win:
+            targ.update(choice)
+        rest = dict(st.pos)
+        # validate every placement on a simulated state before touching the circuit
+        pos_sim, occ_sim = dict(st.pos), dict(st.occ)
+        assigns = []
+        for blocks, _choice in win:
+            assign = self._assign(blocks, targ, occ_sim, pos_sim)
+            if assign is None:
+                return False
+            assigns.append(assign)
+            for _, qa, qb, sa, sb, _ in assign:
+                for q, site in ((qa, sa), (qb, sb)):
+                    del occ_sim[pos_sim[q]]
+                    pos_sim[q] = site
+                    occ_sim[site] = q
+        for blocks, _choice in win:
+            for blk in blocks:
+                for q, u in _block_pre(blk, targ[blk]):
+                    st.queue_1q(q, u)
+        involved = {q for blk in targ for q in blk.qubits()}
+        if self._needs_flush(involved):
+            self.flush_dip(involved)
+        for assign in assigns:
+            sites = {q: site for _, qa, qb, sa, sb, _ in assign for q, site in ((qa, sa), (qb, sb))}
+            self._to_config(sites, rest)
+            st.pulse(_pairs_of(assign))
+        targets = [targ[blk] for blocks, _choice in win for blk in blocks]
+        depth = 1 + max(0, max(st.pos[q][1] - 10 for q in targets))
+        if self._needs_flush(involved):
+            depth = max(depth, 1 + max(st.pos[q][1] - 10 for q in involved))
+
+        def mid():
+            for blocks, _choice in win:
+                for blk in blocks:
+                    t = targ[blk]
+                    st.flush(t)
+                    theta = _mid_theta(blk.mid)
+                    if theta is not None and _tight(theta):
+                        st.out.rx(_tight(theta), t)
+            self._flush_in_storage()
+
+        if st.in_zone and depth > 0:
+            self.dip(depth, mid)
+        else:
+            mid()
+        for i in range(len(win) - 1, -1, -1):
+            if i != len(win) - 1:
+                sites = {q: site for _, qa, qb, sa, sb, _ in assigns[i]
+                         for q, site in ((qa, sa), (qb, sb))}
+                self._to_config(sites, rest)
+            st.pulse(_pairs_of(assigns[i]))
+        for blocks, _choice in win:
+            for blk in blocks:
+                for q, u in _block_post(blk, targ[blk]):
+                    st.queue_1q(q, u)
+        self._to_config({}, rest)
+        return True
+
+    def _to_config(self, sites, rest):
+        """Relocate every atom whose position differs from its target (batched rectangles)."""
+        st = self.st
+        target = dict(rest)
+        target.update(sites)
+        reloc = {q: (st.pos[q], s) for q, s in target.items() if q in st.pos and st.pos[q] != s}
+        if reloc:
+            _emit_plan(st, _plan_moves(reloc, st.occ))
 
     def _needs_flush(self, qubits):
         for q in qubits:
@@ -778,9 +1079,11 @@ class _Machine:
                 st.queue_1q(q, u)
         self._unplace(moved)
 
-    def _assign(self, M):
+    def _assign(self, M, targ=None, occ=None, pos=None):
         """Place both atoms of every block on a free interaction pair -> [(blk, qa, qb, sa, sb, targ)]."""
         st = self.st
+        occ = st.occ if occ is None else occ
+        pos = st.pos if pos is None else pos
         claimed: set = set()
         out = []
         for blk in M:
@@ -790,51 +1093,35 @@ class _Machine:
                     a_site, b_site = (2 * cipher, row), (2 * cipher + 1, row)
                     if a_site in claimed or b_site in claimed:
                         continue
-                    if any(s in st.occ and st.occ[s] not in (blk.u, blk.v) for s in (a_site, b_site)):
+                    if any(s in occ and occ[s] not in (blk.u, blk.v) for s in (a_site, b_site)):
                         continue
                     for (qu, su), (qv, sv) in (
                         ((blk.u, a_site), (blk.v, b_site)),
                         ((blk.u, b_site), (blk.v, a_site)),
                     ):
-                        cost = max(_dist(st.pos[qu], su), _dist(st.pos[qv], sv))
+                        cost = max(_dist(pos[qu], su), _dist(pos[qv], sv))
                         if best is None or cost < best[0]:
                             best = (cost, qu, qv, su, sv)
             if best is None:
                 return None
             _, qu, qv, su, sv = best
             claimed.update((su, sv))
-            out.append((blk, qu, qv, su, sv, _targ_of(blk, qu, qv, su)))
+            t = (targ or {}).get(blk)
+            out.append((blk, qu, qv, su, sv, t if t is not None else _targ_of(blk, qu, qv, su)))
         return out
 
     def _place(self, assign):
-        """Move every atom to its assigned site, target-free first (a swap needs a temporary)."""
+        """Move every atom to its assigned site with batched rectangle moves."""
         st = self.st
-        todo = []
+        reloc = {}
+        homes = {}
         for blk, qa, qb, sa, sb, targ in assign:
             for q, site in ((qa, sa), (qb, sb)):
                 if st.pos[q] != site:
-                    todo.append((q, site))
-        record = []
-        while todo:
-            progress = False
-            rest = []
-            for q, site in todo:
-                if site in st.occ:
-                    rest.append((q, site))
-                    continue
-                cur = st.pos[q]
-                st.move((cur[1],), (cur[0],), (site[1],), (site[0],))
-                record.append((q, cur, site))
-                progress = True
-            todo = rest
-            if todo and not progress:
-                q, site = todo[0]
-                cur = st.pos[q]
-                tmp = self._free_zone_site()
-                st.move((cur[1],), (cur[0],), (tmp[1],), (tmp[0],))
-                record.append((q, cur, tmp))
-                todo[0] = (q, site)
-        return record
+                    homes[q] = st.pos[q]
+                    reloc[q] = (st.pos[q], site)
+        _emit_plan(st, _plan_moves(reloc, st.occ))
+        return homes
 
     def _free_zone_site(self):
         st = self.st
@@ -865,14 +1152,11 @@ class _Machine:
         st.move(rows, cols, new_rows, new_cols)
         return True
 
-    def _unplace(self, record):
+    def _unplace(self, homes):
+        """Send every atom that `_place` moved back to where it was, again batched."""
         st = self.st
-        for item in reversed(record):
-            if item is None:
-                continue
-            q, cur, site = item
-            here = st.pos[q]
-            st.move((here[1],), (here[0],), (cur[1],), (cur[0],))
+        reloc = {q: (st.pos[q], h) for q, h in homes.items() if st.pos[q] != h}
+        _emit_plan(st, _plan_moves(reloc, st.occ))
 
     def single_block(self, blk):
         """Fallback: park the block on a free pair, pulse, (dip), pulse, go home."""
@@ -915,6 +1199,47 @@ def _targ_of(blk, qu, qv, su):
     if blk.kind == "cx":
         return blk.v
     return qv if su[0] % 2 == 0 else qu
+
+
+def _pairs_of(assign):
+    return [(qa, qb) for _, qa, qb, _, _, _ in assign]
+
+
+def _pack_windows(mats):
+    """Greedily pack matchings into windows: a matching joins if none of its targets is already a
+    target or a control of the window, and none of its controls is a target.  Every `zz` block may
+    choose either endpoint as its target."""
+    windows = []
+    cur, tset, cset = [], set(), set()
+
+    def open_window(M):
+        choice = {blk: blk.u for blk in M}
+        return [(M, choice)], set(choice.values()), {blk.v for blk in M}
+
+    for M in mats:
+        choice, ok = {}, True
+        for blk in M:
+            for t in (blk.u, blk.v):
+                other = blk.v if t == blk.u else blk.u
+                if t in tset or t in cset or other in tset:
+                    continue
+                choice[blk] = t
+                break
+            else:
+                ok = False
+                break
+        if ok:
+            cur.append((M, choice))
+            for blk, t in choice.items():
+                tset.add(t)
+                cset.add(blk.v if t == blk.u else blk.u)
+        else:
+            if cur:
+                windows.append(cur)
+            cur, tset, cset = open_window(M)
+    if cur:
+        windows.append(cur)
+    return windows
 
 
 def _greedy_matchings(group):
