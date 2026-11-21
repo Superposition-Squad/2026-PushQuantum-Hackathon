@@ -1335,7 +1335,7 @@ def _build_wire_frontend(circuit: QuantumCircuit, n: int):
     return wires, tasks, rounds, hub
 
 
-def _compile_with(circuit, front, n, loading_hook, architecture_spec):
+def _compile_with(circuit, front, n, loading_hook):
     wires, tasks, rounds, hub = front
     round_of = {}
     for index, round_tasks in enumerate(rounds):
@@ -1362,7 +1362,7 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
     for tag, build in candidates_spec:
         try:
             front = build()
-            out, loading = _compile_with(circuit, front, n, _loading_by_first_use, architecture_spec)
+            out, loading = _compile_with(circuit, front, n, _loading_by_first_use)
             cost = _move_distance(out, loading) + WEIGHT * _gates_depth(out)
             candidates.append((cost, tag, out, loading))
         except Exception as error:  # a front end that cannot handle this circuit is simply skipped
