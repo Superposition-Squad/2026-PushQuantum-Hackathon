@@ -97,6 +97,11 @@ MAX_PAIRS = 4
 PARK_WINDOW = 1
 """A non-hub atom stays in the zone only if its next task is at most this many rounds away."""
 
+HUB_END_PAIR = True
+HUB_END_MIN_QUBITS = 20
+"""The end pair only pays off above this size (12q/20q measured worse with it)."""
+"""Park the hub on the rightmost pair of entangling row 10 (hub in column 9, partner in column 8)."""
+HUB_PAIR_LEFT = (8, 10)
 SQRT1_2 = 1.0 / math.sqrt(2.0)
 H_GATE = np.array([[SQRT1_2, SQRT1_2], [SQRT1_2, -SQRT1_2]], dtype=complex)
 _STORAGE = [(x, y) for y in range(STORAGE_Y[0], STORAGE_Y[1] + 1) for x in range(STORAGE_X[0], STORAGE_X[1] + 1)]
@@ -539,7 +544,7 @@ def _pair_options(task, pos, hub, left, right):
     ]
 
 
-def _best_pair(task: tuple[int, int], pos: dict[int, Site], reserved: set[Site], hub):
+def _best_pair(task: tuple[int, int], pos: dict[int, Site], reserved: set[Site], hub, hub_end: bool = False):
     """Cheapest free interaction pair for `task`: ``(cost, slot for u, slot for v)``.
 
     Pairs are taken from the lowest entangling row that still has a free pair: keeping a whole
@@ -548,13 +553,17 @@ def _best_pair(task: tuple[int, int], pos: dict[int, Site], reserved: set[Site],
     u, v = task
     best = None
     best_row = None
+    hub_task = hub is not None and hub in task
     for left, right, row in _PAIRS:
         if left in reserved or right in reserved:
             continue
+        if hub_end and hub is not None and not hub_task and left == HUB_PAIR_LEFT:
+            continue  # the end pair of row 10 is reserved for the hub: it never splits a row-10 move
         if best_row is not None and row > best_row:
             continue
         for cost, slot_u, slot_v in _pair_options(task, pos, hub, left, right):
-            key = (row, cost, left[0])
+            preferred = 0 if (hub_end and hub_task and left == HUB_PAIR_LEFT) else 1
+            key = (preferred, row, cost, left[0])
             if best is None or key < best[0]:
                 best = (key, (cost, slot_u, slot_v))
                 best_row = row
@@ -569,6 +578,7 @@ def _remaining_cz(wire, start: int) -> int:
 
 def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: dict[int, Site]) -> QuantumCircuit:
     out = circuit.copy_empty_like()
+    hub_end = HUB_END_PAIR and n > HUB_END_MIN_QUBITS
     pos: dict[int, Site] = dict(loading)
     occ: dict[Site, int] = {site: qubit for qubit, site in pos.items()}
     pointer = [0] * n
@@ -695,8 +705,8 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
             else:
                 waiting.append(task)
         # hardest task first: the one whose cheapest pair is worst gets first pick
-        for task in sorted(waiting, key=lambda t: (-_best_pair(tasks[t], pos, reserved, hub)[0], t)):
-            _, slot_u, slot_v = _best_pair(tasks[task], pos, reserved, hub)
+        for task in sorted(waiting, key=lambda t: (-_best_pair(tasks[t], pos, reserved, hub, hub_end)[0], t)):
+            _, slot_u, slot_v = _best_pair(tasks[task], pos, reserved, hub, hub_end)
             u, v = tasks[task]
             slot_of[u], slot_of[v] = slot_u, slot_v
             reserved.add(slot_u)
@@ -796,10 +806,18 @@ def _first_use_order(wires, round_of, n: int) -> list[int]:
     return sorted(range(n), key=lambda q: (first_use(q), q))
 
 
-def _loading_by_first_use(wires, round_of, n: int) -> dict[int, Site]:
+def _loading_by_first_use(wires, round_of, n: int, hub=None) -> dict[int, Site]:
     order = _first_use_order(wires, round_of, n)
     sites = sorted(_STORAGE, key=lambda site: (9 - site[1], site[0]))
-    return {q: sites[i] for i, q in enumerate(order)}
+    loading = {q: sites[i] for i, q in enumerate(order)}
+    if HUB_END_PAIR and n > HUB_END_MIN_QUBITS and hub is not None:
+        # the hub's home goes right under its parked slot (9, 10): swap it with whoever is at (9, 9)
+        target = (9, 9)
+        other = next((q for q, site in loading.items() if site == target), None)
+        if other is not None:
+            loading[other] = loading[hub]
+        loading[hub] = target
+    return loading
 
 
 def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
@@ -814,7 +832,7 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
         for task in round_tasks:
             round_of[task] = index
 
-    loading = _loading_by_first_use(wires, round_of, n)
+    loading = _loading_by_first_use(wires, round_of, n, hub)
 
     out = emit(n, wires, tasks, rounds, hub, circuit, loading)
     return out, Architecture(loading, spec=architecture_spec)
