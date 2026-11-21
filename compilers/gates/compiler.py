@@ -510,19 +510,34 @@ def schedule_rounds(items: list[Item], num_qubits: int) -> list[tuple[str, list[
 
 
 def initial_loading(num_qubits: int, storage, order=None) -> dict[int, Site]:
-    """Fill the storage rows closest to the entangling zone first, 10 qubits per row."""
+    """Lay `order` out in boustrophedon ("snake") order, filling the rows closest to the
+    entangling zone first.
+
+    Two properties matter:
+      * a qubit early in `order` is close to the zone, so sorting `order` by descending two-qubit
+        degree makes the atoms that travel most often travel least (the reference/hub qubit lands in
+        the bottom row, 1.0 from the zone, instead of 3.0 on average);
+      * consecutive entries of `order` are physically adjacent, including across row boundaries, so
+        linear-chain circuits (HEA) pair up inside one storage row and their lifts merge.
+    """
     (x0, x1), (y0, y1) = storage
     width = x1 - x0 + 1
     if order is None:
         order = list(range(num_qubits))
     loading = {}
     for i, q in enumerate(order):
-        row = y1 - i // width
-        col = x0 + i % width
+        band, offset = divmod(i, width)
+        row = y1 - band
+        col = (x0 + offset) if band % 2 == 0 else (x1 - offset)
         if row < y0:
             raise ValueError("circuit does not fit in the storage zone")
         loading[q] = (col, row)
     return loading
+
+
+def placement_order(deg: list[int], num_qubits: int) -> list[int]:
+    """Busiest qubits first (ties in circuit order, which keeps chain locality for HEA)."""
+    return sorted(range(num_qubits), key=lambda q: (-deg[q], q))
 
 
 # ---------------------------------------------------------------- movement
@@ -658,17 +673,17 @@ def plan_round_moves(pairs, pos, ent, storage):
     assignment = []
     used = []
     for u, v in ordered:
-        a, b = (u, v) if pos[u][0] <= pos[v][0] else (v, u)
         best = None
         for k, (row, c) in enumerate(sites):
             if not free[k]:
                 continue
-            cost = max(_dist(pos[a], (c, row), ent), _dist(pos[b], (c + 1, row), ent))
-            if best is None or cost < best[0] - 1e-12:
-                best = (cost, k)
+            for a, b in ((u, v), (v, u)):
+                cost = max(_dist(pos[a], (c, row), ent), _dist(pos[b], (c + 1, row), ent))
+                if best is None or cost < best[0] - 1e-12:
+                    best = (cost, k, a, b)
         if best is None:
             raise RuntimeError("no free interaction site")
-        k = best[1]
+        _cost, k, a, b = best
         row, c = sites[k]
         free[k] = False
         assignment.append((a, (c, row)))
@@ -691,7 +706,8 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
     phase += extra
     phases = schedule_rounds(items, n)
 
-    loading = initial_loading(n, storage)
+    cz_deg = two_qubit_degree(items, n)
+    loading = initial_loading(n, storage, placement_order(cz_deg, n))
     pos = dict(loading)
     occupancy = {site: q for q, site in loading.items()}
 
