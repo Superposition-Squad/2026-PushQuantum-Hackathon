@@ -153,6 +153,11 @@ Measured on the 8-circuit probe subset (score / distance), used to pick knobs:
 Works and is well behaved: 36/36 metric circuits and 13/13 sanity circuits pass, hub qubit is moved
 twice per circuit (its first lift and its final lowering) instead of ~1 000 times, `D` is 6× smaller
 than naive. Remaining cost is dominated by the storage depth of the ~50 atoms: each task needs one
-lower + one lift, and 50 atoms occupy rows 9…5, so the mean move length is ≈3 instead of ≈1.
+lower + one lift, and 50 atoms occupy rows 9…5, so the mean move length is ≈1.4 instead of ≈1.
 A round is still split into several `move`s when a parked atom sits between the moving columns of a
 row (the validator's ghost rule forbids spanning it), which is where the next gain is.
+
+Compile time: worst metric circuit 2.0 s (50q iHVA p3), sanity 13 (70q) 8.6 s. Note the *harness*
+QCEC check of `sample_circuit_11` (18 qubits, 459 CZ) takes 340 s on an idle machine and ~15 min
+under load; the compiled circuit has fewer gates (589) and a lower depth (79) than the naive
+compilation (704 gates, depth 82), so this is the checker, not the compiler.
