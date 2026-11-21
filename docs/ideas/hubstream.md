@@ -2,7 +2,7 @@
 
 - Branch: idea/hubstream · Worktree: /home/hackathon/challenge-wt/hubstream
 - Base: main 0ea558b, starting from `compilers/naive/compiler.py`
-- Status: in progress
+- Status: parked (finished time box; candidate for merge as the move planner of a combined compiler)
 
 ## Hypothesis
 
@@ -131,6 +131,12 @@ them, on the free storage sites nearest to `(10, 0)` (iteration 2).
 | naive | – | 0.00 | 0.0 | 0.0 | D = 276 726.91, P = 23 676 |
 | step 1 (round template) | `83101da` | 76.93 | 78.41 | 71.01 | D = 59 758.6; naive rows 2–6 loading, 25 pairs/round, per-atom nearest lowering |
 | + loading by first use, one-row rounds, packed lowering | `ff4d3b3` | 81.06 | 83.24 | 72.33 | D = 46 367.6, P = 6 550; `MAX_PAIRS = 4` |
+| + end pair of row 10 reserved for the hub, all n | – | 81.35 | 83.61 | 72.33 | D = 45 359.8; 50q p3 stagger 5 981 → 5 579, but 20q qaoa p3 1 262 → 1 387 |
+| + end pair only for n > 20 (final) | `6262b1b` | 81.51 | 83.80 | 72.33 | D = 44 825.4; hub at entangling (9,10), home (9,9); other tasks never use pair (8,9) of row 10 |
+
+A hard pin of the hub to the end pair (instead of a reservation) failed on 10 circuits: after the
+hub's mixer descent a parked atom could hold the pair when the hub came back ("no free interaction
+pair"). Reserving the pair for hub tasks fixes it.
 
 Measured on the 8-circuit probe subset (score / distance), used to pick knobs:
 
@@ -150,7 +156,35 @@ Measured on the 8-circuit probe subset (score / distance), used to pick knobs:
 
 ## Verdict
 
-Works and is well behaved: 36/36 metric circuits and 13/13 sanity circuits pass, hub qubit is moved
+**Final (`6262b1b`, `--mode full`): +81.51 %** — distance +83.80 % (D 44 825.4), depth +72.33 %
+(P 6 550). Families: hea +78.57 / +48.39, ihva +86.19 / +75.21, qaoa +80.52 / +69.01. 36/36 metric
+circuits pass full mode with zero physics/architecture/equivalence failures.
+
+50q circuits (distance, vs naive): QAOA p1 2 021 (−75.7 %), QAOA p3 5 861 (−76.5 %), iHVA stagger
+p3 5 579 (−77.6 %), iHVA tree p3 5 858 (−76.5 %), tree_warm p3 751 (−97.0 %), HEA p3 726 (−72.7 %).
+The 50q circuits are 33 513 of the remaining 44 825 (75 %), so they are where any next gain is.
+
+What carries over to a merged compiler:
+1. **Hub parking via ZZ orientation**: rotation side = non-hub endpoint, so the hub's wire holds only
+   CZs for a whole layer (iHVA's `rx(±π/2)` cancel on the hub wire). The hub moves twice per
+   circuit instead of ~1 000 times. Exact, no commutation reasoning needed.
+2. **The generic "park while the merged 1q run is identity" rule** (also keeps the non-rotation
+   side of every block in the zone between its two CZs).
+3. **θ≡0 block elision and deferred trailing `rz` across `cz`** (exact; the first is why the warm
+   circuits are so cheap, the second gives +1.3 pt depth).
+4. Reserving an end pair of row 10 for the hub so it does not split row-10 rectangles (n > 20).
+
+What did not work: batching each round's lower/lift into one storage row (step 3, all variants
+worse), because the ghost rule splits rectangles around idle atoms and 50 atoms leave no shallow
+free row. Hub-specific partner loading / a `(0,9)` staging site: local wins on 50q p1, net losses.
+
+Next step: the remaining cost is ~1.3 atoms per move at a mean length of ~4 on 50q. The lever is a
+**position-aware choice of round composition** (pick, among ready tasks, those whose atoms are
+column-contiguous in one storage row), combined with the commutation-aware rounds of the `gates`
+branch, which give much larger ready sets to choose from. Gate-order ASAP leaves only ~3 ready
+tasks per round, which is too little freedom for batching.
+
+Earlier notes (step 2): works and is well behaved: 36/36 metric circuits and 13/13 sanity circuits pass, hub qubit is moved
 twice per circuit (its first lift and its final lowering) instead of ~1 000 times, `D` is 6× smaller
 than naive. Remaining cost is dominated by the storage depth of the ~50 atoms: each task needs one
 lower + one lift, and 50 atoms occupy rows 9…5, so the mean move length is ≈1.4 instead of ≈1.
