@@ -95,7 +95,18 @@ check (angles → π/2) on 50q before claiming.
 
 | iteration | commit | score | dist % | depth % | notes |
 |---|---|---|---|---|---|
-| fork = zonedwell | | +80.79 | 81.68 | 77.25 | baseline |
+| fork = zonedwell r1 | 43f5e62 | +80.79 | 81.68 | 77.25 | baseline |
+| r1 + shallow dip before conveyor (scratch) | – | +81.45 | 82.46 | 77.43 | full 12q ✓, sanity 13/13 ✓, Clifford ✓ |
+| phase A WIP on r1 (batcher only) | ae910ec | +81.27 | 82.27 | 77.25 | 50q QAOA p3 2911→2721; windows broke 50q iHVA (fallback) |
+| **re-seed: zonedwell r2 (25f752c) + shallow dip** | 34f724c | **+87.52** | 89.27 | 80.51 | full 36/36 ✓, sanity 13/13 ✓, Clifford tableaux equal on 6 × 50q; vs zonedwell r2 +0.20 pts (all on iHVA: 50q tree p3 5228→4931) |
+
+Experiments that did not help (scratch, fast mode):
+- ASAP antichain scheduling (26 groups instead of 57 on 50q tree p3): same cost; the dips are not per group.
+- Conveyor slides issued as `cols 0..lane` rectangles ("ride-along") used as free storage visits for
+  pending 1q flushes: 48 548 vs 48 550. The expensive flushes are the *next* block's pre-gates, whose
+  role (target/control) is only decided at placement time.
+- Lane visiting order by hub position: −0.07 (depth up).
+- Simulated annealing on zonedwell's layout proxy: proxy better, real −0.37. The proxy is saturated.
 
 ## Verdict
 (pending)
