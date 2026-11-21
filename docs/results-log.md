@@ -131,3 +131,19 @@ systolic and hubwalk are being redesigned for the `idle` rule.
 | optimizer (teammate Anton Stolz, `origin/idea/optimizer` 713e5a5) | +80.99 | fast 20/20 | not merged; adds only +0.01 to the portfolio (wins 07, 09) |
 | **portfolio (systolic, hubstream, rectbatch, gates)** | **+85.50** | full 20/20 | this commit |
 | hubwalk r3 (idle redesign) | +81.56 | full 20/20, sanity 13/13, 20q strict, 50q Clifford ✓ | c9e86df (idea/hubwalk) — **stopped**: wins none of the 20 vs portfolio +85.50 (same storage-home design as systolic, less tuned) |
+
+## idea/optimizer: pulsebeam + postopt (v5 set), ~22:45 CET
+
+`compilers/optimizer` was renamed to `compilers/pulsebeam` (the "optimizer" / "optimizer-optimizer"
+entries above are its old state 713e5a5).
+
+| compiler | v5 leaderboard set (20) | notes |
+|---|---|---|
+| pulsebeam (idle pulse planner, beam search, line layout, block drops) | +81.96 | fast 20/20; 12q iHVA wins 6/8 vs systolic; 12q full (QCEC) 8/8 |
+| systolic_po (systolic + `compilers/postopt.py`) | **+86.30** | fast 20/20; postopt = generic gap re-planner, depth unchanged |
+| best-of estimate (systolic, systolic_po, pulsebeam, portfolio) | +86.58 | `compilers/portfolio_po` full run pending |
+
+`compilers/postopt.py`: between two CZ layers only start positions, end positions and the 1q gates
+in between matter; each gap is re-planned (block drop of the zone, gates, grouped moves to the end
+positions) and kept only if cheaper; validator-rule replay before returning. `bench/make_postopt.py
+<name>` builds `compilers/<name>_po/` (component + postopt + wrapper).

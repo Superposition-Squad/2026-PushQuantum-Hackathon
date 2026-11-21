@@ -82,10 +82,10 @@ def is_excluded(name_or_path) -> bool:
     return text in EXCLUDED or text.rsplit("-", 1)[-1] in EXCLUDED
 
 
-CHALLENGE_COMPILERS = Path("/home/hackathon/challenge/compilers")
+CHALLENGE_COMPILERS = Path(__file__).resolve().parents[1] / "compilers"
 """Compiler root of the canonical checkout."""
 
-WT_ROOT = Path("/home/hackathon/challenge-wt")
+WT_ROOT = Path(__file__).resolve().parents[2] / "challenge-wt"
 """Root of the worktree checkouts; `<wt>/compilers/<idea>/...` is allowed too."""
 
 VIZ_VERSION = 1

@@ -10,6 +10,10 @@
 - [literature.md](literature.md): techniques from the papers corpus mapped to our metric.
 - [ideas/](ideas/): one design doc per idea branch, with results and verdict.
 - [results-log.md](results-log.md): round-by-round leaderboard of our compilers (orchestrator).
+- [rules.md](rules.md): the binding rule set (brief + validator v5 + what planqc said), incl. the
+  idle rule and single-zone moves.
+- Post-optimizer: [`../compilers/postopt.py`](../compilers/postopt.py) (module docstring) and
+  `bench/make_postopt.py`; overview in the root [README](../README.md).
 
 ## Decisions (ADRs)
 
