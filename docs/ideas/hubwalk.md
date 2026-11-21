@@ -90,6 +90,11 @@ See the implementer spec in the session log; summary:
 | 2c: conveyor pre-flush by shallow dip | 4c8dcec | +86.69 | 88.41 | 79.83 | portfolio with hubwalk ≈ 87.58 (wins 20 circuits) |
 | 2g: layout SA (200× steps + leaf-move cost) | 02bad93 | +87.06 | 88.90 | 79.72 | 50q QAOA p1 904→841; 50q iHVA stagger p3 3258→3251 |
 | 2b: MILP round packing | (not kept) | +87.06 | | | HiGHS: cap-1 depth objective times out (gap never ≤0.05 in 10 s); cap-2 feasibility is instant but ~50 % more leaf moves → 50q QAOA p1 841→1218. Greedy kept. |
+| 3H: hub parked on entangling row 10 | 6538907 | +87.25 | 89.11 | 79.77 | hub home (9,0)/(9,10); every dip reaches the hub, lane 4 needs no hop |
+| 3F: Clifford frames in star rounds | b4b61b4 | +87.85 | 90.31 | 77.98 | no H/rx(±π/2) wrappers; flush dips mostly gone, +depth from `rz rx rz` mids |
+| 3W: hub by degree dominance (deg≥4, ≥2×second) | 4a9ffaa | +88.36 | 90.64 | 79.25 | tree_warm hub deg 31/11 now rides the conveyor: 50q p3 1042→397 |
+| (3) mover decoupled from leaf role | (this commit) | +88.47 | 90.77 | 79.25 | the deeper endpoint visits the shallower's right slot → shallower dips |
+| 3F conveyor frames | (not kept) | +88.16 | 90.76 | 77.73 | distance −331 but +depth from `ry` mids; net below the old conveyor |
 
 Planner offline models (`/tmp/hwproto/sim*.py`): with random chords, neither star rounds with
 SA layout (≈800 for the 50q QAOA p1 non-hub part) nor whole-lane shears (≈870) batch well; the

@@ -1216,41 +1216,49 @@ class _Machine:
             cls_c, s_c = _conj_class(st.pending.get(center), cp)
             cls_l, s_l = _conj_class(st.pending.get(leaf), lp)
             assert cls_c == "Z" and cls_l in ("X", "Y"), (cls_c, cls_l)
-            plan.append((blk, leaf, center, t, cls_l, s_c * s_l * th))
+            rc = self.home[center][1]
+            rl = self.home[leaf][1]
+            if rc > rl:
+                mover, other = center, leaf
+            elif rl > rc:
+                mover, other = leaf, center
+            else:  # tie: move the atom with the shorter trip onto the other's right slot
+                cx, cy = self.home[center]
+                lx, ly = self.home[leaf]
+                move_center = _dist((cx, cy + 10), (lx + 1, ly + 10))
+                move_leaf = _dist((lx, ly + 10), (cx + 1, cy + 10))
+                mover, other = (center, leaf) if move_center <= move_leaf else (leaf, center)
+            plan.append((blk, leaf, center, t, cls_l, s_c * s_l * th, mover, other))
 
         by_t: dict[int, list] = {}
         for item in plan:
             by_t.setdefault(item[3], []).append(item)
         top = max(by_t) + 1
 
-        def slot(center):
-            x, y = self.home[center]
+        def slot(atom):
+            x, y = self.home[atom]
             return (x + 1, y + 10)
 
         def visit(items):
-            self._batch_moves(
-                [(leaf, st.pos[leaf], slot(center)) for _b, leaf, center, _t, _a, _p in items]
-            )
+            self._batch_moves([(it[6], st.pos[it[6]], slot(it[7])) for it in items])
 
         def go_home(items):
-            self._batch_moves(
-                [(leaf, st.pos[leaf], self.zone_home[leaf]) for _b, leaf, center, _t, _a, _p in items]
-            )
+            self._batch_moves([(it[6], st.pos[it[6]], self.zone_home[it[6]]) for it in items])
 
         for t in range(top):
             items = by_t.get(t, [])
             visit(items)
-            st.pulse([(center, leaf) for _b, leaf, center, _t, _a, _p in items])
+            st.pulse([(it[2], it[1]) for it in items])
             if t < top - 1:
                 go_home(items)
 
-        leaves = [leaf for _b, leaf, _c, _t, _a, _p in plan]
-        centers = {center for _b, _l, center, _t, _a, _p in plan}
+        leaves = [it[1] for it in plan]
+        centers = {it[2] for it in plan}
         depth = 1 + max(st.pos[q][1] - 10 for q in leaves)
 
         def mid():
-            for _blk, leaf, _center, _t, axis, phi in plan:
-                _emit_1q(st, leaf, _mid_matrix(axis, phi))
+            for it in plan:
+                _emit_1q(st, it[1], _mid_matrix(it[4], it[5]))
             self._flush_in_storage_except(set(leaves) | centers)
 
         self.dip(depth, mid)
@@ -1259,7 +1267,7 @@ class _Machine:
             items = by_t.get(t, [])
             if t < top - 1:
                 visit(items)
-            st.pulse([(center, leaf) for _b, leaf, center, _t, _a, _p in items])
+            st.pulse([(it[2], it[1]) for it in items])
             go_home(items)
 
     def _star_round(self, rnd):
