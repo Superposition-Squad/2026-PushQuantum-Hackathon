@@ -734,7 +734,8 @@ def plan_groups(blocks, hub):
 # ---------------------------------------------------------------- layout
 
 
-SCHEDULES = ("non", "largest", "asap", "hub")
+SCHEDULES = ("look2", "look0.5", "non", "hub", "largest", "asap")
+LOOKAHEAD = {"look2": 2.0, "look0.5": 0.5}
 _CANON = ("hubZ", "hubY", "non")
 
 
@@ -748,6 +749,8 @@ def _plan_groups_for(blocks, hub, policy):
         return _asap_groups(blocks, hub)
     if policy == "hub":
         return plan_groups(blocks, hub)
+    if policy in LOOKAHEAD:
+        return _lookahead_groups(blocks, hub, LOOKAHEAD[policy])
     n = len(blocks)
     gens = [_block_generator(b) for b in blocks]
     preds = [{i for i in range(j) if not _commute(blocks[i], gens[i], blocks[j], gens[j])}
@@ -766,6 +769,47 @@ def _plan_groups_for(blocks, hub, policy):
         chosen = buckets[cat]
         groups.append([blocks[j] for j in chosen])
         done |= set(chosen)
+    return groups
+
+
+def _lookahead_groups(blocks, hub, w):
+    """Ready-set scheduling with a one-step lookahead: take the category whose group plus the
+    blocks it frees (weighted by `w`) is largest.  Incremental counters keep it cheap."""
+    n = len(blocks)
+    gens = [_block_generator(b) for b in blocks]
+    preds = [{i for i in range(j) if not _commute(blocks[i], gens[i], blocks[j], gens[j])}
+             for j in range(n)]
+    succ: list[list[int]] = [[] for _ in range(n)]
+    for j in range(n):
+        for i in preds[j]:
+            succ[i].append(j)
+    unsat = [len(p) for p in preds]
+    done: set[int] = set()
+    groups = []
+    while len(done) < n:
+        ready = [j for j in range(n) if j not in done and unsat[j] == 0]
+        if not ready:  # pragma: no cover - defensive
+            ready = [j for j in range(n) if j not in done]
+        buckets = {cat: [j for j in ready if _category(blocks[j], hub) == cat] for cat in _CANON}
+
+        def gain(c):
+            members = buckets[c]
+            inside = set(members)
+            counts: dict[int, int] = {}
+            for i in members:
+                for j in succ[i]:
+                    if j not in done and j not in inside:
+                        counts[j] = counts.get(j, 0) + 1
+            freed = sum(1 for j, k in counts.items() if unsat[j] - k <= 0)
+            return (len(members) + w * freed, -members[0])
+
+        cat = max([c for c in _CANON if buckets[c]], key=gain)
+        chosen = buckets[cat]
+        groups.append([blocks[j] for j in chosen])
+        for i in chosen:
+            done.add(i)
+            for j in succ[i]:
+                unsat[j] -= 1
     return groups
 
 
@@ -1225,13 +1269,13 @@ class _Machine:
         other = blk.u if default == blk.v else blk.v
         return other if dirty(other) < dirty(default) else default
 
-    def _assign(self, M, row_penalty=0.5, dweller_only=False):
+    def _assign(self, M, row_penalty=0.5, dweller_only=False, preclaimed=()):
         """Place both atoms of every block on a free interaction pair -> [(blk, qa, qb, sa, sb, targ)].
 
         `dweller_only` restricts a block to the pair one of its atoms already sits on, so only
         one atom travels per block (a fused rectangle is then much likelier)."""
         st = self.st
-        claimed: set = set()
+        claimed: set = set(preclaimed)
         out = []
         for blk in M:
             best = None
@@ -1283,6 +1327,79 @@ class _Machine:
         cost += 2.0 * (1 + max(0, max(pos[t][1] - 10 for t in targs)))
         return cost
 
+    def _assign_runs(self, M):
+        """Run-merge: move whole contiguous lane runs onto a neighbouring lane's right slots.
+
+        A run is a maximal contiguous block of rows of one source lane whose atoms are all desired
+        pairs with one destination lane at a fixed row offset.  With >= 2 desired pairs the batcher
+        fuses the run into one rectangle move costing ~1.7-2.0 for up to `L` pairs.
+        """
+        st = self.st
+        L = self.lay["L"]
+        occ, pos = st.occ, st.pos
+        block_of = {}
+        for blk in M:
+            block_of[blk.u] = blk
+            block_of[blk.v] = blk
+        cands = []
+        for j in range(5):  # source lane
+            for i in range(5):  # destination lane
+                if i == j:
+                    continue
+                for delta in (-2, -1, 0, 1, 2):
+                    runs, run = [], []
+                    for r in range(L):
+                        rr = r + delta
+                        src = (2 * j, 10 + r)
+                        x = occ.get(src)
+                        ok = False
+                        if 0 <= rr < L and x is not None:
+                            blk = block_of.get(x)
+                            dst = (2 * i + 1, 10 + rr)
+                            left = (2 * i, 10 + rr)
+                            other = None if blk is None else (blk.v if x == blk.u else blk.u)
+                            if (blk is not None and pos[other] == left and dst not in occ):
+                                ok = True
+                                run.append((x, blk, src, dst, left))
+                        if not ok:
+                            if len(run) >= 2:
+                                runs.append(run)
+                            run = []
+                    if len(run) >= 2:
+                        runs.append(run)
+                    cands.extend((len(run), (j, i, delta, a), run) for a, run in enumerate(runs))
+        if not cands:
+            return None
+        cands.sort(key=lambda c: (-c[0], c[1]))
+        used_q: set = set()
+        used_sites: set = set()
+        visits: dict = {}
+        for _n, _key, run in cands:
+            if any(x in used_q for x, _b, _s, _d, _l in run):
+                continue
+            if any(d in used_sites or l in used_sites for _x, _b, _s, d, l in run):
+                continue
+            for x, blk, src, dst, left in run:
+                used_q.update(blk.qubits())
+                used_sites.update((dst, left))
+                visits[blk] = (x, blk.v if x == blk.u else blk.u, src, dst, left)
+        if not visits:
+            return None
+        out = []
+        for blk in M:
+            if blk in visits:
+                x, other, src, dst, left = visits[blk]
+                out.append((blk, other, x, left, dst, self._pick_targ(blk, other, x, left)))
+        rest = [blk for blk in M if blk not in visits]
+        if rest:
+            more = self._assign(rest, 0.5, False, preclaimed=used_sites)
+            if more is None:
+                return None
+            out.extend(more)
+        order = {id(blk): k for k, blk in enumerate(M)}
+        out.sort(key=lambda item: order[id(item[0])])
+        return out
+
     def _choose_assign(self, M):
         """Pick the placement strategy with the cheapest simulated batched cost (deterministic)."""
         best, best_cost = None, None
@@ -1293,6 +1410,11 @@ class _Machine:
             cost = self._assign_cost(assign)
             if best_cost is None or cost < best_cost - 1e-12:
                 best, best_cost = assign, cost
+        runs = self._assign_runs(M)
+        if runs is not None:
+            cost = self._assign_cost(runs)
+            if best_cost is None or cost < best_cost - 1e-12:
+                best, best_cost = runs, cost
         return best
 
     def _place(self, assign):
