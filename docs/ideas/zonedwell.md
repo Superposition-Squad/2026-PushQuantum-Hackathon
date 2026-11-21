@@ -247,6 +247,8 @@ Two things in the original spec turned out to be wrong:
 | initial-loading fix, `cz` needs no `H`, lazy hub parking | e0d4431 | +79.59 | 80.25 | 76.95 | 36/36 metric + 13/13 sanity `--mode full` |
 | partial (shallow) bulk dips | e0c88c4 | +80.79 | 81.68 | 77.25 | 36/36 metric; dip depth = 1 + deepest atom needing a 1q gate |
 | exact elision of zero-angle blocks | 7b1f7bd | +83.69 | 84.72 | 79.55 | `tree_warm` 441 blocks -> 49; 50q p3 distance 5428 -> 1137 |
+| compact lanes (L = ceil((P+1)/5)), place-before-flush, sum assignment cost | cf966d3 | +86.33 | 88.15 | 79.07 | zone switch costs L instead of 10 |
+| layout search 40*P -> 200*P iterations | (this commit) | +86.43 | 88.26 | 79.08 | max compile 9.0 s |
 
 Per family at `e0d4431`: HEA distance +63.5 % / depth +16.1 %, iHVA +76.4 % / +74.9 %,
 QAOA +87.0 % / +80.7 %. Max per-circuit compile time 3.3 s.
@@ -256,7 +258,12 @@ QAOA +87.0 % / +80.7 %. Max per-circuit compile time 3.3 s.
 At `e0d4431`, `D = 54 643`. iHVA is 38 315 of it (70 %), QAOA 14 117, HEA 2 216. On a 50-qubit
 iHVA p3 circuit (naive 24 907): ~2 700 is bulk zone moves (~135 of them, i.e. about two per
 scheduling group, which is the structural minimum), ~900 the conveyor slides, ~2 200 the non-hub
-positioning. The next lever is therefore **fewer scheduling groups** (the iHVA tree ordering needs
+positioning. Deferring the visitor homes across the matchings of one group (moving each atom straight to its
+next site) was implemented and measured *worse* here (+85.93 overall, 50q qaoa p3 2840 -> 3309): the
+assignment cost cannot see the eventual return trip, so reused atoms are left on deep pair rows and
+the dips and home trips grow. It is not in the final compiler.
+
+The next lever is therefore **fewer scheduling groups** (the iHVA tree ordering needs
 57, the stagger 29) or a cheaper way to reach storage before a group's first `cz`; merging groups is
 blocked because Z-side and Y-side hub blocks anticommute on the hub, so their order is fixed.
 

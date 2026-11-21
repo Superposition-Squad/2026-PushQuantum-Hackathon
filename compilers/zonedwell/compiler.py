@@ -519,7 +519,7 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True):
     best = costs.eval(assign)
     rng = np.random.default_rng(12345)
     keys = list(assign)
-    for _ in range(40 * len(keys)):
+    for _ in range(200 * len(keys)):
         i, j = rng.integers(0, len(keys), 2)
         if i == j:
             continue
