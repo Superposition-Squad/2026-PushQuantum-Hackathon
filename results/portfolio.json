@@ -1,5 +1,5 @@
 {
- "name": "zs-portfolio",
+ "name": "portfolio",
  "compiler": "compilers/portfolio/compiler.py",
  "mode": "full",
  "physics_check": true,
