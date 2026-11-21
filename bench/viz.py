@@ -714,6 +714,13 @@ def write_outputs(data: dict, summary: dict, out: Path) -> tuple[dict, Path]:
             file=sys.stderr,
             flush=True,
         )
+    if "__VIZ_MANIFEST__" in template:
+        try:
+            snapshot = manifest_snapshot(build_manifest(out), name, label)
+        except Exception as error:  # noqa: BLE001 - the page itself matters more than the sidebar
+            print(f"WARNING: manifest snapshot failed: {error}", file=sys.stderr, flush=True)
+            snapshot = {"version": 1, "snapshot": True, "pages": [], "circuits": {}, "compilers": []}
+        template = template.replace("__VIZ_MANIFEST__", _manifest_json(snapshot), 1)
     page_text = template.replace("__VIZ_DATA__", payload, 1)
     if "__VIZ_TITLE__" in page_text:
         page_text = page_text.replace("__VIZ_TITLE__", html.escape(f"{name} · {label}"))
@@ -813,10 +820,128 @@ def render_index(groups: list[dict]) -> str:
     return template.replace("__VIZ_INDEX__", text, 1)
 
 
-def regenerate_index(out: Path) -> Path:
+def _circuit_info(label: str) -> dict:
+    """Family, size and variant of a bench label, from its qasm file name."""
+    path = known_circuits().get(label)
+    stem = path.stem if path else label
+    variant = stem[len("bus_stop_"):] if stem.startswith("bus_stop_") else stem
+    layers = re.search(r"_p(\d+)$", stem)
+    size = re.search(r"(\d+)q", variant)
+    return {
+        "family": bench._family(path) if path else "other",
+        "variant": variant.replace("_", " "),
+        "layers": int(layers.group(1)) if layers else None,
+        "qubits": int(size.group(1)) if size else None,
+        "set": "metric" if label.startswith("metric_") else "sanity" if label.startswith("sample_") else "other",
+    }
+
+
+def build_manifest(out: Path, groups: list[dict] | None = None) -> dict:
+    """Every compiler x circuit page under `out` with its metrics (see docs/viz.md, "manifest")."""
+    groups = collect_index(out) if groups is None else groups
+    naive = _naive_baseline()
+    metric = [k for k in naive if k.startswith("metric_")]
+    circuits: dict[str, dict] = {}
+    pages = []
+    compilers = []
+    for group in groups:
+        summary = group.get("summary") or {}
+        compilers.append({
+            "name": group["name"],
+            "compiler": group.get("compiler"),
+            "pages": len(group["rows"]),
+            "valid": sum(1 for r in group["rows"] if r.get("ok")),
+            "score": summary.get("score") if summary.get("valid") else None,
+        })
+        for row in group["rows"]:
+            label = str(row.get("label"))
+            if label not in circuits:
+                info = _circuit_info(label)
+                if row.get("qubits"):
+                    info["qubits"] = row["qubits"]
+                base = naive.get(label, {}).get("metrics")
+                info["naive_d"] = base["move_distance"] if base else None
+                info["naive_p"] = base["depth"] if base else None
+                circuits[label] = info
+            metrics = row.get("metrics") or row.get("partial") or {}
+            pages.append({
+                "name": group["name"],
+                "label": label,
+                "ok": bool(row.get("ok")),
+                "stage": row.get("stage"),
+                "partial": row.get("metrics") is None,
+                "d": metrics.get("move_distance"),
+                "p": metrics.get("depth"),
+                "moves": metrics.get("num_moves"),
+                "warn": metrics.get("spacing_warnings"),
+                "cz": row.get("cz"),
+                "equivalence": row.get("equivalence"),
+                "page": f"{group['name']}/{row.get('page') or label + '.html'}",
+                "bytes": row.get("page_bytes"),
+                "generated": row.get("generated"),
+            })
+    return {
+        "version": 1,
+        "generated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "weights": {
+            "distance": bench.SCORE_DISTANCE_WEIGHT,
+            "depth": bench.SCORE_DEPTH_WEIGHT,
+            "naive_distance_total": round(sum(naive[k]["metrics"]["move_distance"] for k in metric), 6),
+            "naive_depth_total": sum(naive[k]["metrics"]["depth"] for k in metric),
+        },
+        "compilers": compilers,
+        "circuits": circuits,
+        "pages": pages,
+    }
+
+
+def manifest_snapshot(manifest: dict, name: str, label: str) -> dict:
+    """The part of the manifest one page needs: its circuit's compilations and its compiler's circuits."""
+    pages = [p for p in manifest["pages"] if p["name"] == name or p["label"] == label]
+    labels = {p["label"] for p in pages} | {label}
+    return {**manifest, "snapshot": True, "pages": pages,
+            "circuits": {k: v for k, v in manifest["circuits"].items() if k in labels}}
+
+
+_MANIFEST_RE = re.compile(r'(<script id="viz-manifest" type="application/json">)(.*?)(</script>)', re.S)
+
+
+def _manifest_json(snapshot: dict) -> str:
+    return json.dumps(snapshot, separators=(",", ":"), allow_nan=False).replace("</", "<\\/")
+
+
+def refresh_snapshots(out: Path, manifest: dict, name: str | None = None, label: str | None = None) -> int:
+    """Re-embed the manifest snapshot in existing pages (all, or those of `name` or of `label`)."""
+    count = 0
+    for page in sorted(Path(out).glob("*/*.html")):
+        page_name, page_label = page.parent.name, page.stem
+        if (name or label) and page_name != name and page_label != label:
+            continue
+        text = page.read_text(encoding="utf-8")
+        match = _MANIFEST_RE.search(text)
+        if not match:
+            continue
+        snap = _manifest_json(manifest_snapshot(manifest, page_name, page_label))
+        page.write_text(text[:match.start(2)] + snap + text[match.end(2):], encoding="utf-8")
+        count += 1
+    return count
+
+
+def regenerate_index(out: Path, refresh: str | tuple | None = None) -> Path:
+    """Rewrite `index.html` and `manifest.json`; `refresh="all"` or `(name, label)` also updates the
+    manifest snapshot embedded in existing pages (used by file:// viewers)."""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    text = render_index(collect_index(out))
+    groups = collect_index(out)
+    manifest = build_manifest(out, groups)
+    tmp = out / "manifest.json.tmp"
+    tmp.write_text(json.dumps(manifest, separators=(",", ":"), allow_nan=False), encoding="utf-8")
+    tmp.replace(out / "manifest.json")
+    if refresh == "all":
+        refresh_snapshots(out, manifest)
+    elif refresh:
+        refresh_snapshots(out, manifest, *refresh)
+    text = render_index(groups)
     path = out / "index.html"
     path.write_text(text, encoding="utf-8")
     return path
@@ -995,7 +1120,7 @@ def cmd_page(args) -> int:
     out = output_dir(args.out)
     data, summary = build(compiler, qasm, name, args.mode, args.timeout)
     summary, page_path = write_outputs(data, summary, out)
-    regenerate_index(out)
+    regenerate_index(out, refresh=(name, data["meta"]["circuit"]))
     print(f"{page_path} ({_format_size(summary['page_bytes'])})")
     print(_summary_line(summary))
     for warning in data["meta"]["warnings"]:
@@ -1068,7 +1193,7 @@ def cmd_all(args) -> int:
     elapsed = round(time.perf_counter() - t0, 1)
     failed = [item["label"] for item in summaries if not item["ok"]]
 
-    index_path = regenerate_index(out)
+    index_path = regenerate_index(out, refresh="all")
     print("-" * 80)
     print(
         f"{name}: {len(summaries) - len(failed)}/{len(summaries)} passed in {elapsed}s ({args.mode})"
@@ -1095,7 +1220,7 @@ def cmd_all(args) -> int:
 
 def cmd_index(args) -> int:
     out = output_dir(args.out)
-    path = regenerate_index(out)
+    path = regenerate_index(out, refresh="all")
     groups = collect_index(out)
     print(f"{path} ({len(groups)} compiler(s))")
     return 0
@@ -1117,9 +1242,10 @@ def cmd_rewrap(args) -> int:
         data = json.loads(match.group(1).replace("<\\/", "</"))
         payload = json.dumps(data, separators=(",", ":"), allow_nan=False).replace("</", "<\\/")
         title = html.escape(f"{data['meta']['name']} · {data['meta']['circuit']}")
-        page.write_text(template.replace("__VIZ_DATA__", payload, 1).replace("__VIZ_TITLE__", title), encoding="utf-8")
+        text = template.replace("__VIZ_MANIFEST__", "{}", 1)
+        page.write_text(text.replace("__VIZ_DATA__", payload, 1).replace("__VIZ_TITLE__", title), encoding="utf-8")
         count += 1
-    regenerate_index(out)
+    regenerate_index(out, refresh="all")
     print(f"rewrapped {count} page(s) in {out}")
     return 0
 
@@ -1127,7 +1253,7 @@ def cmd_rewrap(args) -> int:
 def cmd_serve(args) -> int:
     out = output_dir(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    if not (out / "index.html").is_file():
+    if not (out / "index.html").is_file() or not (out / "manifest.json").is_file():
         regenerate_index(out)
     VizRequestHandler.output_dir = out
     handler = functools.partial(VizRequestHandler, directory=str(out))

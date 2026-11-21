@@ -24,7 +24,7 @@ python bench/viz.py page compilers/<idea>/compiler.py --circuit metric_circuit_0
 # every circuit of a set (default: all 49), 2 workers; prints bench-style lines and the score
 python bench/viz.py all compilers/<idea>/compiler.py [--set metric|sanity|all] [--filter 50q] [--jobs 2]
 
-python bench/viz.py index        # rebuild viz/index.html from the sidecars
+python bench/viz.py index        # rebuild viz/index.html + viz/manifest.json, refresh page snapshots
 python bench/viz.py rewrap       # re-embed existing pages into the current template (no recompile)
 python bench/viz.py serve        # http://<host>:9000/ serving viz/ (default host 0.0.0.0)
 ```
@@ -34,7 +34,12 @@ python bench/viz.py serve        # http://<host>:9000/ serving viz/ (default hos
   `--out DIR` changes the output directory for every subcommand.
 - `<name>`: the idea folder for compilers under `compilers/` of this checkout or of the main repo
   (`naive`, `gates`), `<worktree>-<idea>` for `/home/hackathon/challenge-wt/<wt>/compilers/<idea>/`
-  (`rectbatch-rectbatch`), `scratch-<folder>` otherwise; `--name` overrides.
+  (`rectbatch-rectbatch`), `scratch-<folder>` otherwise; `--name` overrides. Pages of the same
+  circuit label under different names are what the comparison sidebar lists.
+- `viz/manifest.json`: every compiler × circuit page with its metrics, validity and path; rewritten
+  by `page`, `all`, `index`, `rewrap` and the server's regenerate endpoint. Every page also embeds a
+  snapshot of the part it needs (its circuit's compilations and its compiler's circuits): `page`
+  refreshes the snapshots of the same circuit and compiler, `all`/`index`/`rewrap` refresh all.
 - `--mode fast` (default) = compile + replay + metrics + transversal-CZ check, like `bench.py`;
   `--mode full` adds the official equivalence check.
 - The pages work from `file://` too; only the ↻ Regenerate button needs the server.
@@ -45,9 +50,10 @@ python bench/viz.py serve        # http://<host>:9000/ serving viz/ (default hos
   accepted, and only known bench labels; one regeneration at a time (409 when busy).
   `GET /api/ping` tells the page that the API exists.
 - Smoke checks (dev-only packages `playwright`, `esprima`; see `pyproject.toml`):
-  `python bench/viz_check.py viz/naive/metric_circuit_01.html ...` (static + headless Chromium) and
+  `python bench/viz_check.py viz/naive/metric_circuit_01.html ...` (static + headless Chromium),
   `python bench/viz_check.py --compare viz/<name> results/runs/<run>.json|naive` (sidecar metrics
-  vs a bench run). Chromium needs `python -m playwright install chromium`; on this machine its
+  vs a bench run) and `python bench/viz_check.py --nav http://127.0.0.1:9123 [--nav-page
+  gates/metric_circuit_07.html]` (sidebar, shortcuts and split view on a served `viz/`). Chromium needs `python -m playwright install chromium`; on this machine its
   missing shared libraries are in `~/.cache/viz-chromium-libs/lib` (conda-forge, via micromamba),
   so prefix `LD_LIBRARY_PATH=/home/hackathon/.cache/viz-chromium-libs/lib`.
 
@@ -63,11 +69,15 @@ the controls and the live stats.
 | play / pause | `Space` |
 | step back / forward (current granularity) | `←` / `→` |
 | step one frame back / forward | `Shift`+`←` / `→` |
-| previous / next move | `↑` / `↓` (or `,` / `.`) |
+| previous / next move | `↑` / `↓` |
 | start (initial loading) / end | `Home` / `End` |
 | granularity: instruction ↔ frame | `G` |
 | speed ×1.5 / ÷1.5 (0.25–60 steps/s) | `+` / `−` |
-| circuit zoom | `]` / `[` (or Ctrl+wheel) |
+| circuit zoom | `}` / `{` (or Ctrl+wheel) |
+| previous / next compiler (same circuit, progress kept) | `[` / `]` |
+| previous / next circuit (same compiler) | `,` / `.` |
+| split view on/off (on = best other valid compilation) | `C` |
+| comparison sidebar on/off | `S` |
 | atom labels on/off | `L` |
 | jump to the first error | `E` |
 | jump anywhere | click the circuit, the overview strip, or drag the scrubber |
@@ -103,6 +113,39 @@ Legend (also on the page, "legend" in the footer):
 In instruction mode, the gates of the current frame other than the current one are drawn faintly
 in the atom view, so you can see the whole parallel block around the cursor.
 
+## Comparing compilers
+
+**Sidebar** (right, `S` or "☰ compare" toggles it):
+
+- *Compilations of this circuit*: every compiler with a page for this circuit label, ranked by the
+  score points it earns on this circuit vs naive,
+  `100 · (0.8 · (D_naive − D) / 276 726.91 + 0.2 · (P_naive − P) / 23 676)` (the leaderboard's
+  weighting; the totals come from `naive_baseline.json`), with the raw distance and depth and their
+  % vs naive, a validity badge, ★ for the best. Invalid compilations are listed last, unranked.
+  Click a row to open that compiler's page **at the same relative progress** (fraction of the
+  instruction list), with play state, granularity, speed and split view carried over; `⇄` opens it
+  in the split view instead.
+- *Split view*: "compare with…" picker (or `C`).
+- *Circuits* of the current compiler grouped by family (HEA / iHVA / QAOA / sanity) and size, with
+  prev/next (`,` / `.`; the progress restarts at 0).
+- "only valid" hides invalid compilations and circuits (the current page always stays listed).
+- The list comes from `../manifest.json` when the page is served over http ("live": compilers
+  generated after this page appear without rebuilding it) and from the embedded snapshot under
+  `file://` ("snapshot").
+
+**Split view** (off by default): A = this page's compilation (left), B = the picked one (right),
+each with its atom view, a compact circuit strip, overview and stats; one shared control bar. The
+scrubber, steps and play run on A, and B follows at the same relative progress (moves of B are
+animated too when B advances by exactly one move). Clicking B's circuit or overview jumps B and
+puts A at the same progress. Below: a difference table (distance, depth, moves, CZ so far and
+final, B − A and B / A). "⇆ swap" opens B's page with A on the right; "✕" or `C` closes it.
+B's data is fetched from its page over http; under `file://` the browser blocks that, and the
+split view shows a message with a link to B's page instead.
+
+**URL hash** (kept when switching pages, updated as you go): `p` progress 0–1, `play=1`,
+`gran=frame`, `sp` speed, `cmp=<name>` split view, `side=0` sidebar hidden, `ov=1` only valid,
+`lbl=0` atom labels off. Example: `gates/metric_circuit_36.html#cmp=zonedwell&p=0.25`.
+
 ## Invalid compilations
 
 - `compile` (the compiler raised, timed out or returned bad output): banner with the message;
@@ -119,7 +162,7 @@ in the atom view, so you can see the whole parallel block around the cursor.
 
 ## Limitations
 
-- Sizes: 50-qubit p=3 pages are ~0.6–0.9 MB (gates/naive); the 70-qubit sanity circuit
+- Sizes: 50-qubit p=3 pages are ~0.5–0.9 MB (hubstream … naive; the manifest snapshot adds ~16 KB); the 70-qubit sanity circuit
   `sample_circuit_13` (naive: 140 k instructions, 40 k moves) is ~11 MB and takes ~25 s to build,
   but loads in < 1 s and stays responsive. Numbers are compacted (physical coordinates rounded
   to 4 decimals, angles to 5); move distances are stored unrounded.
@@ -131,6 +174,10 @@ in the atom view, so you can see the whole parallel block around the cursor.
   moves). The scored depth is the "depth so far" stat.
 - The regenerate endpoint runs the compiler on the server machine; keep the server on a trusted
   network.
+- Progress is matched by instruction fraction, not by "the same logical gate": two compilers at 42 %
+  are generally at different points of the algorithm. The difference table is a guide, not a
+  gate-by-gate alignment.
+- The split view needs http; under `file://` only the sidebar (from the snapshot) works.
 - `rewrap` reuses the embedded data; after changing `bench/viz.py`'s data extraction, rebuild
   with `page`/`all` instead.
 
@@ -220,3 +267,24 @@ Depth: qiskit's `depth()` of the stripped circuit, computed incrementally over q
 for every instruction that is not `move`/`barrier`, `lvl = 1 + max(level[b] for b in its qubits and
 clbits)` (0 if none), all its bits get `lvl`, running depth = max so far. Moves and barriers keep the
 running depth. The last value equals `strip_moves(compiled).depth()`.
+
+### Manifest (`viz/manifest.json`, and the page's `viz-manifest` snapshot)
+
+Written by `build_manifest()` in `bench/viz.py` from the sidecars; the page embeds
+`manifest_snapshot()` (same shape, `"snapshot": true`, only the pages with the page's own name or
+label) in `<script id="viz-manifest" type="application/json">`.
+
+```jsonc
+{
+  "version": 1, "generated": "2026-11-21T16:30:00Z",
+  "weights": {"distance": 0.8, "depth": 0.2, "naive_distance_total": 276726.912853, "naive_depth_total": 23676},
+  "compilers": [{"name": "gates", "compiler": "/abs/.../compiler.py", "pages": 36, "valid": 36, "score": 72.8686}],
+  "circuits": {"metric_circuit_07": {"family": "ihva", "variant": "12q ihva stagger p1", "layers": 1,
+                "qubits": 12, "set": "metric", "naive_d": 1956.519845, "naive_p": 191}},
+  "pages": [{"name": "gates", "label": "metric_circuit_07", "ok": true, "stage": null, "partial": false,
+             "d": 317.402535, "p": 45, "moves": 118, "warn": 8, "cz": 58, "equivalence": "skipped (fast)",
+             "page": "gates/metric_circuit_07.html", "bytes": 131072, "generated": "..."}]
+}
+```
+`d`/`p` are the sidecar's official metrics (partial totals with `"partial": true` when the replay
+failed); `score` is `bench.score()` when all 36 metric pages exist.

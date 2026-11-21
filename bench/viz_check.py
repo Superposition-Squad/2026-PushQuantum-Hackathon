@@ -11,6 +11,9 @@ Usage (from the repo root):
   Chromium needs a few shared libraries; if they are not installed system-wide, point
   LD_LIBRARY_PATH at a directory that has them (see docs/viz.md).
 - --compare: every sidecar's metrics equal the bench run's records (or the naive baseline) exactly.
+- --nav URL: comparison sidebar + split view on a served viz/ (`bench/viz.py serve --port 9123`):
+  live manifest, compiler switch keeps the progress, [ ] and , . shortcuts, split view in sync.
+  Needs at least two compilers with pages for the same circuits; `--nav-page name/label.html`.
 """
 
 from __future__ import annotations
@@ -90,7 +93,7 @@ def browser_check(paths: list[Path]) -> dict[str, list[str]]:
                 page.evaluate(f"window.__viz.screenOfInst({target})")
                 page.wait_for_timeout(50)
                 xy = page.evaluate(f"window.__viz.screenOfInst({target})")
-                box = page.locator("#circCv").bounding_box()
+                box = page.locator(".view .circWrap canvas").first.bounding_box()
                 page.mouse.click(box["x"] + xy["x"], box["y"] + xy["y"])
                 if state()["k"] != target:
                     problems.append(f"click on instruction {target} gave cursor {state()['k']}")
@@ -114,6 +117,69 @@ def browser_check(paths: list[Path]) -> dict[str, list[str]]:
             page.close()
         browser.close()
     return out
+
+
+def nav_check(base: str, start: str) -> list[str]:
+    from playwright.sync_api import sync_playwright
+
+    problems: list[str] = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+        page.on("console", lambda m: m.type == "error" and problems.append(f"console: {m.text}"))
+        ready = lambda: page.wait_for_function("window.__viz !== undefined", timeout=60000)  # noqa: E731
+        state = lambda: page.evaluate("window.__viz.state()")  # noqa: E731
+        progress = lambda s: (s["k"] + 1) / s["N"] if s["N"] else 0  # noqa: E731
+        page.goto(f"{base.rstrip('/')}/{start}")
+        ready()
+        page.wait_for_function("window.__viz.state().manifestLive", timeout=15000)
+        comps = page.evaluate("window.__viz.compilations()")
+        s0 = state()
+        others = [c["name"] for c in comps if c["name"] != s0["name"]]
+        if not others:
+            return problems + ["no other compilation of this circuit: generate pages for a second compiler"]
+        page.evaluate(f"window.__viz.set({int(s0['N'] * 0.42) - 1})")
+        p0 = progress(state())
+        page.locator(f'.crow[data-name="{others[0]}"]').click()
+        ready()
+        s1 = state()
+        if s1["name"] != others[0]:
+            problems.append(f"sidebar click went to {s1['name']}, not {others[0]}")
+        if abs(progress(s1) - p0) > 2 / max(1, min(s0["N"], s1["N"])) + 1e-9:
+            problems.append(f"progress not kept: {p0:.4f} -> {progress(s1):.4f}")
+        page.keyboard.press("]")
+        ready()
+        if state()["name"] == s1["name"]:
+            problems.append("] did not switch the compiler")
+        page.keyboard.press("[")
+        ready()
+        label = state()["label"]
+        page.keyboard.press(".")
+        ready()
+        if state()["label"] == label:
+            problems.append(". did not switch the circuit")
+        page.keyboard.press(",")
+        ready()
+        if state()["label"] != label:
+            problems.append(", did not come back to the previous circuit")
+        page.keyboard.press("c")
+        page.wait_for_function("window.__viz.state().kB !== null || window.__viz.state().splitMsg", timeout=60000)
+        s2 = state()
+        if s2["kB"] is None:
+            problems.append(f"split view did not load: {s2['splitMsg']}")
+        else:
+            page.keyboard.press("ArrowRight")
+            s3 = state()
+            if abs(progress(s3) - (s3["kB"] + 1) / s3["NB"]) > 2 / max(1, min(s3["N"], s3["NB"])) + 1e-9:
+                problems.append("split views out of sync")
+            if not page.evaluate("window.__viz.sizesOk()"):
+                problems.append("split view: a canvas is not sized to its box")
+        page.keyboard.press("c")
+        if state()["split"]:
+            problems.append("C did not close the split view")
+        browser.close()
+    return problems
 
 
 def compare(directory: Path, reference: str) -> int:
@@ -142,7 +208,13 @@ def main() -> int:
     ap.add_argument("pages", nargs="*", type=Path)
     ap.add_argument("--static-only", action="store_true")
     ap.add_argument("--compare", nargs=2, metavar=("VIZ_DIR", "RUN_JSON|naive"))
+    ap.add_argument("--nav", metavar="URL", help="base URL of a served viz/ directory")
+    ap.add_argument("--nav-page", default="gates/metric_circuit_07.html")
     args = ap.parse_args()
+    if args.nav:
+        problems = nav_check(args.nav, args.nav_page)
+        print(f"nav {args.nav}/{args.nav_page}: {'OK' if not problems else problems}")
+        return 1 if problems else 0
     if args.compare:
         return compare(Path(args.compare[0]), args.compare[1])
     failed = 0
