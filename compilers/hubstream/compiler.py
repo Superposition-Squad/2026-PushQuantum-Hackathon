@@ -790,8 +790,16 @@ def _first_use_order(wires, round_of, n: int) -> list[int]:
 
 
 def _loading_by_first_use(wires, round_of, n: int) -> dict[int, Site]:
+    """Home block rows ``9-slack-rows_used+1 .. 9-slack`` (n = 50 -> 4..8), row 9 left free.
+
+    Row 9 is the landing strip for the batched descent, so it is kept empty at the start.
+    """
+    rows_used = (n + 9) // 10
+    slack = 1 if n > 10 else 0
+    top = 9 - slack
+    home = [(x, y) for y in range(max(0, top - rows_used + 1), top + 1) for x in range(10)]
     order = _first_use_order(wires, round_of, n)
-    sites = sorted(_STORAGE, key=lambda site: (9 - site[1], site[0]))
+    sites = sorted(home, key=lambda site: (top - site[1], site[0]))
     return {q: sites[i] for i, q in enumerate(order)}
 
 
