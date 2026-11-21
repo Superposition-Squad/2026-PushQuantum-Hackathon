@@ -695,6 +695,12 @@ def _apply(circuit: QuantumCircuit, records, pos, occupancy, ent) -> float:
     return total
 
 
+def _in_zone(site: Site, ent) -> bool:
+    (ex0, ex1), (ey0, ey1) = ent
+    x, y = site
+    return ex0 <= x <= ex1 and ey0 <= y <= ey1
+
+
 def _interaction_sites(ent):
     (ex0, ex1), (ey0, ey1) = ent
     return [(row, c) for row in range(ey0, ey1 + 1) for c in range(ex0, ex1, 2)]
@@ -713,7 +719,7 @@ def _pair_of_site(site, ent):
     return (y, ex0 + 2 * ((x - ex0) // 2))
 
 
-def plan_round_sites(pairs, pos, parked, ent):
+def plan_round_sites(pairs, pos, occupancy, ent):
     """Assign this round's pairs to interaction sites.
 
     Returns `(targets, ordered)` with `targets[q]` the atom site qubit q must occupy and `ordered` a
@@ -726,29 +732,33 @@ def plan_round_sites(pairs, pos, parked, ent):
     free = dict.fromkeys(sites, True)
     targets: dict[int, Site] = {}
     ordered = []
-    pending = []
-    for u, v in pairs:
-        held = [q for q in (u, v) if q in parked]
-        if held:
-            q = held[0]
-            site = _pair_of_site(pos[q], ent)
-            left, right = _slots(site, ent)
-            other = v if q == u else u
-            free[site] = False
-            targets[q] = pos[q]
-            targets[other] = right if pos[q] == left else left
-            ordered.append((q, other, site))
-        else:
-            pending.append((u, v))
-    pending.sort(key=lambda p: (pos[p[0]][0] + pos[p[1]][0]) / 2)
-    for u, v in pending:
+    # pairs holding an atom that stayed in the zone go first, so that they can claim its site for
+    # free (cost 0 for that atom). The objective is the *sum* of the two trips, because unmerged
+    # moves cost the sum; that also lets a parked atom slide to a better site inside the zone when
+    # that saves its partner more than the slide costs.
+    def parked_here(p):
+        return any(_in_zone(pos[q], ent) for q in p)
+
+    queue = sorted(pairs, key=lambda p: (not parked_here(p),
+                                         (pos[p[0]][0] + pos[p[1]][0]) / 2))
+    for u, v in queue:
         best = None
         for site in sites:
             if not free[site]:
                 continue
             left, right = _slots(site, ent)
             for a, b in ((u, v), (v, u)):
-                cost = max(_dist(pos[a], left, ent), _dist(pos[b], right, ent))
+                # Every target must be empty or already hold that very atom, so the moves of a
+                # round never collide and can be emitted in any order.  An atom that is already in
+                # the zone never moves: an in-zone relocation would deposit into a row that another
+                # move of the same round picks up from, which can turn a legal rectangle into one
+                # with a ghost.
+                if occupancy.get(left, a) is not a or occupancy.get(right, b) is not b:
+                    continue
+                if (_in_zone(pos[a], ent) and pos[a] != left) or (_in_zone(pos[b], ent) and pos[b] != right):
+                    continue
+                da, db = _dist(pos[a], left, ent), _dist(pos[b], right, ent)
+                cost = max(da, db) + 0.001 * (da + db)
                 if best is None or cost < best[0] - 1e-12:
                     best = (cost, site, a, b)
         if best is None:
@@ -880,7 +890,7 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
             continue
 
         pairs = [items[idx].qubits for idx in idxs]
-        targets, ordered = plan_round_sites(pairs, pos, parked, ent)
+        targets, ordered = plan_round_sites(pairs, pos, occupancy, ent)
         trips = [(q, t) for q, t in targets.items() if pos[q] != t]
         up = merge_move_records(_single_moves(trips, pos), occupancy)
         _apply(out, up, pos, occupancy, ent)

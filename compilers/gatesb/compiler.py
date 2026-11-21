@@ -634,47 +634,64 @@ def _pair_order(pairs, pos):
     return sorted((tuple(pair) for pair in pairs), key=key)
 
 
-def _assign_round_targets(pairs, pos, occupancy, ent):
+def _assign_round_targets(pairs, pos, occupancy, ent, reserve_cross=False):
     """Choose a target interaction site for every atom of the round.
 
     Each pair gets an exclusive slot `(row, 2k)`, and slots are filled nearest-to-storage first, so a
     pair costs one hop and the atoms of one storage row stay in one entangling row (one merged move).
+    With `reserve_cross`, the pairs that span two storage rows stay out of the entangling rows that
+    one storage row already fills, which keeps that row's lift mergeable into one rectangle.
     """
     ex0, ey0, ey1, per_row = _ent_shape(ent)
     if per_row < 1:
         raise RuntimeError("no interaction pairs in the entangling zone")
     need = max(1, -(-len(pairs) // per_row))
-    rows = [ey0 + i for i in range(min(need + 1, ey1 - ey0 + 1))]
-    slots = [(t, k) for t in rows for k in range(per_row)]
+    span = [ey0 + i for i in range(min(need + 1, ey1 - ey0 + 1))]
     groups: dict[tuple[int, int], list] = {}
     used: set = set()
     assign: dict[int, Site] = {}
-    for u, v in _pair_order(pairs, pos):
-        best = None
-        for t, k in slots:
-            if (t, k) in used:
-                continue
-            c0 = ex0 + 2 * k
-            for a, b in ((u, v), (v, u)):
-                trial = {a: (c0, t), b: (c0 + 1, t)}
-                delta = 0.0
-                touched: dict[tuple[int, int], dict] = {}
-                for q, target in trial.items():
-                    touched.setdefault((pos[q][1], t), {})[q] = target
-                for (row, dst_row), added in touched.items():
-                    old = groups.get((row, dst_row), [])
-                    new = sorted(old + [(q, pos[q][0], added[q][0]) for q in added], key=lambda z: z[1])
-                    delta += (_group_cost(row, dst_row, new, occupancy)
-                              - _group_cost(row, dst_row, old, occupancy))
-                if best is None or delta < best[0] - 1e-12:
-                    best = (delta, t, k, dict(trial))
-        _delta, t, k, trial = best
-        used.add((t, k))
-        assign.update(trial)
-        for q, target in trial.items():
-            key = (pos[q][1], t)
-            groups.setdefault(key, []).append((q, pos[q][0], target[0]))
-            groups[key].sort(key=lambda z: z[1])
+    ordered = _pair_order(pairs, pos)
+    phases = [ordered, []] if reserve_cross else [ordered]
+    if reserve_cross:
+        phases = [[p for p in ordered if pos[p[0]][1] == pos[p[1]][1]],
+                  [p for p in ordered if pos[p[0]][1] != pos[p[1]][1]]]
+    for phase in phases:
+        if not phase:
+            continue
+        pack_rows = {t for (_r, t) in groups}
+        for u, v in phase:
+            candidates = [(t, k) for t in span for k in range(per_row)]
+            if reserve_cross and phase is phases[-1]:
+                free = [c for c in candidates if c[0] not in pack_rows]
+                if free:
+                    candidates = free
+            best = None
+            for t, k in candidates:
+                if (t, k) in used:
+                    continue
+                c0 = ex0 + 2 * k
+                for a, b in ((u, v), (v, u)):
+                    trial = {a: (c0, t), b: (c0 + 1, t)}
+                    delta = 0.0
+                    touched: dict[tuple[int, int], dict] = {}
+                    for q, target in trial.items():
+                        touched.setdefault((pos[q][1], t), {})[q] = target
+                    for (row, dst_row), added in touched.items():
+                        old = groups.get((row, dst_row), [])
+                        new = sorted(old + [(q, pos[q][0], added[q][0]) for q in added], key=lambda z: z[1])
+                        delta += (_group_cost(row, dst_row, new, occupancy)
+                                  - _group_cost(row, dst_row, old, occupancy))
+                    if best is None or delta < best[0] - 1e-12:
+                        best = (delta, t, k, dict(trial))
+            if best is None:
+                raise RuntimeError("no free interaction site")
+            _delta, t, k, trial = best
+            used.add((t, k))
+            assign.update(trial)
+            for q, target in trial.items():
+                key = (pos[q][1], t)
+                groups.setdefault(key, []).append((q, pos[q][0], target[0]))
+                groups[key].sort(key=lambda z: z[1])
     return assign
 
 
@@ -695,44 +712,55 @@ def _trip_records(assignment, pos, occupancy):
     return records
 
 
-def _rec_sig(rec):
-    """The column map of a single-row record: (occupied source columns, target columns)."""
-    return (tuple(sorted(rec.src[q][0] for q in rec.qubits)), rec.new_cols)
-
-
-def _block_record(records, occupancy, storage, ent, upward):
+def _block_record(records, occupancy, storage, ent, upward, site_owner=None, partner=None):
     """Merge consecutive single-row records that share one column map into a rigid block move.
 
-    `upward` trips choose their target rows (nearest to storage first); the way home must land on the
-    rows the atoms actually live on.
+    All rows shift by the same amount, so every atom travels the same distance: a five-row lift costs
+    one hop of five instead of hops of one, two, three, four and five.  `upward` trips may choose the
+    target rows (nearest to storage first); the way home must land on the rows the atoms live on.
     """
     first = records[0]
     a, b = first.rows[0], records[-1].rows[0]
-    if b - a + 1 != len(records):
+    if b - a + 1 != len(records) or any(rec.rows[0] != a + i for i, rec in enumerate(records)):
         return None
-    sig = _rec_sig(first)
-    if any(_rec_sig(rec) != sig for rec in records):
+    col_map: dict[int, int] = {}
+    row_of: dict[int, int] = {}
+    moving: set = set()
+    for rec in records:
+        row = rec.rows[0]
+        for q in rec.qubits:
+            src = rec.src[q]
+            row_of[q] = row
+            moving.add(q)
+            if col_map.setdefault(src[0], rec.dst[q][0]) != rec.dst[q][0]:
+                return None
+    src_cols = sorted(col_map)
+    tgt_cols = [col_map[c] for c in src_cols]
+    if any(y <= x for x, y in itertools.pairwise(tgt_cols)):
         return None
-    src_cols, new_cols = sig
+    if partner is not None:
+        for q in moving:
+            other = partner.get(q)
+            if other is not None and (other not in moving or row_of[other] != row_of[q]):
+                return None
     lo, hi = src_cols[0], src_cols[-1]
-    moving = {q for rec in records for q in rec.qubits}
     for row in range(a, b + 1):
         if _has_ghost(row, lo, hi, occupancy, moving):
             return None
     dst_row_of = {rec.rows[0]: rec.new_rows[0] for rec in records}
-    ex0, ey0, ey1, _per_row = _ent_shape(ent)
+    _ex0, ey0, ey1, _per_row = _ent_shape(ent)
     (sx0, sx1), (sy0, sy1) = storage
     if upward:
         candidates = [dy for dy in range(ey0 - a, ey1 - b + 1)]
+        lo_row, hi_row = ey0, ey1
     else:
         dy = dst_row_of[a] - a
         if any(dst_row_of[row] != a + dy + (row - a) for row in range(a, b + 1)):
             return None
         candidates = [dy]
-    shift = max(abs(nc - c) for c, nc in zip(src_cols, new_cols))
+        lo_row, hi_row = sy0, sy1
     for dy in candidates:
         rows_used = tuple(range(a + dy, b + dy + 1))
-        lo_row, hi_row = (sy0, sy1) if not upward else (ey0, ey1)
         if min(rows_used) < lo_row or max(rows_used) > hi_row:
             continue
         src = {}
@@ -743,9 +771,12 @@ def _block_record(records, occupancy, storage, ent, upward):
             target_row = row + dy
             for q in rec.qubits:
                 source = rec.src[q]
-                target = (new_cols[src_cols.index(source[0])], target_row)
+                target = (col_map[source[0]], target_row)
                 occupant = occupancy.get(target)
                 if occupant is not None and occupant not in moving:
+                    ok = False
+                    break
+                if site_owner is not None and site_owner.get(target, q) not in moving:
                     ok = False
                     break
                 if not _in_zone(target, storage, ent):
@@ -757,69 +788,87 @@ def _block_record(records, occupancy, storage, ent, upward):
                 break
         if ok:
             return _MoveRecord(sorted(src), tuple(range(a, b + 1)), tuple(range(lo, hi + 1)),
-                               rows_used, new_cols, src, dst)
+                               rows_used, tuple(tgt_cols), src, dst)
     return None
 
 
-def _best_partition(block, occupancy, storage, ent, upward):
-    """DP over contiguous sub-blocks: cheapest mix of single rows and rigid block moves."""
-    m = len(block)
+def _dp_plan(rows, by_row, occupancy, storage, ent, upward, site_owner, partner):
+    """DP over a cluster of consecutive rows: cheapest mix of per-row moves and rigid blocks."""
+    m = len(rows)
     best = [math.inf] * (m + 1)
     best[0] = 0.0
     pick: list = [None] * (m + 1)
     for e in range(1, m + 1):
-        cost = _rec_cost(block[e - 1], ent)
+        recs = by_row[rows[e - 1]]
+        cost = sum(_rec_cost(r, ent) for r in recs)
         if best[e - 1] + cost < best[e] - 1e-12:
             best[e] = best[e - 1] + cost
-            pick[e] = (e - 1, block[e - 1])
+            pick[e] = (e - 1, [(r, [r]) for r in recs])
         for s in range(e - 1):
-            rec = _block_record(block[s:e], occupancy, storage, ent, upward)
+            block = [r for row in rows[s:e] for r in by_row[row]]
+            rec = _block_record(block, occupancy, storage, ent, upward, site_owner, partner)
             if rec is None:
                 continue
             cost = _rec_cost(rec, ent)
             if best[s] + cost < best[e] - 1e-12:
                 best[e] = best[s] + cost
-                pick[e] = (s, rec)
-    out = []
+                pick[e] = (s, [(rec, block)])
+    out: list = []
     e = m
     while e > 0:
-        s, rec = pick[e]
-        out.append(rec)
+        s, entries = pick[e]
+        out = entries + out
         e = s
-    return list(reversed(out))
+    return out
 
 
-def _plan_trip(assignment, pos, occupancy, storage, ent, upward):
+def _plan_trip(assignment, pos, occupancy, storage, ent, upward, pairs=None):
     """Plan one trip: single-row moves, then cheaper rigid blocks where the geometry allows."""
+    site_owner = {site: q for q, site in assignment.items()}
+    partner = {}
+    if upward and pairs is not None:
+        for u, v in pairs:
+            partner[u] = v
+            partner[v] = u
     base = _trip_records(assignment, pos, occupancy)
-    groups: dict[tuple, list[_MoveRecord]] = {}
-    order: list[tuple] = []
+    by_row: dict[int, list] = {}
     for rec in base:
-        key = _rec_sig(rec)
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(rec)
-    plan: list[tuple[_MoveRecord, list[_MoveRecord]]] = []
-    for key in order:
-        bucket = groups[key]
-        bucket.sort(key=lambda r: r.rows[0])
-        i = 0
-        while i < len(bucket):
-            j = i + 1
-            while j < len(bucket) and bucket[j].rows[0] == bucket[j - 1].rows[0] + 1:
-                j += 1
-            run = bucket[i:j]
-            if len(run) == 1:
-                plan.append((run[0], run))
-            else:
-                for rec in _best_partition(run, occupancy, storage, ent, upward):
-                    if len(rec.rows) == 1 and rec in run:
-                        plan.append((rec, [rec]))
-                    else:
-                        plan.append((rec, [r for r in run if r.qubits[0] in set(rec.qubits)]))
-            i = j
+        by_row.setdefault(rec.rows[0], []).append(rec)
+    rows = sorted(by_row)
+    clusters: list[list[int]] = []
+    for r in rows:
+        if clusters and r == clusters[-1][-1] + 1:
+            clusters[-1].append(r)
+        else:
+            clusters.append([r])
+    plan: list = []
+    for cluster in clusters:
+        if len(cluster) == 1:
+            plan.extend((rec, [rec]) for rec in by_row[cluster[0]])
+        else:
+            plan.extend(_dp_plan(cluster, by_row, occupancy, storage, ent, upward, site_owner, partner))
     return plan
+
+
+def _plan_cost(plan, ent) -> float:
+    return sum(_rec_cost(rec, ent) for rec, _fallback in plan)
+
+
+def _choose_up_plan(pairs, pos, occupancy, storage, ent):
+    """Site assignment and move plan are chosen jointly: build both layouts, keep the cheaper one."""
+    best = None
+    for reserve_cross in (False, True):
+        assign = _assign_round_targets(pairs, pos, occupancy, ent, reserve_cross)
+        plan = _plan_trip(assign, pos, occupancy, storage, ent, True, pairs)
+        cost = _plan_cost(plan, ent)
+        if best is None or cost < best[0] - 1e-9:
+            best = (cost, assign, plan)
+        if not reserve_cross:
+            same_row = any(pos[u][1] == pos[v][1] for u, v in pairs)
+            cross = any(pos[u][1] != pos[v][1] for u, v in pairs)
+            if not (same_row and cross):
+                break
+    return best[1], best[2]
 
 
 def _emit_step(circuit, rec, step, pos, occupancy, ent):
@@ -944,9 +993,8 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
 
         pairs = [items[idx].qubits for idx in idxs]
         start = {q: pos[q] for pair in pairs for q in pair}
-        assignment = _assign_round_targets(pairs, pos, occupancy, ent)
-        _emit_trip(out, _plan_trip(assignment, pos, occupancy, storage, ent, True),
-                   pos, occupancy, storage, ent)
+        assignment, up = _choose_up_plan(pairs, pos, occupancy, storage, ent)
+        _emit_trip(out, up, pos, occupancy, storage, ent)
         for a, b in pairs:
             out.cz(qubits[a], qubits[b])
         home = {q: start[q] for q in assignment}
