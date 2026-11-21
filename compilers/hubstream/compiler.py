@@ -687,13 +687,31 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
                 reserved.add(partner_slot)
             else:
                 waiting.append(task)
-        # hardest task first: the one whose cheapest pair is worst gets first pick
-        for task in sorted(waiting, key=lambda t: (-_best_pair(tasks[t], pos, reserved, hub)[0], t)):
-            _, slot_u, slot_v = _best_pair(tasks[task], pos, reserved, hub)
+        # 3c: hand out the free pairs of entangling row 10 left to right in the order of the atoms'
+        # storage columns, so the lift's column map is monotone (one wide move, not one per atom).
+        waiting.sort(key=lambda t: (pos[tasks[t][0]][0] + pos[tasks[t][1]][0], t))
+        block = [((2 * k, 10), (2 * k + 1, 10)) for k in range(5)
+                 if (2 * k, 10) not in reserved and (2 * k + 1, 10) not in reserved]
+        for task in waiting:
             u, v = tasks[task]
-            slot_of[u], slot_of[v] = slot_u, slot_v
-            reserved.add(slot_u)
-            reserved.add(slot_v)
+            if block:
+                left, right = block.pop(0)
+                if hub is None or hub not in (u, v):
+                    if pos[u][0] > pos[v][0]:
+                        left, right = right, left
+                elif v == hub:
+                    pass
+                else:  # u is the hub: it always keeps the right (odd) slot
+                    left, right = right, left
+            else:  # row 10 is used up: cheapest pair anywhere, same slot rule
+                _, slot_u, slot_v = _best_pair(tasks[task], pos, reserved, hub)
+                if (hub is not None and u == hub) or (hub is None or hub not in (u, v)) and pos[u][0] > pos[v][0]:
+                    left, right = slot_v, slot_u
+                else:
+                    left, right = slot_u, slot_v
+            slot_of[u], slot_of[v] = left, right
+            reserved.add(left)
+            reserved.add(right)
 
         # --- 2. lower every zone atom that does not stay parked for this round
         lower([q for q in zone_atoms() if q not in parked])
