@@ -1258,7 +1258,19 @@ class _Machine:
 
         def mid():
             for it in plan:
-                _emit_1q(st, it[1], _mid_matrix(it[4], it[5]))
+                leaf, axis, phi = it[1], it[4], it[5]
+                ang = _tight(phi)
+                if not ang:
+                    continue
+                if axis == "Y":
+                    # exp(-i phi/2 Y) = S rx(phi) S^+ ; S^+ ~ rz(-pi/2), the trailing S commutes with
+                    # the second cz, so fold it into the leaf's pending frame (2 gates, not 3).
+                    st.out.rz(-np.pi / 2, leaf)
+                    st.out.rx(ang, leaf)
+                    u = st.pending.get(leaf)
+                    st.pending[leaf] = _S if u is None else u @ _S
+                else:
+                    st.out.rx(ang, leaf)
             self._flush_in_storage_except(set(leaves) | centers)
 
         self.dip(depth, mid)
