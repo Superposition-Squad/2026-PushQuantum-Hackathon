@@ -186,7 +186,38 @@ Measured on the 8-circuit probe subset (score / distance), used to pick knobs:
 - deferring the trailing `rz` of every single-qubit run across the next `cz` (it commutes): exact,
   −1 gate per run, depth 71.01 % → 72.33 % at unchanged distance.
 
-## Verdict
+## Verdict — round 2 (planner)
+
+**Final round 2 (`0c9961a`, full mode): +82.01 %** (distance +83.69 %, depth +75.28 %; round 1 was
++81.51 / +83.80 / +72.33). Families: hea +81.48 / +48.39, ihva +86.07 / +77.97, qaoa +80.24 / +72.25.
+36/36 full, 13/13 sanity full; strict-mode evidence for the DAG reordering path: see below.
+
+What round 2 did: gates' exact commutation DAG (copied, not imported) as a second front end that
+feeds the unchanged hubstream mover, and a deterministic per-circuit candidate grid (wire / DAG
+front end × round cap × hub end pair × loading), keeping the lowest `D + 2.92·depth`.
+
+**Portfolio effect** (vs the round-1 best-per-circuit table in `docs/results-log.md`): hubstream is
+now best on **18 of 36** circuits (was 11). New wins: all six `*_tree_warm` iHVA (12q/20q/50q; from
+rectbatch) and 20q iHVA stagger p1. Weighted gain ≈ 844 distance units ≈ **+0.24 portfolio
+points**, assuming the other components stand still.
+
+Goal 2 (combine with zonedwell's conveyor on 50q): **not pursued, measured not to pay.** I compiled
+the 50q circuits with the hub blocks stripped to split each compiler's cost into hub / non-hub:
+
+| p3 circuit | hubstream non-hub / hub | zonedwell non-hub / hub |
+|---|---|---|
+| 50q QAOA | 3 729 / ~2 130 | 2 490 / ~420 |
+| 50q iHVA stagger | 3 407 / ~2 170 | 2 965 / ~1 490 |
+| 20q QAOA | 740 / ~520 | 933 / ~230 |
+| 20q iHVA stagger | 637 / ~630 | 1 159 / ~720 |
+
+At 50q zonedwell is better on both parts, so no recombination of the two beats it. At 20q our
+non-hub rounds are cheaper and its conveyor is cheaper for QAOA hubs: a zonedwell-hub +
+hubstream-non-hub hybrid would land near ~970 D on 20q QAOA p3 (vs 1 166 best today), but needs
+both a lane layout and our free-form rounds in one mover. That is the most promising next step for
+the 20q QAOA circuits; the 50q circuits need a better non-hub strategy in zonedwell itself.
+
+## Verdict — round 1
 
 **Final (`6262b1b`, `--mode full`): +81.51 %** — distance +83.80 % (D 44 825.4), depth +72.33 %
 (P 6 550). Families: hea +78.57 / +48.39, ihva +86.19 / +75.21, qaoa +80.52 / +69.01. 36/36 metric
