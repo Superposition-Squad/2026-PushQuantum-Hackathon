@@ -1,4 +1,11 @@
-"""zonedwell: zoned neutral-atom compiler with a hub *conveyor* lane.
+"""hubwalk: zoned neutral-atom compiler with a hub *conveyor* and star rounds.
+
+Fork of `zonedwell`. The hub blocks still ride the conveyor; the non-hub blocks of a group are
+served by **star rounds**: the centre stays at its lane home (a left slot) and only the leaf moves
+to the centre's right slot, so one `Move` can carry many leaves. A round fires its pulses in phase
+A, takes one shallow dip for every leaf's mid rotation, and replays the pulses in reverse in phase
+B. Only the leaf carries the mid gate; ZZ is symmetric, so either endpoint may be the leaf for QAOA
+blocks, while iHVA blocks are pinned to the `cx` target (which carries the `rx(±pi/2)` pre/post).
 
 Self-contained (stdlib + numpy + qiskit). Only `rx`, `rz` (storage), `cz` (entangling zone),
 `move`, `measure` and `barrier` are ever emitted.
@@ -20,14 +27,15 @@ Movement:
     storage rows 0..9 or entangling rows 10..19, so one bulk `move` (cost 10.0) switches zones.
   * hub blocks are served by the conveyor: the hub parks on the lane's right slot at row 10 and
     the lane slides down one row at a time; each partner collects `cz`, `rx` in storage, `cz`.
-  * non-hub blocks are served as matchings: both atoms are placed on an interaction pair, one
-    `cz` pulse fires, the whole zone takes one bulk dip for the `rx` gates, and a second pulse
-    fires. Only the atoms that moved are moved back.
+  * non-hub blocks are served as star rounds: the centre stays at its lane home, only the leaf
+    visits the centre's right slot; one dip covers all leaves' mid rotations. Anything that cannot
+    be planned that way falls back to a matching (both atoms on a free pair, one pulse, dip, pulse).
 """
 
 from __future__ import annotations
 
 import itertools
+import os
 from numbers import Integral
 from typing import Any
 
@@ -38,6 +46,7 @@ from qiskit.circuit import Instruction
 Site = tuple[int, int]
 
 _DEBUG = False
+STAR_CAP = 1  # max number of leaves per centre in one star round
 
 
 # ---------------------------------------------------------------- template plumbing (keep as is)
@@ -182,6 +191,10 @@ class _State:
         self.distance = 0.0
         self.nmoves = 0
         self.measurements = []
+        # instrumentation: the caller sets `cat` before every semantic move
+        self.cat = "other"
+        self.dist_by_cat: dict[str, float] = {}
+        self.moves_by_cat: dict[str, int] = {}
 
     def load(self, home):
         self.loading = dict(home)
@@ -245,8 +258,11 @@ class _State:
             q = qubits[picked.index(s)]
             self.pos[q] = tgt[s]
             self.occ[tgt[s]] = q
-        self.distance += max(_dist(before[q], self.pos[q]) for q in qubits)
+        d = max(_dist(before[q], self.pos[q]) for q in qubits)
+        self.distance += d
         self.nmoves += 1
+        self.dist_by_cat[self.cat] = self.dist_by_cat.get(self.cat, 0.0) + d
+        self.moves_by_cat[self.cat] = self.moves_by_cat.get(self.cat, 0) + 1
         assert len(self.occ) == self.n == len(self.pos)
 
     # -- cz
@@ -561,12 +577,14 @@ class _Machine:
     # -- zone helpers
     def to_storage(self):
         if self.st.in_zone:
+            self.st.cat = "zone"
             self.st.move(range(10, 20), range(0, 10), range(0, 10), range(0, 10))
             self.st.in_zone = False
 
     def to_zone(self):
         if not self.st.in_zone:
             self.st.flush_all()
+            self.st.cat = "zone"
             self.st.move(range(0, 10), range(0, 10), range(10, 20), range(0, 10))
             self.st.in_zone = True
 
@@ -585,8 +603,10 @@ class _Machine:
         assert st.in_zone
         depth = max(1, min(int(depth), 10))
         before = dict(st.pos)
+        st.cat = "dip"
         st.move(range(10, 20), range(0, 10), range(10 - depth, 20 - depth), range(0, 10))
         action()
+        st.cat = "dip"
         st.move(range(10 - depth, 20 - depth), range(0, 10), range(10, 20), range(0, 10))
         assert st.pos == before, "dip did not restore the positions"
 
@@ -617,6 +637,7 @@ class _Machine:
         site = (9, 19)
         p = self.st.pos[self.hub]
         if p != site:
+            self.st.cat = "hubhop"
             self.st.move((p[1],), (p[0],), (site[1],), (site[0],))
 
     # -- conveyor ------------------------------------------------------
@@ -628,6 +649,7 @@ class _Machine:
         hp = st.pos[self.hub]
         target = (col + 1, 10)
         if hp != target:
+            st.cat = "hubhop"
             st.move((hp[1],), (hp[0],), (target[1],), (target[0],))
         for _ in range(g):  # D pass
             head = st.occ.get((col, 10))
@@ -635,6 +657,7 @@ class _Machine:
                 st.pulse([(self.hub, head)])
             rows = [y for (x, y) in st.occ if x == col]
             r0, r1 = min(rows), max(rows)
+            st.cat = "conveyor"
             st.move(range(r0, r1 + 1), (col,), range(r0 - 1, r1), (col,))
         for q, theta in served.items():
             assert _in_storage(st.pos[q]), f"conveyor mid gate for q{q} at {st.pos[q]}"
@@ -644,6 +667,7 @@ class _Machine:
         for _ in range(g):  # U pass
             rows = [y for (x, y) in st.occ if x == col]
             r0, r1 = min(rows), max(rows)
+            st.cat = "conveyor"
             st.move(range(r0, r1 + 1), (col,), range(r0 + 1, r1 + 2), (col,))
             head = st.occ.get((col, 10))
             if head is not None and head in served:
@@ -823,6 +847,7 @@ class _Machine:
                     rest.append((q, site))
                     continue
                 cur = st.pos[q]
+                st.cat = "matching"
                 st.move((cur[1],), (cur[0],), (site[1],), (site[0],))
                 record.append((q, cur, site))
                 progress = True
@@ -831,6 +856,7 @@ class _Machine:
                 q, site = todo[0]
                 cur = st.pos[q]
                 tmp = self._free_zone_site()
+                st.cat = "matching"
                 st.move((cur[1],), (cur[0],), (tmp[1],), (tmp[0],))
                 record.append((q, cur, tmp))
                 todo[0] = (q, site)
@@ -872,6 +898,7 @@ class _Machine:
                 continue
             q, cur, site = item
             here = st.pos[q]
+            st.cat = "matching"
             st.move((here[1],), (here[0],), (cur[1],), (cur[0],))
 
     def single_block(self, blk):
@@ -902,6 +929,158 @@ class _Machine:
             st.queue_1q(q, u)
         self._unplace(moved)
 
+    # -- star rounds (non-hub blocks: only the leaf moves) -------------
+    def star_rounds(self, group):
+        """Serve a hub-less, all-`zz`-with-mid group with star rounds; False if it cannot start."""
+        st = self.st
+        try:
+            rounds = plan_star_rounds(group, self.home, STAR_CAP)
+        except Exception:  # planning must be pure: fall back before anything is emitted
+            return False
+        if rounds is None:
+            return False
+        involved = set()
+        for rnd in rounds:
+            for _blk, leaf, center, _t in rnd:
+                involved.update((leaf, center))
+        # every involved partner must already be at its home (nothing emitted yet)
+        for q in involved:
+            want = self.zone_home[q] if st.in_zone else self.home[q]
+            if st.pos[q] != want:
+                return False
+        self.to_zone()
+        self._ensure_hub_lone()
+        for rnd in rounds:
+            self._star_round(rnd)
+        return True
+
+    def _star_round(self, rnd):
+        st = self.st
+        # 1. the leaves' pre operators (the centres take nothing here)
+        for blk, leaf, center, t in rnd:
+            for q, u in _block_pre(blk, leaf):
+                st.queue_1q(q, u)
+        involved = set()
+        for _blk, leaf, center, _t in rnd:
+            involved.update((leaf, center))
+        if self._needs_flush(involved):
+            self.flush_dip(involved)
+
+        by_t: dict[int, list] = {}
+        for item in rnd:
+            by_t.setdefault(item[3], []).append(item)
+        top = max(by_t) + 1
+
+        def slot(center):
+            x, y = self.home[center]
+            return (x + 1, y + 10)
+
+        def visit(items):
+            moves = [(leaf, st.pos[leaf], slot(center)) for _blk, leaf, center, _t in items]
+            self._batch_moves(moves)
+
+        def go_home(items):
+            moves = [(leaf, st.pos[leaf], self.zone_home[leaf]) for _blk, leaf, center, _t in items]
+            self._batch_moves(moves)
+
+        # 3. phase A: each pulse brings its leaves in, fires, and (unless last) takes them home
+        for t in range(top):
+            items = by_t.get(t, [])
+            visit(items)
+            st.pulse([(center, leaf) for _blk, leaf, center, _t in items])
+            if t < top - 1:
+                go_home(items)
+
+        # 4. one shallow dip for every leaf's mid rotation (restores all positions)
+        leaves = [leaf for _blk, leaf, _center, _t in rnd]
+        depth = 1 + max(st.pos[q][1] - 10 for q in leaves)
+
+        def mid():
+            for blk, leaf, _center, _t in rnd:
+                st.flush(leaf)
+                theta = _mid_theta(blk.mid)
+                if theta is not None and _tight(theta):
+                    st.out.rx(_tight(theta), leaf)
+            self._flush_in_storage()
+
+        self.dip(depth, mid)
+
+        # 5. phase B: replay the pulses in reverse (the last pulse never left)
+        for t in range(top - 1, -1, -1):
+            items = by_t.get(t, [])
+            if t < top - 1:
+                visit(items)
+            st.pulse([(center, leaf) for _blk, leaf, center, _t in items])
+            go_home(items)
+
+        # 6. the leaves' post operators
+        for blk, leaf, _center, _t in rnd:
+            for q, u in _block_post(blk, leaf):
+                st.queue_1q(q, u)
+
+    def _batch_moves(self, moves):
+        """Move `(q, src, dst)` atoms with as few rectangles as possible (grouped by displacement)."""
+        st = self.st
+        st.cat = "round"
+        groups: dict[tuple[int, int], list] = {}
+        for q, src, dst in moves:
+            groups.setdefault((dst[0] - src[0], dst[1] - src[1]), []).append((q, src, dst))
+        leftovers = []
+        for (dx, dy), grp in groups.items():
+            if self._try_bbox(grp, dx, dy):
+                continue
+            segs = self._column_segments(grp)
+            rowkey = lambda seg: (seg[0][1][1], seg[-1][1][1])  # noqa: E731
+            done = [False] * len(segs)
+            for i in range(len(segs)):
+                if done[i]:
+                    continue
+                key = rowkey(segs[i])
+                members = [i]
+                done[i] = True
+                cols = {segs[i][0][1][0]}
+                changed = True
+                while changed:
+                    changed = False
+                    for j in range(len(segs)):
+                        if done[j] or rowkey(segs[j]) != key:
+                            continue
+                        col = segs[j][0][1][0]
+                        if col in (min(cols) - 1, max(cols) + 1):
+                            members.append(j)
+                            done[j] = True
+                            cols.add(col)
+                            changed = True
+                items = [m for j in members for m in segs[j]]
+                if self._try_bbox(items, dx, dy):
+                    continue
+                for j in members:
+                    if not self._try_bbox(segs[j], dx, dy):
+                        leftovers.extend(segs[j])
+        for q, src, dst in leftovers:
+            st.move((src[1],), (src[0],), (dst[1],), (dst[0],))
+
+    def _column_segments(self, grp):
+        """Split a same-displacement group into per-column, ghost-free runs of source rows."""
+        st = self.st
+        qset = {q for q, _, _ in grp}
+        segs = []
+        for col in sorted({s[0] for _, s, _ in grp}):
+            items = sorted((m for m in grp if m[1][0] == col), key=lambda m: m[1][1])
+            cur = [items[0]]
+            for prev, item in zip(items, items[1:]):
+                lo, hi = prev[1][1] + 1, item[1][1]
+                ghost = any(
+                    (col, r) in st.occ and st.occ[(col, r)] not in qset for r in range(lo, hi)
+                )
+                if ghost:
+                    segs.append(cur)
+                    cur = [item]
+                else:
+                    cur.append(item)
+            segs.append(cur)
+        return segs
+
 
 def _fold(mats):
     m = np.eye(2, dtype=complex)
@@ -928,6 +1107,61 @@ def _greedy_matchings(group):
         else:
             rounds.append(([blk], set(blk.qubits())))
     return [M for M, _ in rounds]
+
+
+def plan_star_rounds(group, home, cap=STAR_CAP):
+    """Pure greedy packing of a commuting group into star rounds.
+
+    A round keeps every qubit either a leaf of one block or the centre of at most `cap` blocks.
+    Each centre stays at its (left-slot) home; its leaves visit its right slot at pulse index
+    `t = load[center]`.  Returns a list of rounds, each a list of `(blk, leaf, center, t)`, or
+    `None` if the group cannot be packed at all.
+    """
+
+    def zhome(q):
+        x, y = home[q]
+        return (x, y + 10)
+
+    def leaf_cost(leaf, center):
+        cx, cy = home[center]
+        return _dist(zhome(leaf), (cx + 1, cy + 10))
+
+    remaining = list(group)
+    rounds = []
+    while remaining:
+        role: dict[int, str] = {}
+        load: dict[int, int] = {}
+        picked = []
+        still = []
+        for blk in remaining:
+            if blk.pre is not None or blk.post is not None:
+                cands = [(blk.v, blk.u)]
+            else:
+                cands = [(blk.v, blk.u), (blk.u, blk.v)]
+            cands.sort(key=lambda lc: (0 if role.get(lc[1]) == "C" else 1, leaf_cost(*lc)))
+            chosen = None
+            for leaf, center in cands:
+                if (
+                    role.get(leaf) is None
+                    and role.get(center) in (None, "C")
+                    and load.get(center, 0) < cap
+                ):
+                    chosen = (leaf, center)
+                    break
+            if chosen is None:
+                still.append(blk)
+                continue
+            leaf, center = chosen
+            role[leaf] = "L"
+            role[center] = "C"
+            t = load.get(center, 0)
+            load[center] = t + 1
+            picked.append((blk, leaf, center, t))
+        if not picked:  # pragma: no cover - a single block always fits a fresh round
+            return None
+        rounds.append(picked)
+        remaining = still
+    return rounds
 
 
 def _block_pre(blk, t):
@@ -1069,6 +1303,13 @@ def _compile_lanes(circuit, items, lay, groups):
                 if all(b.kind == "zz" and _mid_theta(b.mid) is not None for b in group):
                     if mach.conveyor(group):
                         continue
+            if (
+                all(hub not in (b.u, b.v) for b in group)
+                and group
+                and all(b.kind == "zz" and _mid_theta(b.mid) is not None for b in group)
+            ):
+                if mach.star_rounds(group):
+                    continue
             mach.matching(group)
 
     todo = list(groups)
@@ -1147,7 +1388,24 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
                     st = None
     if st is None:
         st = _compile_generic(circuit, architecture_spec)
+    if os.environ.get("HUBWALK_STATS") == "1":
+        _print_stats(st)
     return st.out, Architecture(st.loading, spec=architecture_spec)
+
+
+def _print_stats(st):
+    import sys
+
+    cats = sorted(set(st.dist_by_cat) | set(st.moves_by_cat))
+    total = sum(st.dist_by_cat.values())
+    print(f"hubwalk stats: n={st.n} moves={st.nmoves} distance={st.distance:.2f}", file=sys.stderr)
+    for cat in cats:
+        print(
+            f"  {cat:10s} distance={st.dist_by_cat.get(cat, 0.0):9.2f} "
+            f"({100.0 * st.dist_by_cat.get(cat, 0.0) / total if total else 0.0:5.1f}%) "
+            f"moves={st.moves_by_cat.get(cat, 0)}",
+            file=sys.stderr,
+        )
 
 
 # ---------------------------------------------------------------- manual check

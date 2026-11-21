@@ -71,6 +71,18 @@ See the implementer spec in the session log; summary:
 
 | iteration | commit | score | dist % | depth % | notes |
 |---|---|---|---|---|---|
+| step 1: instrumentation + star rounds, `STAR_CAP=1` | (this commit) | +81.45 | 82.42 | 77.57 | 36/36 metric + 13/13 sanity `--mode full`; zonedwell base +80.79 |
+| `STAR_CAP=2` | | +79.16 | 79.54 | 77.63 | too many phase-A/B moves |
+| `STAR_CAP=3` | | +79.04 | 79.43 | 77.45 | |
+
+Step 1 alone already beats zonedwell: cap 1 gives every round `T=1`, so a round is *two* batched
+leaf moves (in, out) around one mid dip, while the hub-less group that used to need one matching per
+block now packs into one round per "star matching". Per family: HEA unchanged, iHVA distance
++79.17 % / depth +75.89 % (zonedwell +78.43 / +75.30), QAOA +88.35 % / +80.70 % (zonedwell
++87.55 / +80.74). 50q QAOA p1 970.3 → 919.6, 20q QAOA p1 388.6 → 361.8, 50q iHVA stagger p1
+1484.7 → 1434.3, 20q iHVA stagger p1 658.7 → 620.2. The remaining round cost is dominated by
+unbatched leaf moves on the dense zonedwell layout — step 2's round-aware layout is what should
+turn those into shared-displacement rectangles.
 
 ## Verdict
 
