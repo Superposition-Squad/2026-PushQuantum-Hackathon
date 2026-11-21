@@ -423,7 +423,9 @@ def _block_generator(blk):
     return None
 
 
-def _commute(g1, g2):
+def _commute(b1, g1, b2, g2):
+    if b1.u not in (b2.u, b2.v) and b1.v not in (b2.u, b2.v):
+        return True
     if g1 is None or g2 is None:
         return False
     shared = set(g1) & set(g2)
@@ -444,7 +446,7 @@ def plan_groups(blocks, hub):
     members pairwise commute and may be reordered freely."""
     n = len(blocks)
     gens = [_block_generator(b) for b in blocks]
-    preds = [{i for i in range(j) if not _commute(gens[i], gens[j])} for j in range(n)]
+    preds = [{i for i in range(j) if not _commute(blocks[i], gens[i], blocks[j], gens[j])} for j in range(n)]
     done: set[int] = set()
     groups = []
     while len(done) < n:
@@ -465,30 +467,80 @@ def plan_groups(blocks, hub):
 # ---------------------------------------------------------------- layout
 
 
-def plan_layout(n, hub, blocks):
-    """Partners ordered by their first hub block and packed block-wise into 10-slot even lanes."""
+def plan_layout(n, hub, blocks, groups, use_conveyor=True):
+    """Pack the partners into the five even lanes (10 slots each) and improve the packing."""
     first = {}
     for idx, blk in enumerate(blocks):
-        if hub in (blk.u, blk.v):
-            p = blk.v if blk.u == hub else blk.u
-            first.setdefault(p, idx)
+        if blk.u == hub:
+            first.setdefault(blk.v, idx)
+        elif blk.v == hub:
+            first.setdefault(blk.u, idx)
     partners = [q for q in range(n) if q != hub]
     if len(partners) > 49:
         return None
     partners.sort(key=lambda q: (first.get(q, 10 ** 9), q))
-    home = {}
-    lanes = {}
-    for rank, q in enumerate(partners):
-        lane, slot = divmod(rank, 10)
-        home[q] = (2 * lane, slot)
-        lanes.setdefault(lane, []).append(q)
+    slots = [(2 * j, s) for j in range(5) for s in range(10)][: len(partners)]
+    assign = {slots[i]: partners[i] for i in range(len(partners))}
+    costs = _LayoutCost(blocks, groups, hub, use_conveyor)
+    best = costs.eval(assign)
+    rng = np.random.default_rng(12345)
+    keys = list(assign)
+    for _ in range(40 * len(keys)):
+        i, j = rng.integers(0, len(keys), 2)
+        if i == j:
+            continue
+        a, b = keys[i], keys[j]
+        assign[a], assign[b] = assign[b], assign[a]
+        new = costs.eval(assign)
+        if new < best - 1e-12:
+            best = new
+        else:
+            assign[a], assign[b] = assign[b], assign[a]
+    home = {q: site for site, q in assign.items()}
     home[hub] = (9, 9)
     if len(set(home.values())) != n:
         return None
     zone_home = {q: (s[0], s[1] + 10) for q, s in home.items()}
-    if (8, 19) in zone_home.values():
+    if (8, 19) in zone_home.values() or (8, 9) in assign:
         return None
-    return {"home": home, "zone_home": zone_home, "lanes": lanes, "hub": hub, "partners": partners}
+    return {"home": home, "zone_home": zone_home, "lanes": _lanes(partners, home), "hub": hub,
+            "partners": partners, "conveyor": use_conveyor}
+
+
+def _lanes(partners, home):
+    lanes = {}
+    for q in partners:
+        lanes.setdefault(home[q][0] // 2, []).append(q)
+    for lane in lanes.values():
+        lane.sort(key=lambda q: home[q][1])
+    return lanes
+
+
+class _LayoutCost:
+    """Cost model of a layout: one pair of moves per block plus the conveyor slides."""
+
+    def __init__(self, blocks, groups, hub, use_conveyor):
+        self.hub = hub
+        self.use_conveyor = use_conveyor
+        self.groups = groups
+
+    def eval(self, assign):
+        pos = {q: (site[0], site[1]) for site, q in assign.items()}
+        cost = 0.0
+        for group in self.groups:
+            if self.use_conveyor and all(self.hub in (b.u, b.v) for b in group):
+                per = {}
+                for b in group:
+                    p = b.v if b.u == self.hub else b.u
+                    if p in pos:
+                        per.setdefault(pos[p][0] // 2, []).append(pos[p][1])
+                for _lane, ss in per.items():
+                    cost += 2.0 * (max(ss) + 1) + 2.0
+            else:
+                for b in group:
+                    if b.u in pos and b.v in pos:
+                        cost += float(np.hypot(pos[b.u][0] - pos[b.v][0], pos[b.u][1] - pos[b.v][1]))
+        return cost
 
 
 # ---------------------------------------------------------------- scheduling machinery
@@ -927,36 +979,49 @@ def _free_storage(st: _State):
 # ---------------------------------------------------------------- hub path
 
 
-def _compile_hub(circuit, items, lay, spec):
+def _runs(items):
+    """Maximal runs of consecutive blocks (1q gates delimit them)."""
+    runs, run = [], []
+    for item in items:
+        if item[0] == "blk":
+            run.append(item[1])
+        elif run:
+            runs.append(run)
+            run = []
+    if run:
+        runs.append(run)
+    return runs
+
+
+def _compile_lanes(circuit, items, lay, groups):
     n = circuit.num_qubits
     st = _State(n, circuit.num_clbits)
     st.load(lay["home"])
     mach = _Machine(st, lay)
     hub = lay["hub"]
-    measures = []
-    run = []
+    use_conveyor = lay.get("conveyor", True)
+    measures = [(it[1], it[2]) for it in items if it[0] == "measure"]
 
-    def schedule_run(run):
-        if not run:
-            return
-        for group in plan_groups(run, hub):
-            is_hub = all(hub in (b.u, b.v) for b in group)
-            if is_hub and all(b.kind == "zz" and _mid_theta(b.mid) is not None for b in group):
-                if mach.conveyor(group):
-                    continue
+    def schedule(group_list):
+        for group in group_list:
+            if use_conveyor and all(hub in (b.u, b.v) for b in group):
+                if all(b.kind == "zz" and _mid_theta(b.mid) is not None for b in group):
+                    if mach.conveyor(group):
+                        continue
             mach.matching(group)
 
-    for item in items:
+    todo = list(groups)
+    idx = 0
+    while idx < len(items):
+        item = items[idx]
         if item[0] == "blk":
-            run.append(item[1])
+            schedule(todo.pop(0) if todo else [])
+            while idx < len(items) and items[idx][0] == "blk":
+                idx += 1
             continue
-        schedule_run(run)
-        run = []
         if item[0] == "1q":
             st.queue_1q(item[1], item[2])
-        else:
-            measures.append((item[1], item[2]))
-    schedule_run(run)
+        idx += 1
     mach.storage_phase()
     st.flush_all()
     for q, c in measures:
@@ -982,6 +1047,16 @@ def _looks_like_hub(items, n):
     return hub
 
 
+def _parked_qubit(items, n):
+    """The least connected qubit, used as a stand-in hub for circuits with no hub."""
+    blocks = [it[1] for it in items if it[0] == "blk"]
+    deg: dict[int, int] = {}
+    for blk in blocks:
+        deg[blk.u] = deg.get(blk.u, 0) + 1
+        deg[blk.v] = deg.get(blk.v, 0) + 1
+    return min(range(n), key=lambda q: (deg.get(q, 0), -q))
+
+
 # ---------------------------------------------------------------- entry point
 
 
@@ -989,13 +1064,22 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
     n = circuit.num_qubits
     items = parse_blocks(circuit)
     st = None
-    if items is not None:
+    if items is not None and n <= 50:
         hub = _looks_like_hub(items, n)
-        if hub is not None:
-            lay = plan_layout(n, hub, [it[1] for it in items if it[0] == "blk"])
+        use_conveyor = hub is not None
+        if hub is None:
+            hub = _parked_qubit(items, n)
+        blocks = [it[1] for it in items if it[0] == "blk"]
+        runs = _runs(items)
+        try:
+            groups = [plan_groups(run, hub) for run in runs]
+        except Exception:
+            groups = None
+        if groups is not None:
+            lay = plan_layout(n, hub, blocks, [g for gs in groups for g in gs], use_conveyor)
             if lay is not None:
                 try:
-                    st = _compile_hub(circuit, items, lay, architecture_spec)
+                    st = _compile_lanes(circuit, items, lay, groups)
                 except AssertionError:
                     if _DEBUG:
                         raise
