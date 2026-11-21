@@ -163,7 +163,7 @@ it is the `zonedwell` / `gates` lane (keep the control in the zone between the t
 block: −25 %; chain several CZs of one atom in the zone: up to −50 %). Those gains **compose** with
 this planner, they do not overlap it.
 
-**Measured, not implemented: storage row staging.** In every QAOA/iHVA benchmark the
+**Storage row staging (implemented, measured, rejected).** In every QAOA/iHVA benchmark the
 hub's partners appear in strict index order (`cx q[0],q[49] … cx q[48],q[49]`, verified in the QASM),
 so with a row-major placement 10 consecutive partners sit in one storage row and are used in 20
 consecutive rounds. Rotating the occupied block by one row costs **7.0 total for all 50 atoms**
@@ -174,12 +174,28 @@ in that layer then costs ≈ 2.4 instead of ≈ 2·(10 − y) ≈ 6–10. Hand e
 `pos` to become time-dependent (a per-round position state plus a lookahead rule for when to
 rotate), which is a real refactor of `plan_moves`/`plan_cost`.
 
-I simulated it (`/tmp/rb-analysis/stage.py`: lookahead of 24 rounds, rotate while it pays): on
-50q QAOA p1 it gives 3 574 → 2 916 with only 4 rotations, i.e. **−18 %, not the factor 3** the hand
-estimate suggested. The reason is in the role breakdown above: staging only helps the hub's partner
-(and the hub), which is 40 % of the cost, while the non-hub pairs touch all rows all the time. So it
-is worth about +2–3 score points, not +10, and I left it out rather than risk the working compiler
-inside the time box.
+I simulated it (`/tmp/rb-analysis/stage.py`: lookahead of 24 rounds, rotate while it pays): starting
+from a *fixed* layout it gives 3 574 → 2 916 on 50q QAOA p1 with only 4 rotations, i.e. −18 %, not
+the factor 3 the hand estimate suggested (the role breakdown above explains it: staging only helps
+the hub and its partner, 40 % of the cost).
+
+**Then we implemented it and it does not pay at all.** `rotate_block` (the three validated moves
+above) plus the lookahead rule, measured against the committed compiler:
+
+| circuit | staging off | window 24 | window 48 | window 96 |
+|---|---|---|---|---|
+| 50q QAOA p1 | 2 749.0 | 2 799.6 | 2 755.3 | 2 749.0 (no rotation accepted) |
+| 50q iHVA stagger p3 | 8 989.9 | 9 060.0 | — | — |
+
+The −18 % in the simulation was measured from an *un-optimised* layout. The real compiler runs
+`optimise_placement` first, and the hill climber has already arranged the rows to match the
+schedule, so there are no row-ordered partner batches left to rotate into row 9 and the ~7.0 per
+rotation is never repaid. Reverted, nothing committed. Lesson: the static placement search and row
+staging attack the same slack, and the search gets it more cheaply.
+
+(Noise calibration from this experiment: re-running the identical committed code gives
+metric_circuit_20 = 8 989.9 vs the committed 8 876.4, ±1 %, because the placement search is
+wall-clock bounded on a shared box. Treat per-circuit deltas below ~1.5 % as noise.)
 
 ## Verdict
 
@@ -208,8 +224,8 @@ Limits (measured, see the two sections above): with a static placement and a ful
 after every round, we are within ~10 % of the structural bound
 `Σ_rounds Σ_atoms 2·(10 − y)`. The remaining big lever is **fewer zone round trips** (keep the
 control in the zone between the two CZs of a ZZ block, chain several CZs of one atom), which is the
-`zonedwell`/`gates` lane and composes with this planner. Dynamic row staging is worth only ~+18 % on
-the hub-dominated circuits (simulated), not the factor 3 a hand estimate suggested.
+`zonedwell`/`gates` lane and composes with this planner. Dynamic row staging was implemented and
+**measured to be worse** than the placement search alone (see above), so that door is closed.
 
 Caveat for reproducibility: the placement search is wall-clock budgeted, so the score moves by
 about ±0.2 between identical runs on a loaded machine.
