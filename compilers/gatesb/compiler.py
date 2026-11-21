@@ -615,13 +615,50 @@ def _partition_group(row, atoms, occupancy):
     return runs
 
 
-def _group_cost(row, dst_row, atoms, occupancy) -> float:
-    """Cost of covering one (source row, target row) group with legal runs: max distance per move."""
+def _ent_shape_rows() -> int:
+    return 5
+
+
+def _group_cost(row, dst_row, atoms, occupancy, partner=None) -> float:
+    """Cost estimate for one (source row, target row) group: max distance per move.
+
+    With `partner`, the estimate assumes that a whole span can ride in one move (extra atoms come
+    along on their own interaction pair), which is what keeps the atoms of one storage row together.
+    """
     dy = abs(dst_row - row)
-    return sum(
-        math.hypot(max(abs(a[2] - a[1]) for a in run), dy)
-        for run in _partition_group(row, atoms, occupancy)
-    )
+    if partner is None:
+        return sum(
+            math.hypot(max(abs(a[2] - a[1]) for a in run), dy)
+            for run in _partition_group(row, atoms, occupancy)
+        )
+    total = 0.0
+    i = 0
+    while i < len(atoms):
+        inside = {a[0] for a in atoms}
+        j = i + 1
+        best = None
+        while j <= len(atoms):
+            seg = atoms[i:j]
+            lo, hi = seg[0][1], seg[-1][1]
+            span = [c for c in range(lo, hi + 1) if (c, row) in occupancy]
+            pairs = sum(1 for a in seg if partner.get(a[0]) in {b[0] for b in seg})
+            if len(span) - pairs > _ent_shape_rows():
+                break
+            adjacent = True
+            for k in range(1, len(seg)):
+                if seg[k][2] <= seg[k - 1][2]:
+                    adjacent = False
+                    break
+            if not adjacent:
+                break
+            best = (math.hypot(max(abs(a[2] - a[1]) for a in seg), dy), j)
+            j += 1
+        if best is None:
+            best = (math.hypot(abs(atoms[i][2] - atoms[i][1]), dy), i + 1)
+        total += best[0]
+        i = best[1]
+        del inside
+    return total
 
 
 def _pair_order(pairs, pos):
@@ -634,7 +671,7 @@ def _pair_order(pairs, pos):
     return sorted((tuple(pair) for pair in pairs), key=key)
 
 
-def _assign_round_targets(pairs, pos, occupancy, ent, reserve_cross=False):
+def _assign_round_targets(pairs, pos, occupancy, ent, reserve_cross=False, partner=None):
     """Choose a target interaction site for every atom of the round.
 
     Each pair gets an exclusive slot `(row, 2k)`, and slots are filled nearest-to-storage first, so a
@@ -651,19 +688,20 @@ def _assign_round_targets(pairs, pos, occupancy, ent, reserve_cross=False):
     used: set = set()
     assign: dict[int, Site] = {}
     ordered = _pair_order(pairs, pos)
-    phases = [ordered, []] if reserve_cross else [ordered]
     if reserve_cross:
         phases = [[p for p in ordered if pos[p[0]][1] == pos[p[1]][1]],
                   [p for p in ordered if pos[p[0]][1] != pos[p[1]][1]]]
+    else:
+        phases = [ordered]
     for phase in phases:
         if not phase:
             continue
         pack_rows = {t for (_r, t) in groups}
-        for u, v in phase:
+        for pos_in_phase, (u, v) in enumerate(phase):
             candidates = [(t, k) for t in span for k in range(per_row)]
             if reserve_cross and phase is phases[-1]:
-                free = [c for c in candidates if c[0] not in pack_rows]
-                if free:
+                free = [c for c in candidates if c[0] not in pack_rows and c not in used]
+                if len(free) >= len(phase) - pos_in_phase:
                     candidates = free
             best = None
             for t, k in candidates:
@@ -695,6 +733,209 @@ def _assign_round_targets(pairs, pos, occupancy, ent, reserve_cross=False):
     return assign
 
 
+def _gap_fill(srcs, lo, hi, free_slots, ex0):
+    """Give each passenger in `srcs` a distinct free pair slot strictly between columns lo and hi.
+
+    Returns (max |dx|, [(target column, slot)]) or None.  A passenger occupies a whole interaction
+    pair on its own, so no unwanted CZ can hit it.
+    """
+    m = len(srcs)
+    if m == 0:
+        return 0.0, []
+    cols = []
+    for k in free_slots:
+        c = ex0 + 2 * k
+        if lo < c < hi:
+            cols.append((c, k))
+    cols.sort()
+    if len(cols) < m:
+        return None
+    n = len(cols)
+    inf = 99.0
+    dp = [[inf] * n for _ in range(m)]
+    back = [[-1] * n for _ in range(m)]
+    for j in range(n):
+        dp[0][j] = abs(cols[j][0] - srcs[0])
+    for i in range(1, m):
+        best, arg = inf, -1
+        for j in range(n):
+            if j > 0 and dp[i - 1][j - 1] < best:
+                best, arg = dp[i - 1][j - 1], j - 1
+            if arg >= 0:
+                cost = max(best, abs(cols[j][0] - srcs[i]))
+                if cost < dp[i][j]:
+                    dp[i][j] = cost
+                    back[i][j] = arg
+    j = min(range(n), key=lambda z: dp[m - 1][z])
+    value = dp[m - 1][j]
+    if value >= inf:
+        return None
+    out = []
+    for i in range(m - 1, -1, -1):
+        out.append(cols[j])
+        j = back[i][j]
+    out.reverse()
+    return value, out
+
+
+def _run_move(run, row, dst_row, occupancy, assignment, booked, ex0, ex1):
+    """Build one rectangle move covering `run` (consecutive participants) and its passengers.
+
+    Every atom between the first and last picked column has to come along; the ones that are not part
+    of the round ride along on their own interaction pair, so the move costs its max distance only.
+    Returns (record, used_slots) or None when the geometry forbids it.
+    """
+    lo, hi = run[0][1], run[-1][1]
+    target_of = {q: dst for q, _src, dst in run}
+    cols = [c for c in range(lo, hi + 1) if (c, row) in occupancy]
+    if len(cols) < len(run):
+        return None
+    free = set(range(ex0 // 2, ex0 // 2 + (ex1 - ex0 + 1) // 2)) - booked
+    used: set = set()
+    dx = 0.0
+    new_cols = []
+    dst = {}
+    prev_dst = ex0 - 1
+    pending: list[int] = []
+    for c in cols:
+        q = occupancy[(c, row)]
+        if q in target_of:
+            tgt = target_of[q]
+            if pending:
+                filled = _gap_fill(pending, prev_dst, tgt, free - used, ex0)
+                if filled is None:
+                    return None
+                add_dx, placed = filled
+                dx = max(dx, add_dx)
+                for src, (col, slot) in zip(pending, placed):
+                    used.add(slot)
+                    dst[occupancy[(src, row)]] = (col, dst_row)
+                # keep the passenger targets in column order
+                new_cols.extend(col for col, _slot in placed)
+                pending = []
+            if tgt <= prev_dst:
+                return None
+            new_cols.append(tgt)
+            prev_dst = tgt
+            slot = (tgt - ex0) // 2
+            used.add(slot)
+            dst[q] = (tgt, dst_row)
+        else:
+            if q in assignment:
+                return None  # belongs to another target row of this round
+            pending.append(c)
+    if pending:
+        filled = _gap_fill(pending, prev_dst, ex1 + 1, free - used, ex0)
+        if filled is None:
+            return None
+        add_dx, placed = filled
+        dx = max(dx, add_dx)
+        for src, (col, slot) in zip(pending, placed):
+            used.add(slot)
+            if not new_cols or col > new_cols[-1]:
+                new_cols.append(col)
+            else:
+                return None
+            dst[occupancy[(src, row)]] = (col, dst_row)
+    for c, col in zip(cols, new_cols):
+        dx = max(dx, abs(col - c))
+    if len(new_cols) != len(cols) or any(b <= a for a, b in itertools.pairwise(new_cols)):
+        return None
+    src = {occupancy[(c, row)]: (c, row) for c in cols}
+    qubits = sorted(src)
+    record = _MoveRecord(qubits, (row,), tuple(range(lo, hi + 1)), (dst_row,), tuple(new_cols), src, dst)
+    return record, used
+
+
+def _plan_group(row, dst_row, atoms, occupancy, assignment, booked, ex0, ex1, ent):
+    """Partition one (source row, target row) group into moves, allowing passengers to fill the span."""
+    m = len(atoms)
+    inf = math.inf
+    best = [inf] * (m + 1)
+    best[0] = 0.0
+    pick: list = [None] * (m + 1)
+    for i in range(1, m + 1):
+        for j in range(i):
+            got = _run_move(atoms[j:i], row, dst_row, occupancy, assignment, booked, ex0, ex1)
+            if got is None:
+                continue
+            rec, _used = got
+            cost = best[j] + _rec_cost(rec, ent)
+            if cost < best[i] - 1e-12:
+                best[i] = cost
+                pick[i] = j
+    if pick[m] is None:
+        return None
+    out = []
+    e = m
+    while e > 0:
+        j = pick[e]
+        got = _run_move(atoms[j:e], row, dst_row, occupancy, assignment, booked, ex0, ex1)
+        rec, used = got
+        booked |= used
+        out.append(rec)
+        e = j
+    out.reverse()
+    return out
+
+
+def _trip_records_group(row, dst_row, atoms, occupancy):
+    """Ghost-safe fallback: split a group into runs that pick up only participating atoms."""
+    out = []
+    for run in _partition_group(row, sorted(atoms, key=lambda z: z[1]), occupancy):
+        cols = tuple(range(run[0][1], run[-1][1] + 1))
+        new_cols = tuple(a[2] for a in run)
+        src = {q: (s, row) for q, s, _ in run}
+        dst = {q: (d, dst_row) for q, _, d in run}
+        out.append(_MoveRecord([a[0] for a in run], (row,), cols, (dst_row,), new_cols, src, dst))
+    return out
+
+
+def _assign_with_rows(pairs, pos, occupancy, ent, forced=None):
+    """Slot assignment where `forced[i]` pins pair i to one entangling row (None = nearest free)."""
+    ex0, ey0, ey1, per_row = _ent_shape(ent)
+    need = max(1, -(-len(pairs) // per_row))
+    span = [ey0 + i for i in range(min(need + 2, ey1 - ey0 + 1))]
+    used: set = set()
+    assign: dict[int, Site] = {}
+    groups: dict[tuple[int, int], list] = {}
+    partner = {}
+    for u, v in pairs:
+        partner[u] = v
+        partner[v] = u
+    for i, (u, v) in enumerate(_pair_order(pairs, pos)):
+        rows = [forced[i]] if forced and forced[i] is not None else span
+        best = None
+        for t in rows:
+            for k in range(per_row):
+                if (t, k) in used:
+                    continue
+                c0 = ex0 + 2 * k
+                for a, b in ((u, v), (v, u)):
+                    trial = {a: (c0, t), b: (c0 + 1, t)}
+                    delta = 0.0
+                    touched: dict[tuple[int, int], dict] = {}
+                    for q, target in trial.items():
+                        touched.setdefault((pos[q][1], t), {})[q] = target
+                    for (row, dst_row), added in touched.items():
+                        old = groups.get((row, dst_row), [])
+                        new = sorted(old + [(q, pos[q][0], added[q][0]) for q in added], key=lambda z: z[1])
+                        delta += (_group_cost(row, dst_row, new, occupancy)
+                                  - _group_cost(row, dst_row, old, occupancy))
+                    if best is None or delta < best[0] - 1e-12:
+                        best = (delta, t, k, dict(trial))
+        if best is None:
+            raise RuntimeError("no free interaction site")
+        _delta, t, k, trial = best
+        used.add((t, k))
+        assign.update(trial)
+        for q, target in trial.items():
+            key = (pos[q][1], t)
+            groups.setdefault(key, []).append((q, pos[q][0], target[0]))
+            groups[key].sort(key=lambda z: z[1])
+    return assign
+
+
 def _trip_records(assignment, pos, occupancy):
     """Cover an assignment with single-row rectangle moves: one per (source row, target row) run."""
     groups: dict[tuple[int, int], list] = {}
@@ -702,14 +943,12 @@ def _trip_records(assignment, pos, occupancy):
         groups.setdefault((pos[q][1], target[1]), []).append((q, pos[q][0], target[0]))
     records: list[_MoveRecord] = []
     for (row, dst_row), atoms in sorted(groups.items()):
-        atoms.sort(key=lambda z: z[1])
-        for run in _partition_group(row, atoms, occupancy):
-            cols = tuple(range(run[0][1], run[-1][1] + 1))
-            new_cols = tuple(a[2] for a in run)
-            src = {q: (s, row) for q, s, _ in run}
-            dst = {q: (d, dst_row) for q, _, d in run}
-            records.append(_MoveRecord([a[0] for a in run], (row,), cols, (dst_row,), new_cols, src, dst))
+        records.extend(_trip_records_group(row, dst_row, atoms, occupancy))
     return records
+
+
+def _rec_sig(rec):
+    return (tuple(sorted(rec.src[q][0] for q in rec.qubits)), rec.new_cols)
 
 
 def _block_record(records, occupancy, storage, ent, upward, site_owner=None, partner=None):
@@ -747,6 +986,16 @@ def _block_record(records, occupancy, storage, ent, upward, site_owner=None, par
     for row in range(a, b + 1):
         if _has_ghost(row, lo, hi, occupancy, moving):
             return None
+    if partner is not None:
+        # a shared column map pairs the same source columns in every row: those must be round pairs
+        for i, c in enumerate(src_cols[:-1]):
+            nxt = src_cols[i + 1]
+            if col_map[nxt] != col_map[c] + 1 or col_map[c] % 2:
+                continue
+            for row in range(a, b + 1):
+                x, y = occupancy.get((c, row)), occupancy.get((nxt, row))
+                if x is not None and y is not None and partner.get(x) != y:
+                    return None
     dst_row_of = {rec.rows[0]: rec.new_rows[0] for rec in records}
     _ex0, ey0, ey1, _per_row = _ent_shape(ent)
     (sx0, sx1), (sy0, sy1) = storage
@@ -822,8 +1071,8 @@ def _dp_plan(rows, by_row, occupancy, storage, ent, upward, site_owner, partner)
     return out
 
 
-def _plan_trip(assignment, pos, occupancy, storage, ent, upward, pairs=None):
-    """Plan one trip: single-row moves, then cheaper rigid blocks where the geometry allows."""
+def _block_plan(assignment, pos, occupancy, storage, ent, upward, pairs=None):
+    """Plan with rigid multi-row blocks (good when several rows pair up in the same columns)."""
     site_owner = {site: q for q, site in assignment.items()}
     partner = {}
     if upward and pairs is not None:
@@ -854,20 +1103,156 @@ def _plan_cost(plan, ent) -> float:
     return sum(_rec_cost(rec, ent) for rec, _fallback in plan)
 
 
-def _choose_up_plan(pairs, pos, occupancy, storage, ent):
-    """Site assignment and move plan are chosen jointly: build both layouts, keep the cheaper one."""
-    best = None
-    for reserve_cross in (False, True):
-        assign = _assign_round_targets(pairs, pos, occupancy, ent, reserve_cross)
-        plan = _plan_trip(assign, pos, occupancy, storage, ent, True, pairs)
-        cost = _plan_cost(plan, ent)
-        if best is None or cost < best[0] - 1e-9:
-            best = (cost, assign, plan)
-        if not reserve_cross:
-            same_row = any(pos[u][1] == pos[v][1] for u, v in pairs)
-            cross = any(pos[u][1] != pos[v][1] for u, v in pairs)
-            if not (same_row and cross):
+def _passenger_plan(assignment, pos, occupancy, storage, ent, pairs):
+    """Plan with passengers: lift a whole row span in one move, parking the extra atoms on pairs."""
+    ex0, _ey0, _ey1, per_row = _ent_shape(ent)
+    booked_by_row: dict[int, set] = {}
+    groups: dict[tuple[int, int], list] = {}
+    for q, target in assignment.items():
+        booked_by_row.setdefault(target[1], set()).add((target[0] - ex0) // 2)
+        groups.setdefault((pos[q][1], target[1]), []).append((q, pos[q][0], target[0]))
+    plan: list = []
+    for (row, dst_row), atoms in sorted(groups.items()):
+        atoms.sort(key=lambda z: z[1])
+        booked = booked_by_row.setdefault(dst_row, set())
+        move = _plan_group(row, dst_row, atoms, occupancy, assignment, booked, ex0,
+                           ex0 + 2 * per_row - 1, ent)
+        if move is None:
+            for rec in _trip_records_group(row, dst_row, atoms, occupancy):
+                plan.append((rec, [rec]))
+                booked |= {(c - ex0) // 2 for c in rec.new_cols}
+        else:
+            for rec in move:
+                plan.append((rec, [rec]))
+            booked |= {(c - ex0) // 2 for rec in move for c in rec.new_cols}
+    return plan
+
+
+def _assign_components(pairs, pos, occupancy, ent):
+    """Assign whole storage-row components to one entangling row each.
+
+    Storage rows joined by a pair that spans them must share an entangling row (both atoms of a pair
+    have to meet), so they form a component; every component takes its own entangling row, which
+    keeps the atoms of one storage row together and lets a single rectangle carry them all.
+    """
+    ex0, ey0, ey1, per_row = _ent_shape(ent)
+    rows = sorted({pos[q][1] for pair in pairs for q in pair})
+    parent = {r: r for r in rows}
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for u, v in pairs:
+        ru, rv = find(pos[u][1]), find(pos[v][1])
+        if ru != rv:
+            parent[rv] = ru
+    comps: dict[int, list] = {}
+    for pair in _pair_order(pairs, pos):
+        comps.setdefault(find(pos[pair[0]][1]), []).append(pair)
+    free = {(t, k) for t in range(ey0, ey1 + 1) for k in range(per_row)}
+    assign: dict[int, Site] = {}
+    for comp_pairs in comps.values():
+        need = len(comp_pairs)
+        choice = None
+        for t in range(ey0, ey1 + 1):
+            slots = [k for k in range(per_row) if (t, k) in free]
+            if len(slots) >= need:
+                choice = (t, slots[:need])
                 break
+        if choice is None:
+            return None
+        t, slots = choice
+        for k, (u, v) in zip(slots, comp_pairs):
+            free.discard((t, k))
+            c0 = ex0 + 2 * k
+            if (pos[u][0], pos[v][0]) <= (pos[v][0], pos[u][0]):
+                assign[u] = (c0, t)
+                assign[v] = (c0 + 1, t)
+            else:
+                assign[v] = (c0, t)
+                assign[u] = (c0 + 1, t)
+    return assign
+
+
+def _evaluate(assign, pos, occupancy, storage, ent, pairs):
+    plan = _passenger_plan(assign, pos, occupancy, storage, ent, pairs)
+    return _plan_cost(plan, ent), plan
+
+
+def _choose_up_plan(pairs, pos, occupancy, storage, ent):
+    """Site assignment and move plan are chosen jointly: build candidate plans, keep the cheapest.
+
+    Candidates are the greedy assignment (two flavours) and, when a storage row's atoms are spread
+    over several entangling rows, a coordinate-descent pass that pulls each storage row onto one row
+    (a single rectangle then carries the whole row, costing its max distance instead of the sum).
+    """
+    partner = {}
+    for u, v in pairs:
+        partner[u] = v
+        partner[v] = u
+    best = None
+    seen = set()
+    starts = []
+    for reserve_cross in (False, True):
+        starts.append(_assign_round_targets(pairs, pos, occupancy, ent, reserve_cross, partner))
+    component = _assign_components(pairs, pos, occupancy, ent)
+    if component is not None:
+        starts.append(component)
+    for assign in starts:
+        key = tuple(sorted(assign.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        cost, plan = _evaluate(assign, pos, occupancy, storage, ent, pairs)
+        if best is None or cost < best[0] - 1e-9:
+            best = (cost, dict(assign), plan)
+    assign = best[1]
+    order = _pair_order(pairs, pos)
+    if len(order) > 1:
+        rows_of: dict[int, set] = {}
+        for q, site in assign.items():
+            rows_of.setdefault(pos[q][1], set()).add(site[1])
+        spread = [r for r, ts in rows_of.items() if len(ts) > 1]
+        if spread:
+            forced = [assign[q][1] for pair in order for q in pair[:1]]
+            for _round in range(2):
+                improved = False
+                for row in spread:
+                    idxs = [i for i, pair in enumerate(order) if pos[pair[0]][1] == row or pos[pair[1]][1] == row]
+                    if not idxs:
+                        continue
+                    current = rows_of.get(row, set())
+                    options = sorted(current) + [t for t in range((_ent_shape(ent))[1], (_ent_shape(ent))[1] + 5)
+                                                 if t not in current]
+                    for t in options:
+                        trial = list(forced)
+                        for i in idxs:
+                            trial[i] = t
+                        try:
+                            cand = _assign_with_rows(pairs, pos, occupancy, ent, trial)
+                        except RuntimeError:
+                            continue
+                        cost, plan = _evaluate(cand, pos, occupancy, storage, ent, pairs)
+                        if cost < best[0] - 1e-9:
+                            best = (cost, dict(cand), plan)
+                            forced = trial
+                            assign = cand
+                            rows_of = {}
+                            for q, site in assign.items():
+                                rows_of.setdefault(pos[q][1], set()).add(site[1])
+                            improved = True
+                            break
+                    if improved:
+                        break
+                if not improved:
+                    break
+    block = _block_plan(best[1], pos, occupancy, storage, ent, True, pairs)
+    block_cost = _plan_cost(block, ent)
+    if block_cost < best[0] - 1e-9:
+        return best[1], block
     return best[1], best[2]
 
 
@@ -992,14 +1377,17 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
             continue
 
         pairs = [items[idx].qubits for idx in idxs]
-        start = {q: pos[q] for pair in pairs for q in pair}
+        start = dict(pos)
         assignment, up = _choose_up_plan(pairs, pos, occupancy, storage, ent)
         _emit_trip(out, up, pos, occupancy, storage, ent)
         for a, b in pairs:
             out.cz(qubits[a], qubits[b])
-        home = {q: start[q] for q in assignment}
-        _emit_trip(out, _plan_trip(home, pos, occupancy, storage, ent, False),
-                   pos, occupancy, storage, ent)
+        (ex0, ex1), (ey0, ey1) = ent
+        home = {q: start[q] for q, (x, y) in pos.items() if ex0 <= x <= ex1 and ey0 <= y <= ey1}
+        down = _passenger_plan(home, pos, occupancy, storage, ent, pairs)
+        if _plan_cost(down, ent) > _plan_cost(_block_plan(home, pos, occupancy, storage, ent, False), ent):
+            down = _block_plan(home, pos, occupancy, storage, ent, False)
+        _emit_trip(out, down, pos, occupancy, storage, ent)
 
     out.global_phase = float(out.global_phase) + float(phase)
     return out, Architecture(loading, spec=architecture_spec)

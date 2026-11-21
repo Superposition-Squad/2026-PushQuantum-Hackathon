@@ -114,11 +114,88 @@ to global phase, but we track it anyway.
 - Transversal CZ (ADR 0007): within a round all occupied sites carry exactly one `cz`.
 - Single file, stdlib + qiskit + numpy only (ADR 0006).
 
+### Stage 8 — in-zone retention (added after the first measurement, ZAC-style idle reuse)
+
+`schedule_rounds` knows exactly which atoms get a 1q gate between two rounds, so it also knows which
+atoms *don't*: those may stay in the entangling zone instead of making a pointless round trip
+(arXiv:2411.11784). Measured potential on the 36 metric circuits: 7 965 of 18 712 atom-trips
+(35 % of the raw distance). Rules that keep it legal:
+
+- an atom may only stay if it takes part in the **next** round and has no 1q gate in between;
+- at most one atom per interaction pair stays, so a staying atom always has its partner slot free;
+- a site may only be claimed if both its slots are empty or already hold one of that pair's atoms,
+  which makes every move of a round collision-free and emittable in any order;
+- a rectangle may not span a site that another move of the same batch deposits into (otherwise that
+  atom is a ghost by the time the move executes);
+- a staying atom alone on its pair receives no `cz`, which ADR 0007 allows (only *doubly* occupied
+  pairs must get equal pulse counts).
+
+Two refinements that mattered:
+
+- **lookahead site choice:** a staying atom pins its pair's site for many rounds, so the site cost
+  adds the mean distance from the homes of its next (up to 16) partners to the opposite slot. The
+  hub therefore parks in a *central* column instead of wherever its first partner happened to be.
+- **merge-aware cost model:** lifts out of storage can be merged into one rectangle (cost = max of
+  the trips) while an atom already in the zone needs a move of its own (cost adds up). Scoring a
+  site with `max(lifts) + sum(in-zone moves)` instead of `max(all)` was worth +1.6 points on its
+  own, because the naive `max` made in-zone relocation look free.
+
+Gap parking (staying through rounds the atom does not take part in) was measured and dropped: only
+549 of 8 514 opportunities have a gap > 1.
+
 ## Results
+
+All runs: `bench/bench.py compilers/gates/compiler.py --jobs 2`, 36 official metric circuits.
 
 | iteration | commit | score | dist % | depth % | notes |
 |---|---|---|---|---|---|
+| 1 gate layer + per-pair moves | 664bd4b | **+63.86** | +60.45 | +77.47 | resynthesis, hub-as-control, round schedule, compact loading |
+| 2 placement | 3c9ba94 | **+64.66** | +61.46 | +77.47 | degree-weighted snake loading, both slot orientations |
+| 3 synthesis fix | 54bc0dd | +64.66 | +61.46 | +77.47 | `optimization_level=2` had elided `swap` permutations (real equivalence bug) |
+| 4 retention | 43791f1 | **+71.53** | +70.05 | +77.47 | atoms with no 1q gate in between stay in the zone |
+| 5 robustness | e0f12d8 | +71.54 | +70.05 | +77.47 | per-orientation target check |
+| 6 lookahead sites | 1af2060 | **+72.06** | +70.70 | +77.47 | central parking column for sticky atoms |
+| 7 relocation + cost model | 3e464c8 | **+72.87** | +71.72 | +77.47 | in-zone re-pairing, merge-aware site cost |
+
+Per family (iteration 7): hea distance +55.86 / depth +35.48, ihva +71.86 / +78.63,
+qaoa +72.40 / +76.72.
+
+Validity: 36/36 metric and 13/13 sanity circuits pass `--mode full`; `--mode strict` on the metric
+set passes as well (statevector x3 for <= 22 qubits, QCEC for the 50-qubit circuits). Compile time
+<= 1.6 s per metric circuit, 40 s for the 70-qubit sanity circuit.
+
+### Where the remaining distance sits
+
+- **Depth is essentially at its floor.** For a cost layer the reference qubit needs 2 CZs per
+  incident edge and the partner needs its mid rotation between them, so the critical path is
+  `3 * deg(hub) * p`: 441 for the 50q QAOA p=3 circuit, where we emit 459.
+- **Rounds are at their floor too:** 294-302 rounds for the 50q p=3 circuits vs the bound
+  `2 * deg(hub) * p = 294`.
+- **Batching is structurally blocked on the big circuits.** 50 atoms fill storage rows 5-9
+  completely, and a hub-dominated round has only ~3 pairs (6 of 50 atoms), so almost every
+  rectangle that would carry several atoms contains a non-participant (a ghost). 2 129 of 2 761
+  moves carry a single atom. Making rounds fatter cannot help: the hub serialises
+  `2 * deg(hub)` rounds, so the average round *has* to be thin.
+- What is left is therefore the per-trip distance of the partners (storage rows 5-9, mean 3.0 from
+  the zone) and the HEA family, where a proper rectangle cover should lift a whole storage row of
+  pairs in one move (HEA is only 2.2 % of `D_naive`, so ~1 point).
 
 ## Verdict
 
-(pending)
+**Merge the gate layer.** Stages 1-6 (`lower_to_items`, `expand_rot2`, `merge_1q_runs`,
+`build_commutation_dag`, `schedule_rounds`, `euler_zxz`) are a self-contained, verified front end
+that any movement planner can consume; they deliver the depth score (+77.5 %, near the floor) and
+the minimal number of CZ rounds, and they are what every other branch needs. The retention logic
+(stage 8) overlaps with the `hubstream` branch by construction — whichever movement layer wins
+should be put on top of this gate layer.
+
+Carry over to other ideas:
+
+- `schedule_rounds` returns alternating `("1q", items)` / `("cz", items)` phases; the pairs of a
+  `"cz"` phase are always disjoint, so a round is executable between two moves.
+- the derived tables `blocked_between[r]` (qubits with a 1q gate between round r and r+1) and
+  `partner_in[r]` are what retention/parking planners need, and they are cheap to recompute.
+- put the inter-CZ rotation of every two-qubit Pauli rotation on the **low-degree** side: it is
+  exact, it shortens the critical path, and it is what makes hub parking possible at all.
+- never use `transpile(..., optimization_level >= 2)` on a sub-circuit and read its `data`:
+  `ElidePermutations` turns a `swap` into a layout change and the gate silently disappears.

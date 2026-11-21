@@ -729,19 +729,22 @@ def plan_round_sites(pairs, pos, occupancy, ent, future=None, home=None):
     """Assign this round's pairs to interaction sites.
 
     Returns `(targets, ordered)` with `targets[q]` the atom site qubit q must occupy and `ordered` a
-    list of `(a, b, site)` in emission order.  An atom that stayed in the entangling zone since the
-    previous round *pins* its pair to the site it already occupies (it costs nothing to leave it
-    there); every other pair takes the free site minimising the larger of the two trips, trying both
-    slot orientations.
+    list of `(a, b, site)` in emission order.  Each pair takes the free site of lowest cost, trying
+    both slot orientations; an atom that stayed in the entangling zone since the previous round
+    usually keeps the site it already sits on, because staying there costs it nothing.
+
+    The cost of a site is `max(storage lifts) + sum(moves inside the zone) + eps*(total)`: lifts out
+    of storage can be merged into a single rectangle move (whose distance is the max over its
+    atoms), while an atom that is already in the zone always needs a move of its own.  With
+    `future`/`home` given, the mean distance from the homes of an atom's upcoming partners to the
+    opposite slot is added, which parks long-lived atoms (the hub) in a central column.
     """
     sites = _interaction_sites(ent)
     free = dict.fromkeys(sites, True)
     targets: dict[int, Site] = {}
     ordered = []
-    # pairs holding an atom that stayed in the zone go first, so that they can claim its site for
-    # free (cost 0 for that atom). The objective is the *sum* of the two trips, because unmerged
-    # moves cost the sum; that also lets a parked atom slide to a better site inside the zone when
-    # that saves its partner more than the slide costs.
+    # Pairs holding an atom that stayed in the entangling zone go first, so that they can claim the
+    # site it already sits on, which costs that atom nothing.
     def parked_here(p):
         return any(_in_zone(pos[q], ent) for q in p)
 
@@ -938,7 +941,6 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
         down = merge_move_records(_single_moves(leaving, pos), occupancy,
                                   {t: q for q, t in leaving})
         _apply(out, down, pos, occupancy, ent)
-        parked = {q: pos[q] for q in keeps}
         round_no += 1
 
     out.global_phase = float(out.global_phase) + float(phase)

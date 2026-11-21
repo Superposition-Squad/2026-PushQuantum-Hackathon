@@ -5,30 +5,30 @@
  "physics_check": true,
  "set": "metric",
  "filter": null,
- "timestamp": "2026-11-21T13:13:00",
- "elapsed_s": 13.3,
+ "timestamp": "2026-11-21T13:42:52",
+ "elapsed_s": 25.0,
  "summary": {
   "n": 36,
   "valid": true,
-  "distance": 106643.39,
+  "distance": 102910.281,
   "naive_distance": 276726.913,
-  "distance_improvement": 61.463,
+  "distance_improvement": 62.812,
   "depth": 5334,
   "naive_depth": 23676,
   "depth_improvement": 77.471,
-  "score": 64.6642,
+  "score": 65.7435,
   "official": true,
   "families": {
    "hea": {
-    "distance_improvement": 55.86,
+    "distance_improvement": 75.7,
     "depth_improvement": 35.48
    },
    "ihva": {
-    "distance_improvement": 61.04,
+    "distance_improvement": 62.19,
     "depth_improvement": 78.63
    },
    "qaoa": {
-    "distance_improvement": 62.41,
+    "distance_improvement": 63.02,
     "depth_improvement": 76.72
    }
   }
@@ -41,18 +41,18 @@
    "family": "hea",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.38,
+   "compile_s": 0.75,
    "metrics": {
-    "num_moves": 12,
-    "move_steps": 12,
-    "move_distance": 35.603616,
-    "move_time": 40.873354,
+    "num_moves": 11,
+    "move_steps": 11,
+    "move_distance": 31.702537,
+    "move_time": 38.088464,
     "depth": 12,
     "num_operations": 125,
-    "spacing_warnings": 4
+    "spacing_warnings": 5
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.38
+   "wall_s": 0.75
   },
   {
    "label": "metric_circuit_02",
@@ -60,18 +60,18 @@
    "family": "hea",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.38,
+   "compile_s": 0.89,
    "metrics": {
-    "num_moves": 36,
-    "move_steps": 36,
-    "move_distance": 106.810847,
-    "move_time": 122.620062,
+    "num_moves": 33,
+    "move_steps": 33,
+    "move_distance": 95.10761,
+    "move_time": 114.265393,
     "depth": 28,
     "num_operations": 279,
-    "spacing_warnings": 12
+    "spacing_warnings": 15
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.38
+   "wall_s": 0.9
   },
   {
    "label": "metric_circuit_03",
@@ -79,18 +79,18 @@
    "family": "hea",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.37,
+   "compile_s": 0.54,
    "metrics": {
-    "num_moves": 20,
-    "move_steps": 20,
-    "move_distance": 51.387817,
-    "move_time": 73.260538,
+    "num_moves": 15,
+    "move_steps": 15,
+    "move_distance": 40.802973,
+    "move_time": 60.246445,
     "depth": 12,
     "num_operations": 213,
-    "spacing_warnings": 12
+    "spacing_warnings": 9
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.37
+   "wall_s": 0.54
   },
   {
    "label": "metric_circuit_04",
@@ -98,18 +98,18 @@
    "family": "hea",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.37,
+   "compile_s": 0.83,
    "metrics": {
-    "num_moves": 60,
-    "move_steps": 60,
-    "move_distance": 154.163452,
-    "move_time": 219.781613,
+    "num_moves": 45,
+    "move_steps": 45,
+    "move_distance": 122.408918,
+    "move_time": 180.739334,
     "depth": 28,
     "num_operations": 479,
-    "spacing_warnings": 36
+    "spacing_warnings": 27
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.38
+   "wall_s": 0.84
   },
   {
    "label": "metric_circuit_05",
@@ -117,18 +117,18 @@
    "family": "hea",
    "ok": true,
    "qubits": 50,
-   "compile_s": 0.42,
+   "compile_s": 1.74,
    "metrics": {
-    "num_moves": 97,
-    "move_steps": 97,
-    "move_distance": 583.949763,
-    "move_time": 624.787849,
+    "num_moves": 44,
+    "move_steps": 44,
+    "move_distance": 296.835118,
+    "move_time": 371.003553,
     "depth": 12,
     "num_operations": 543,
-    "spacing_warnings": 12
+    "spacing_warnings": 15
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.43
+   "wall_s": 1.75
   },
   {
    "label": "metric_circuit_06",
@@ -136,18 +136,18 @@
    "family": "hea",
    "ok": true,
    "qubits": 50,
-   "compile_s": 0.48,
+   "compile_s": 0.91,
    "metrics": {
-    "num_moves": 291,
-    "move_steps": 291,
-    "move_distance": 1751.849288,
-    "move_time": 1874.363547,
+    "num_moves": 132,
+    "move_steps": 132,
+    "move_distance": 890.505355,
+    "move_time": 1113.010659,
     "depth": 28,
     "num_operations": 1229,
-    "spacing_warnings": 36
+    "spacing_warnings": 45
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.5
+   "wall_s": 0.92
   },
   {
    "label": "metric_circuit_07",
@@ -155,18 +155,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.37,
+   "compile_s": 1.14,
    "metrics": {
-    "num_moves": 156,
-    "move_steps": 156,
-    "move_distance": 473.289202,
-    "move_time": 492.234587,
+    "num_moves": 148,
+    "move_steps": 148,
+    "move_distance": 481.166152,
+    "move_time": 493.990975,
     "depth": 45,
     "num_operations": 205,
-    "spacing_warnings": 16
+    "spacing_warnings": 8
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.37
+   "wall_s": 1.15
   },
   {
    "label": "metric_circuit_08",
@@ -174,18 +174,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.63,
+   "compile_s": 1.26,
    "metrics": {
-    "num_moves": 476,
-    "move_steps": 476,
-    "move_distance": 1396.044381,
-    "move_time": 1451.210747,
+    "num_moves": 447,
+    "move_steps": 447,
+    "move_distance": 1437.312215,
+    "move_time": 1529.958243,
     "depth": 116,
     "num_operations": 514,
-    "spacing_warnings": 40
+    "spacing_warnings": 53
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.66
+   "wall_s": 1.33
   },
   {
    "label": "metric_circuit_09",
@@ -193,18 +193,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.37,
+   "compile_s": 1.09,
    "metrics": {
-    "num_moves": 158,
-    "move_steps": 158,
-    "move_distance": 433.648595,
-    "move_time": 440.421639,
+    "num_moves": 151,
+    "move_steps": 151,
+    "move_distance": 457.306313,
+    "move_time": 475.759224,
     "depth": 67,
     "num_operations": 200,
-    "spacing_warnings": 7
+    "spacing_warnings": 11
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.37
+   "wall_s": 1.11
   },
   {
    "label": "metric_circuit_10",
@@ -212,18 +212,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.48,
+   "compile_s": 1.25,
    "metrics": {
-    "num_moves": 468,
-    "move_steps": 468,
-    "move_distance": 1310.880939,
-    "move_time": 1349.569442,
+    "num_moves": 447,
+    "move_steps": 447,
+    "move_distance": 1369.259549,
+    "move_time": 1444.529587,
     "depth": 174,
     "num_operations": 532,
-    "spacing_warnings": 33
+    "spacing_warnings": 48
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.5
+   "wall_s": 1.3
   },
   {
    "label": "metric_circuit_11",
@@ -231,18 +231,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.37,
+   "compile_s": 0.74,
    "metrics": {
-    "num_moves": 152,
-    "move_steps": 152,
-    "move_distance": 420.829956,
-    "move_time": 431.637014,
+    "num_moves": 149,
+    "move_steps": 149,
+    "move_distance": 442.747024,
+    "move_time": 459.990444,
     "depth": 57,
     "num_operations": 180,
-    "spacing_warnings": 10
+    "spacing_warnings": 12
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.37
+   "wall_s": 0.76
   },
   {
    "label": "metric_circuit_12",
@@ -250,18 +250,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.47,
+   "compile_s": 1.11,
    "metrics": {
-    "num_moves": 472,
-    "move_steps": 472,
-    "move_distance": 1318.027987,
-    "move_time": 1345.858694,
+    "num_moves": 446,
+    "move_steps": 446,
+    "move_distance": 1376.669946,
+    "move_time": 1472.1383,
     "depth": 136,
     "num_operations": 445,
-    "spacing_warnings": 25
+    "spacing_warnings": 53
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.49
+   "wall_s": 1.17
   },
   {
    "label": "metric_circuit_13",
@@ -269,18 +269,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.43,
+   "compile_s": 1.97,
    "metrics": {
-    "num_moves": 280,
-    "move_steps": 280,
-    "move_distance": 826.309826,
-    "move_time": 899.075155,
+    "num_moves": 269,
+    "move_steps": 269,
+    "move_distance": 867.566674,
+    "move_time": 969.270504,
     "depth": 54,
     "num_operations": 368,
-    "spacing_warnings": 34
+    "spacing_warnings": 44
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.44
+   "wall_s": 2.03
   },
   {
    "label": "metric_circuit_14",
@@ -288,18 +288,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.73,
+   "compile_s": 0.86,
    "metrics": {
-    "num_moves": 859,
-    "move_steps": 859,
-    "move_distance": 2420.419108,
-    "move_time": 2560.839058,
+    "num_moves": 830,
+    "move_steps": 830,
+    "move_distance": 2496.308805,
+    "move_time": 2727.198513,
     "depth": 168,
     "num_operations": 933,
-    "spacing_warnings": 83
+    "spacing_warnings": 116
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.76
+   "wall_s": 0.97
   },
   {
    "label": "metric_circuit_15",
@@ -307,18 +307,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.57,
+   "compile_s": 0.68,
    "metrics": {
-    "num_moves": 289,
-    "move_steps": 289,
-    "move_distance": 764.020571,
-    "move_time": 795.120365,
+    "num_moves": 277,
+    "move_steps": 277,
+    "move_distance": 800.113756,
+    "move_time": 897.310446,
     "depth": 73,
     "num_operations": 334,
-    "spacing_warnings": 24
+    "spacing_warnings": 46
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.59
+   "wall_s": 0.7
   },
   {
    "label": "metric_circuit_16",
@@ -326,18 +326,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.54,
+   "compile_s": 2.0,
    "metrics": {
-    "num_moves": 858,
-    "move_steps": 858,
-    "move_distance": 2301.406516,
-    "move_time": 2415.095583,
+    "num_moves": 819,
+    "move_steps": 819,
+    "move_distance": 2312.974887,
+    "move_time": 2586.052441,
     "depth": 193,
     "num_operations": 888,
-    "spacing_warnings": 82
+    "spacing_warnings": 136
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.58
+   "wall_s": 2.16
   },
   {
    "label": "metric_circuit_17",
@@ -345,18 +345,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.52,
+   "compile_s": 0.58,
    "metrics": {
-    "num_moves": 306,
-    "move_steps": 306,
-    "move_distance": 815.198681,
-    "move_time": 825.367394,
+    "num_moves": 280,
+    "move_steps": 280,
+    "move_distance": 815.584657,
+    "move_time": 878.963001,
     "depth": 63,
     "num_operations": 299,
-    "spacing_warnings": 8
+    "spacing_warnings": 35
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.53
+   "wall_s": 0.59
   },
   {
    "label": "metric_circuit_18",
@@ -364,18 +364,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.59,
+   "compile_s": 1.09,
    "metrics": {
-    "num_moves": 885,
-    "move_steps": 885,
-    "move_distance": 2376.047476,
-    "move_time": 2436.09277,
+    "num_moves": 835,
+    "move_steps": 835,
+    "move_distance": 2378.417279,
+    "move_time": 2543.734543,
     "depth": 160,
     "num_operations": 728,
-    "spacing_warnings": 45
+    "spacing_warnings": 95
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.64
+   "wall_s": 1.13
   },
   {
    "label": "metric_circuit_19",
@@ -383,18 +383,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 0.58,
+   "compile_s": 1.5,
    "metrics": {
-    "num_moves": 1028,
-    "move_steps": 1028,
-    "move_distance": 4898.684935,
-    "move_time": 4928.796788,
+    "num_moves": 1009,
+    "move_steps": 1009,
+    "move_distance": 4596.664439,
+    "move_time": 4621.660223,
     "depth": 116,
     "num_operations": 1016,
-    "spacing_warnings": 12
+    "spacing_warnings": 10
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.62
+   "wall_s": 1.53
   },
   {
    "label": "metric_circuit_20",
@@ -402,18 +402,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 2.12,
+   "compile_s": 1.91,
    "metrics": {
-    "num_moves": 3112,
-    "move_steps": 3112,
-    "move_distance": 12789.909514,
-    "move_time": 12861.05475,
+    "num_moves": 3030,
+    "move_steps": 3030,
+    "move_distance": 12138.816124,
+    "move_time": 12245.059032,
     "depth": 343,
     "num_operations": 2635,
-    "spacing_warnings": 30
+    "spacing_warnings": 50
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 2.42
+   "wall_s": 2.08
   },
   {
    "label": "metric_circuit_21",
@@ -421,18 +421,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 0.87,
+   "compile_s": 0.85,
    "metrics": {
-    "num_moves": 1031,
-    "move_steps": 1031,
-    "move_distance": 3858.718039,
-    "move_time": 3887.862095,
+    "num_moves": 1005,
+    "move_steps": 1005,
+    "move_distance": 3655.952452,
+    "move_time": 3692.851864,
     "depth": 147,
     "num_operations": 956,
-    "spacing_warnings": 16
+    "spacing_warnings": 22
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 1.28
+   "wall_s": 0.94
   },
   {
    "label": "metric_circuit_22",
@@ -440,18 +440,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.35,
+   "compile_s": 2.35,
    "metrics": {
-    "num_moves": 3098,
-    "move_steps": 3098,
-    "move_distance": 11532.92055,
-    "move_time": 11610.11722,
+    "num_moves": 3015,
+    "move_steps": 3015,
+    "move_distance": 11028.678012,
+    "move_time": 11146.238388,
     "depth": 405,
     "num_operations": 2597,
-    "spacing_warnings": 43
+    "spacing_warnings": 61
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 1.47
+   "wall_s": 2.77
   },
   {
    "label": "metric_circuit_23",
@@ -459,18 +459,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.13,
+   "compile_s": 0.79,
    "metrics": {
-    "num_moves": 1035,
-    "move_steps": 1035,
-    "move_distance": 3922.552659,
-    "move_time": 3942.613696,
+    "num_moves": 1008,
+    "move_steps": 1008,
+    "move_distance": 3780.579745,
+    "move_time": 3846.551359,
     "depth": 143,
     "num_operations": 845,
-    "spacing_warnings": 10
+    "spacing_warnings": 28
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 1.16
+   "wall_s": 0.89
   },
   {
    "label": "metric_circuit_24",
@@ -478,18 +478,18 @@
    "family": "ihva",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.18,
+   "compile_s": 2.48,
    "metrics": {
-    "num_moves": 3081,
-    "move_steps": 3081,
-    "move_distance": 11411.395042,
-    "move_time": 11542.67322,
+    "num_moves": 3021,
+    "move_steps": 3021,
+    "move_distance": 10964.434226,
+    "move_time": 11137.468987,
     "depth": 382,
     "num_operations": 2113,
-    "spacing_warnings": 66
+    "spacing_warnings": 91
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 1.29
+   "wall_s": 2.63
   },
   {
    "label": "metric_circuit_25",
@@ -497,18 +497,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.42,
+   "compile_s": 1.4,
    "metrics": {
-    "num_moves": 150,
-    "move_steps": 150,
-    "move_distance": 429.927863,
-    "move_time": 463.698995,
+    "num_moves": 154,
+    "move_steps": 154,
+    "move_distance": 460.672348,
+    "move_time": 490.486467,
     "depth": 78,
     "num_operations": 255,
-    "spacing_warnings": 29
+    "spacing_warnings": 22
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.43
+   "wall_s": 1.41
   },
   {
    "label": "metric_circuit_26",
@@ -516,18 +516,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.57,
+   "compile_s": 1.09,
    "metrics": {
-    "num_moves": 469,
-    "move_steps": 469,
-    "move_distance": 1344.023652,
-    "move_time": 1397.968336,
+    "num_moves": 460,
+    "move_steps": 460,
+    "move_distance": 1432.014395,
+    "move_time": 1519.238055,
     "depth": 164,
     "num_operations": 645,
-    "spacing_warnings": 45
+    "spacing_warnings": 56
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.59
+   "wall_s": 1.11
   },
   {
    "label": "metric_circuit_27",
@@ -535,18 +535,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.47,
+   "compile_s": 1.09,
    "metrics": {
-    "num_moves": 150,
-    "move_steps": 150,
-    "move_distance": 429.927863,
-    "move_time": 463.698995,
+    "num_moves": 154,
+    "move_steps": 154,
+    "move_distance": 460.672348,
+    "move_time": 490.486467,
     "depth": 78,
     "num_operations": 283,
-    "spacing_warnings": 29
+    "spacing_warnings": 22
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.48
+   "wall_s": 1.13
   },
   {
    "label": "metric_circuit_28",
@@ -554,18 +554,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 12,
-   "compile_s": 0.62,
+   "compile_s": 1.64,
    "metrics": {
-    "num_moves": 469,
-    "move_steps": 469,
-    "move_distance": 1346.47852,
-    "move_time": 1403.82255,
+    "num_moves": 452,
+    "move_steps": 452,
+    "move_distance": 1423.849188,
+    "move_time": 1510.985973,
     "depth": 171,
     "num_operations": 719,
-    "spacing_warnings": 48
+    "spacing_warnings": 56
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.64
+   "wall_s": 1.7
   },
   {
    "label": "metric_circuit_29",
@@ -573,18 +573,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.57,
+   "compile_s": 0.5,
    "metrics": {
-    "num_moves": 287,
-    "move_steps": 287,
-    "move_distance": 779.560814,
-    "move_time": 820.629828,
+    "num_moves": 279,
+    "move_steps": 279,
+    "move_distance": 786.24955,
+    "move_time": 848.202924,
     "depth": 100,
     "num_operations": 384,
-    "spacing_warnings": 31
+    "spacing_warnings": 38
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.59
+   "wall_s": 0.57
   },
   {
    "label": "metric_circuit_30",
@@ -592,18 +592,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.75,
+   "compile_s": 1.58,
    "metrics": {
-    "num_moves": 872,
-    "move_steps": 872,
-    "move_distance": 2354.297949,
-    "move_time": 2446.216773,
+    "num_moves": 841,
+    "move_steps": 841,
+    "move_distance": 2351.243646,
+    "move_time": 2524.106708,
     "depth": 209,
     "num_operations": 1005,
-    "spacing_warnings": 68
+    "spacing_warnings": 96
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.78
+   "wall_s": 1.62
   },
   {
    "label": "metric_circuit_31",
@@ -611,18 +611,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.57,
+   "compile_s": 1.09,
    "metrics": {
-    "num_moves": 287,
-    "move_steps": 287,
-    "move_distance": 779.560814,
-    "move_time": 820.629828,
+    "num_moves": 279,
+    "move_steps": 279,
+    "move_distance": 786.24955,
+    "move_time": 848.202924,
     "depth": 112,
     "num_operations": 467,
-    "spacing_warnings": 31
+    "spacing_warnings": 38
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.58
+   "wall_s": 1.12
   },
   {
    "label": "metric_circuit_32",
@@ -630,18 +630,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 20,
-   "compile_s": 0.54,
+   "compile_s": 0.85,
    "metrics": {
-    "num_moves": 869,
-    "move_steps": 869,
-    "move_distance": 2340.056577,
-    "move_time": 2435.107968,
+    "num_moves": 841,
+    "move_steps": 841,
+    "move_distance": 2382.603695,
+    "move_time": 2541.659358,
     "depth": 223,
     "num_operations": 1168,
-    "spacing_warnings": 72
+    "spacing_warnings": 98
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.57
+   "wall_s": 0.9
   },
   {
    "label": "metric_circuit_33",
@@ -649,18 +649,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 50,
-   "compile_s": 0.68,
+   "compile_s": 1.24,
    "metrics": {
-    "num_moves": 1020,
-    "move_steps": 1020,
-    "move_distance": 3908.721036,
-    "move_time": 3968.533325,
+    "num_moves": 1001,
+    "move_steps": 1001,
+    "move_distance": 3820.310979,
+    "move_time": 3850.500594,
     "depth": 178,
     "num_operations": 1156,
-    "spacing_warnings": 26
+    "spacing_warnings": 17
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.72
+   "wall_s": 1.28
   },
   {
    "label": "metric_circuit_34",
@@ -668,18 +668,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 50,
-   "compile_s": 1.16,
+   "compile_s": 2.56,
    "metrics": {
-    "num_moves": 3098,
-    "move_steps": 3098,
-    "move_distance": 11521.94018,
-    "move_time": 11639.430526,
+    "num_moves": 3024,
+    "move_steps": 3024,
+    "move_distance": 11134.250747,
+    "move_time": 11285.662661,
     "depth": 459,
     "num_operations": 2819,
-    "spacing_warnings": 60
+    "spacing_warnings": 78
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 1.35
+   "wall_s": 2.73
   },
   {
    "label": "metric_circuit_35",
@@ -687,18 +687,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 50,
-   "compile_s": 0.78,
+   "compile_s": 0.75,
    "metrics": {
-    "num_moves": 1020,
-    "move_steps": 1020,
-    "move_distance": 3908.721036,
-    "move_time": 3968.533325,
+    "num_moves": 1001,
+    "move_steps": 1001,
+    "move_distance": 3820.310979,
+    "move_time": 3850.500594,
     "depth": 178,
     "num_operations": 1290,
-    "spacing_warnings": 26
+    "spacing_warnings": 17
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 0.82
+   "wall_s": 0.85
   },
   {
    "label": "metric_circuit_36",
@@ -706,18 +706,18 @@
    "family": "qaoa",
    "ok": true,
    "qubits": 50,
-   "compile_s": 0.91,
+   "compile_s": 2.44,
    "metrics": {
-    "num_moves": 3097,
-    "move_steps": 3097,
-    "move_distance": 11546.104722,
-    "move_time": 11646.106762,
+    "num_moves": 3034,
+    "move_steps": 3034,
+    "move_distance": 11173.938992,
+    "move_time": 11328.604019,
     "depth": 422,
     "num_operations": 3260,
-    "spacing_warnings": 54
+    "spacing_warnings": 73
    },
    "equivalence": "skipped (fast)",
-   "wall_s": 1.02
+   "wall_s": 2.78
   }
  ]
 }
