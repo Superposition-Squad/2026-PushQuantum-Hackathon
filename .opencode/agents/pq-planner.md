@@ -1,7 +1,7 @@
 ---
 description: Plans and drives one compiler idea for the planqc neutral-atom track in its own git worktree; delegates coding to pq-implementer and iterates on bench results.
 mode: subagent
-model: claude-agent/claude-opus-5#high
+model: claude-agent/opus#high
 color: "#7c3aed"
 permissions:
   - action: subagent

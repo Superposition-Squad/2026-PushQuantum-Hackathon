@@ -14,7 +14,7 @@ scores. Strong models are best spent on design and judgment, cheap fast models o
 - **Orchestrator** (the main opencode session, Claude Opus): owns `main`, writes idea briefs, starts
   branches, compares `results/*.json`, runs strict gates, merges winners and reports to the user
   after every round.
-- **Planner** (agent `pq-planner`, `claude-agent/claude-opus-5#high`): one per idea, in its own git
+- **Planner** (agent `pq-planner`, `claude-agent/opus#high` (Opus 5.5)): one per idea, in its own git
   worktree (`/home/hackathon/challenge-wt/<idea>`, branch `idea/<idea>`). It may search the papers
   MCP, writes `docs/ideas/<idea>.md` before any code, delegates implementation, reviews it, iterates
   on bench results and writes the verdict.
