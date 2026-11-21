@@ -125,6 +125,14 @@ def _partner_site(site):
     return (x + 1, y) if x % 2 == 0 else (x - 1, y)
 
 
+def _rows_one_zone(rows):
+    """True when all picked-up or target rows lie in one zone (ADR-0010)."""
+    ys = list(rows)
+    if not ys:
+        return True
+    return all(0 <= y <= 9 for y in ys) or all(10 <= y <= 19 for y in ys)
+
+
 # ---------------------------------------------------------------- 1q algebra
 
 _H = np.array([[1.0, 1.0], [1.0, -1.0]], dtype=complex) / np.sqrt(2.0)
@@ -353,6 +361,9 @@ class _State:
         assert cols == tuple(range(cols[0], cols[0] + len(cols))), cols
         assert all(b > a for a, b in itertools.pairwise(new_rows)), new_rows
         assert all(b > a for a, b in itertools.pairwise(new_cols)), new_cols
+        if len(rows) >= 2:  # ADR-0010: a multi-row move may not span the zone boundary
+            assert _rows_one_zone(rows), f"move rows {rows} span both zones"
+            assert _rows_one_zone(new_rows), f"move target rows {new_rows} span both zones"
         picked = [(x, y) for y in rows for x in cols if (x, y) in self.occ]
         if not picked:
             return
@@ -805,21 +816,22 @@ class _Machine:
         self.st.flush_all()
 
     def dip(self, depth, action):
-        """Shift the whole zone down by `depth` rows, run `action`, shift it back exactly.
+        """Dip the top `depth` entangling rows into storage (ADR-0010 compliant) and back.
 
-        A dip only has to be deep enough for the deepest atom that needs a 1q gate to reach
-        storage, so `depth = 1 + max(y - 10)` over those atoms; the shift is uniform, so every
-        pair keeps its occupancy and no `cz` is emitted while it is open.
+        Only rows 10..9+depth move (`10..9+depth -> 10-depth..9`), so the picked and target rows
+        each stay inside one zone; rows >= 10+depth do not move. Cost is still exactly `depth`, and
+        every pair keeps its relative position. `depth = 1 + max(y - 10)` over the atoms that must
+        reach storage guarantees they are inside the moved rows.
         """
         st = self.st
         assert st.in_zone
         depth = max(1, min(int(depth), 10))
         before = dict(st.pos)
         st.cat = "dip"
-        st.move(range(10, 20), range(0, 10), range(10 - depth, 20 - depth), range(0, 10))
+        st.move(range(10, 10 + depth), range(0, 10), range(10 - depth, 10), range(0, 10))
         action()
         st.cat = "dip"
-        st.move(range(10 - depth, 20 - depth), range(0, 10), range(10, 20), range(0, 10))
+        st.move(range(10 - depth, 10), range(0, 10), range(10, 10 + depth), range(0, 10))
         assert st.pos == before, "dip did not restore the positions"
 
     def flush_dip(self, qubits):
@@ -905,107 +917,123 @@ class _Machine:
             self.st.cat = "hubhop"
             self.st.move((p[1],), (p[0],), (site[1],), (site[0],))
 
-    # -- conveyor ------------------------------------------------------
-    def conveyor_lane(self, col, served):
-        """`served` maps partner -> theta.  The lane's atoms must sit on entangling rows 10+slot."""
-        st = self.st
-        top = max(self.home[q][1] for q in served)
-        g = top + 1
-        hp = st.pos[self.hub]
-        target = (col + 1, 10)
-        if hp != target:
-            st.cat = "hubhop"
-            st.move((hp[1],), (hp[0],), (target[1],), (target[0],))
-        for _ in range(g):  # D pass
-            head = st.occ.get((col, 10))
-            if head is not None and head in served:
-                st.pulse([(self.hub, head)])
-            rows = [y for (x, y) in st.occ if x == col]
-            r0, r1 = min(rows), max(rows)
-            st.cat = "conveyor"
-            st.move(range(r0, r1 + 1), (col,), range(r0 - 1, r1), (col,))
-        for q, theta in served.items():
-            assert _in_storage(st.pos[q]), f"conveyor mid gate for q{q} at {st.pos[q]}"
-            ang = _tight(theta)
-            if ang:
-                st.out.rx(ang, q)
-        for _ in range(g):  # U pass
-            rows = [y for (x, y) in st.occ if x == col]
-            r0, r1 = min(rows), max(rows)
-            st.cat = "conveyor"
-            st.move(range(r0, r1 + 1), (col,), range(r0 + 1, r1 + 2), (col,))
-            head = st.occ.get((col, 10))
-            if head is not None and head in served:
-                st.pulse([(self.hub, head)])
-
-    def _conveyor_ops(self, group, targ):
-        """Per-qubit `(before, after)` 1q operators for one conveyor pass, or None.
-
-        For a qubit touched by several blocks of the pass the program order is
-        `pre_1 [cz..] post_1 pre_2 [cz..] post_2 ...`. Adjacent `post_j pre_{j+1}` pairs cancel
-        (`H H = I` for QAOA, `rx(-pi/2) rx(pi/2) = I` for iHVA), so the pass reduces to one
-        operator before and one after; if a pair does not cancel the pass is refused.
-        """
-        order: dict[int, list] = {}
-        for blk in group:
-            for q, u in _block_pre(blk, targ[blk]):
-                order.setdefault(q, []).append(("pre", u))
-            for q, u in _block_post(blk, targ[blk]):
-                order.setdefault(q, []).append(("post", u))
-        before, after = {}, {}
-        for q, ops in order.items():
-            stack = []
-            for kind, u in ops:
-                if kind == "pre" and stack and stack[-1][0] == "post" and _eq_phase(u @ stack[-1][1], np.eye(2)):
-                    stack.pop()
-                    continue
-                stack.append((kind, u))
-            if any(kind == "post" for kind, _ in stack) and any(kind == "pre" for kind, _ in stack):
-                first_post = next(i for i, (kind, _) in enumerate(stack) if kind == "post")
-                if any(kind == "pre" for kind, _ in stack[first_post:]):
-                    return None
-            pre = [u for kind, u in stack if kind == "pre"]
-            post = [u for kind, u in stack if kind == "post"]
-            b = _fold(pre)
-            a = _fold(post)
-            if not _eq_phase(b, np.eye(2), 1e-9):
-                before[q] = b
-            if not _eq_phase(a, np.eye(2), 1e-9):
-                after[q] = a
-        return before, after
-
+    # -- hub walk (ADR-0010: no multi-row move may span the zone boundary) ----
     def conveyor(self, group):
+        """Serve a hub phase by walking the hub to each partner's right slot (a star round).
+
+        The hub is the centre and the mover; every served partner stays at its zone home and is a
+        leaf. One restricted change-frames dip fixes the classes, one restricted dip carries every
+        partner through storage for its mid gate. The order is a deterministic lane snake.
+        """
         st = self.st
-        targ = {blk: (blk.v if blk.u == self.hub else blk.u) for blk in group}
-        theta = {}
+        infos = {}
         for blk in group:
-            t = _mid_theta(blk.mid)
-            if t is None:
+            info = _block_frame(blk)
+            if info is None:
                 return False
-            theta[blk] = t
-        ops = self._conveyor_ops(group, targ)
-        if ops is None:
+            infos[blk] = info
+        hub_letters = set()
+        for blk in group:
+            pu, qv, _th = infos[blk]
+            hub_letters.add(pu if blk.u == self.hub else qv)
+        if len(hub_letters) != 1:
             return False
-        before, after = ops
-        for q, u in before.items():
-            st.queue_1q(q, u)
+        hub_letter = hub_letters.pop()
+        partner = {blk: (blk.v if blk.u == self.hub else blk.u) for blk in group}
+
+        def partner_letter(blk):
+            pu, qv, _th = infos[blk]
+            p = partner[blk]
+            return pu if p == blk.u else qv
+
         if not st.in_zone:
             self.storage_phase()
             self.to_zone()
-        else:
-            # already in the zone: only dip far enough to flush the qubits that need it
-            watch = set(before) | set(targ.values()) | {self.hub}
-            need = [q for q in watch if self._needs_flush((q,))]
-            if need:
-                self.flush_dip(need)
-        per_lane = {}
+        self._ensure_hub_lone()
+        # the walk needs every partner at its zone home (leaves may only pair with the hub)
+        away = [q for q in self.lay["partners"] if st.pos[q] != self.zone_home[q]]
+        if away:
+            self._relocate([(q, self.zone_home[q]) for q in away])
+        p0 = st.pos[self.hub]
+        if p0 != (9, 10):
+            st.cat = "hubhop"
+            st.move((p0[1],), (p0[0],), (10,), (9,))
+
+        need = {}
+        cls_h, _sh = _conj_class(st.pending.get(self.hub), hub_letter)
+        if cls_h != "Z":
+            need[self.hub] = _choose_frame(hub_letter, "C")
         for blk in group:
-            p = targ[blk]
-            per_lane.setdefault(self.home[p][0] // 2, {})[p] = theta[blk]
-        for lane_idx in sorted(per_lane):
-            self.conveyor_lane(2 * lane_idx, per_lane[lane_idx])
-        for q, u in after.items():
-            st.queue_1q(q, u)
+            p = partner[blk]
+            cls_p, _sp = _conj_class(st.pending.get(p), partner_letter(blk))
+            if cls_p not in ("X", "Y"):
+                need[p] = _choose_frame(partner_letter(blk), "L")
+        self._flush_frames(list(need.items()))
+
+        _cls_h, s_h = _conj_class(st.pending.get(self.hub), hub_letter)
+        item = {}
+        for blk in group:
+            p = partner[blk]
+            _pu, _qv, th = infos[blk]
+            pl = partner_letter(blk)
+            cls_p, s_p = _conj_class(st.pending.get(p), pl)
+            assert cls_p in ("X", "Y")
+            item[p] = (cls_p, s_h * s_p * th)
+
+        lanes = sorted({self.home[p][0] // 2 for p in item}, reverse=True)
+        order = []
+        up = True
+        for lane in lanes:
+            ps = sorted((p for p in item if self.home[p][0] // 2 == lane), key=lambda p: self.home[p][1])
+            if not up:
+                ps.reverse()
+            order += ps
+            up = not up
+
+        def slot(p):
+            x, y = self.home[p]
+            return (x + 1, y + 10)
+
+        def walk(p):
+            cur = st.pos[self.hub]
+            t = slot(p)
+            if cur != t:
+                st.cat = "conveyor"
+                st.move((cur[1],), (cur[0],), (t[1],), (t[0],))
+
+        for p in order:  # phase A
+            walk(p)
+            st.pulse([(self.hub, p)])
+
+        depth = 1 + max(self.home[p][1] for p in order)
+        skip = set(order) | {self.hub}
+
+        def mid():
+            for p in order:
+                axis, phi = item[p]
+                ang = _tight(phi)
+                if not ang:
+                    continue
+                if axis == "Y":
+                    st.out.rz(-np.pi / 2, p)
+                    st.out.rx(ang, p)
+                    u = st.pending.get(p)
+                    st.pending[p] = _S if u is None else u @ _S
+                else:
+                    st.out.rx(ang, p)
+            self._flush_in_storage_except(skip)
+
+        self.dip(depth, mid)
+
+        st.pulse([(self.hub, order[-1])])  # phase B: hub is still next to the last partner
+        for p in reversed(order[:-1]):
+            walk(p)
+            st.pulse([(self.hub, p)])
+
+        cur = st.pos[self.hub]
+        if cur != (9, 10):
+            st.cat = "hubhop"
+            st.move((cur[1],), (cur[0],), (10,), (9,))
         return True
 
     # -- matchings -----------------------------------------------------
@@ -1155,6 +1183,8 @@ class _Machine:
         new_cols = tuple(x + dx for x in cols)
         if new_rows[0] < 0 or new_rows[-1] > 19 or new_cols[0] < 0 or new_cols[-1] > 9:
             return False
+        if len(rows) >= 2 and not (_rows_one_zone(rows) and _rows_one_zone(new_rows)):
+            return False  # ADR-0010
         for _, _, t in grp:
             o = st.occ.get(t)
             if o is not None and o not in {q for q, _, _ in grp}:
