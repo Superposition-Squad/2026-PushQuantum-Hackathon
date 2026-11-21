@@ -161,3 +161,35 @@ Compile time: worst metric circuit 2.0 s (50q iHVA p3), sanity 13 (70q) 8.6 s. N
 QCEC check of `sample_circuit_11` (18 qubits, 459 CZ) takes 340 s on an idle machine and ~15 min
 under load; the compiled circuit has fewer gates (589) and a lower depth (79) than the naive
 compilation (704 gates, depth 82), so this is the checker, not the compiler.
+
+## STEP 3 (batching): measured, all worse — not kept
+
+Goal was one lower + one lift move per round (≥3 atoms/move, ≤2.5 mean distance on 50q p1, which
+starts at 1.28 atoms/move and 4.48). Every variant was implemented and measured on the full 36
+metric circuits (fast mode, D sums):
+
+| variant | score | dist % | D | p1 `qaoa` D | p1 atoms/move | p1 mean dist |
+|---|---|---|---|---|---|---|
+| step-2 baseline (kept) | **81.06** | 83.24 | 46 368 | 2 407 | 1.28 | 4.48 |
+| 3a batched descent (one storage row per group) | 78.51 | 80.06 | 55 188 | 2 397 | 1.14 | 3.96 |
+| 3a + 3b (loading leaves row 9 free) | 78.45 | 79.97 | 55 415 | 2 397 | 1.13 | 3.92 |
+| 3a + 3b + 3c (pairs handed out left-to-right by storage column) | 77.56 | 78.86 | 58 492 | 2 769 | 1.13 | 4.55 |
+| 3a + 3b + 3c with `MAX_PAIRS` 5 / 10 | 77.64 / 76.89 | – | 58 206 / 60 784 | – | – | – |
+| 3d (hub pair forced to row-10 columns 0,1 + `(0,9)` staging for its partner) | 80.41 | 82.42 | 48 640 | 2 166 | 1.19 | 3.75 |
+| 3d forcing only / staging only | 80.74 / 80.41 | – | 47 484 / 48 640 | – | – | – |
+
+**Why batching does not pay.** A `Move` picks a *contiguous* row×column rectangle, so the descent
+(or lift) can only span a contiguous run of occupied source columns: any atom sitting between two
+moving atoms of the same row is a ghost and forces a cut. A round has ~7 descending/ascending atoms
+drawn from a 10-site row, interleaved with idle atoms (and with the parked hub), so the group always
+splits into 3-6 runs *whatever* row it is sent to. Measured directly: a 7-atom descent assigned to a
+single storage row still came out as 3 moves (columns (0,), (2,3), (4,5,6,7)).
+Second, 50 atoms fill storage rows 5-9 completely, so a 7-atom group never fits a row near the zone
+(nor after 3b: row 9 holds 10, the atoms stay ~8 rounds); the fallback then sends the group deep, and
+`D` is 2 × mean depth × moves, so the depth loss eats the move-count win. Making a round's atoms
+contiguous as well as co-rowed would need the round composition to depend on atom columns, i.e. a
+position-aware scheduler (ready-set ordering may be chosen freely without touching wire order) —
+that is the next thing to try, together with keeping the hub at a row-10 end column so it does not
+split the run.
+Both 3d pieces are real local wins on `50q qaoa p1` (2 407 → 2 166) but lose ~2 % overall, so they
+are reverted too; the step-2 compiler is unchanged.

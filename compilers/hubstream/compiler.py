@@ -617,9 +617,6 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
             _move(out, qubits, rows, cols, new_rows, new_cols)
 
     def lower(atoms: list[int]) -> None:
-        """3a: batched descent.  The whole group lands in ONE storage row (a monotone column map),
-        so a descent costs one `move` instead of one per atom: a move's cost is the longest distance
-        any of its atoms travels, so batching is free score."""
         if not atoms:
             return
         free = {site for site in _STORAGE if site not in occ}
@@ -627,27 +624,37 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
         for qubit in atoms:
             by_row[pos[qubit][1]].append(qubit)
         moves: dict[int, tuple[Site, Site]] = {}
+        # pack each source row into one target row: the lower phase then needs one move per row
         for source_row in sorted(by_row):
-            qubits = sorted(by_row[source_row], key=lambda q: pos[q][0])
+            qubits = sorted(by_row[source_row], key=lambda q: (pos[q][0]))
             need = len(qubits)
-            target = None
-            for row in range(9, STORAGE_Y[0] - 1, -1):
-                columns = [col for col in range(10) if (col, row) in free]
-                if len(columns) >= need:
-                    if row >= 7:  # deep rows are not worth it: keep the atoms near the zone
-                        target = (row, columns)
-                    break
-            if target is None:  # nothing near the zone fits the group: closest free site per atom
+            preferred = Counter(_nearest_free(free, pos[q])[1] for q in qubits).most_common(1)[0][0]
+            rows = sorted(
+                (row for row in range(STORAGE_Y[0], STORAGE_Y[1] + 1)
+                 if sum(1 for col in range(10) if (col, row) in free) >= need),
+                key=lambda row: (row != preferred, abs(row - source_row), -row),
+            )
+            if rows:
+                target_row = rows[0]
+            else:  # scattered fallback: closest free site per atom, from the deepest first
+                target_row = None
+            if target_row is None:
                 for qubit in reversed(qubits):
-                    choice = _nearest_free(free, pos[qubit])
-                    free.discard(choice)
-                    moves[qubit] = (pos[qubit], choice)
+                    target = _nearest_free(free, pos[qubit])
+                    free.discard(target)
+                    moves[qubit] = (pos[qubit], target)
                 continue
-            row, columns = target
+            columns = [col for col in range(10) if (col, target_row) in free]
+            if len(columns) < need:
+                for qubit in reversed(qubits):
+                    target = _nearest_free(free, pos[qubit])
+                    free.discard(target)
+                    moves[qubit] = (pos[qubit], target)
+                continue
             picked = _match_columns([pos[q][0] for q in qubits], columns)
             for qubit, col in zip(qubits, picked):
-                free.discard((col, row))
-                moves[qubit] = (pos[qubit], (col, row))
+                free.discard((col, target_row))
+                moves[qubit] = (pos[qubit], (col, target_row))
         do_moves(moves)
 
     def zone_atoms() -> list[int]:
@@ -687,31 +694,13 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
                 reserved.add(partner_slot)
             else:
                 waiting.append(task)
-        # 3c: hand out the free pairs of entangling row 10 left to right in the order of the atoms'
-        # storage columns, so the lift's column map is monotone (one wide move, not one per atom).
-        waiting.sort(key=lambda t: (pos[tasks[t][0]][0] + pos[tasks[t][1]][0], t))
-        block = [((2 * k, 10), (2 * k + 1, 10)) for k in range(5)
-                 if (2 * k, 10) not in reserved and (2 * k + 1, 10) not in reserved]
-        for task in waiting:
+        # hardest task first: the one whose cheapest pair is worst gets first pick
+        for task in sorted(waiting, key=lambda t: (-_best_pair(tasks[t], pos, reserved, hub)[0], t)):
+            _, slot_u, slot_v = _best_pair(tasks[task], pos, reserved, hub)
             u, v = tasks[task]
-            if block:
-                left, right = block.pop(0)
-                if hub is None or hub not in (u, v):
-                    if pos[u][0] > pos[v][0]:
-                        left, right = right, left
-                elif v == hub:
-                    pass
-                else:  # u is the hub: it always keeps the right (odd) slot
-                    left, right = right, left
-            else:  # row 10 is used up: cheapest pair anywhere, same slot rule
-                _, slot_u, slot_v = _best_pair(tasks[task], pos, reserved, hub)
-                if (hub is not None and u == hub) or (hub is None or hub not in (u, v)) and pos[u][0] > pos[v][0]:
-                    left, right = slot_v, slot_u
-                else:
-                    left, right = slot_u, slot_v
-            slot_of[u], slot_of[v] = left, right
-            reserved.add(left)
-            reserved.add(right)
+            slot_of[u], slot_of[v] = slot_u, slot_v
+            reserved.add(slot_u)
+            reserved.add(slot_v)
 
         # --- 2. lower every zone atom that does not stay parked for this round
         lower([q for q in zone_atoms() if q not in parked])
@@ -808,16 +797,8 @@ def _first_use_order(wires, round_of, n: int) -> list[int]:
 
 
 def _loading_by_first_use(wires, round_of, n: int) -> dict[int, Site]:
-    """Home block rows ``9-slack-rows_used+1 .. 9-slack`` (n = 50 -> 4..8), row 9 left free.
-
-    Row 9 is the landing strip for the batched descent, so it is kept empty at the start.
-    """
-    rows_used = (n + 9) // 10
-    slack = 1 if n > 10 else 0
-    top = 9 - slack
-    home = [(x, y) for y in range(max(0, top - rows_used + 1), top + 1) for x in range(10)]
     order = _first_use_order(wires, round_of, n)
-    sites = sorted(home, key=lambda site: (top - site[1], site[0]))
+    sites = sorted(_STORAGE, key=lambda site: (9 - site[1], site[0]))
     return {q: sites[i] for i, q in enumerate(order)}
 
 
