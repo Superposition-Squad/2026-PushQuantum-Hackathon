@@ -849,6 +849,54 @@ class _Machine:
             if q not in skip and _in_storage(self.st.pos[q]):
                 self.st.flush(q)
 
+    def _relocate(self, moves, temp_cat="round"):
+        """Move atoms to targets (list of `(q, site)`), vacating targets first; temp site for cycles."""
+        st = self.st
+        pending = [(q, t) for q, t in moves if st.pos.get(q) != t]
+        free = [(q, t) for q, t in pending if t not in st.occ or st.occ[t] == q]
+        if free:
+            self._batch_moves([(q, st.pos[q], t) for q, t in free])
+        pending = [m for m in pending if m not in free]
+        guard = 4 * len(pending) + 16
+        while pending:
+            guard -= 1
+            if guard < 0:  # pragma: no cover - should not happen
+                raise AssertionError("relocation did not converge")
+            moving = {q for q, _t in pending}
+            targets = {t for _q, t in pending}
+            for t in list(targets):
+                occ = st.occ.get(t)
+                if occ is not None and occ not in moving:
+                    home = self.zone_home[occ]
+                    cur = st.pos[occ]
+                    if home in st.occ and st.occ[home] != occ:
+                        tmp = self._free_zone_site()
+                        st.cat = temp_cat
+                        st.move((cur[1],), (cur[0],), (tmp[1],), (tmp[0],))
+                        cur = tmp
+                    if st.pos[occ] != home:
+                        st.cat = temp_cat
+                        st.move((cur[1],), (cur[0],), (home[1],), (home[0],))
+            progress = False
+            rest = []
+            for q, t in pending:
+                occ = st.occ.get(t)
+                if occ is not None and occ != q and occ in moving:
+                    rest.append((q, t))
+                    continue
+                cur = st.pos[q]
+                if cur != t:
+                    st.cat = temp_cat
+                    st.move((cur[1],), (cur[0],), (t[1],), (t[0],))
+                progress = True
+            pending = rest
+            if pending and not progress:
+                q, _t = pending[0]
+                cur = st.pos[q]
+                tmp = self._free_zone_site()
+                st.cat = temp_cat
+                st.move((cur[1],), (cur[0],), (tmp[1],), (tmp[0],))
+
     def park_hub(self):
         site = (9, 10)
         p = self.st.pos[self.hub]
@@ -1179,10 +1227,19 @@ class _Machine:
                 self._star_round_frames(rnd, infos)
             else:
                 self._star_round(rnd)
+        if use_frames:
+            away = [q for q in involved if st.pos[q] != self.zone_home[q]]
+            if away:
+                self._relocate([(q, self.zone_home[q]) for q in away])
         return True
 
     def _star_round_frames(self, rnd, infos):
-        """One star round with Clifford-frame synthesis: no pre/post 1q wrappers, no leaf flush."""
+        """One star round with Clifford frames; movers stay put afterwards (lazy / parity rule).
+
+        With CAP=1 every round fires exactly two pulses at the same positions (the mid dip
+        restores them), so an idle co-located pair receives cz*cz = I and may keep its pending 1q
+        gates. Idle pairs are therefore not flushed in the mid dip and movers are not sent home.
+        """
         st = self.st
         req: dict[int, tuple[str, str]] = {}
         for blk, leaf, center, _t in rnd:
@@ -1209,6 +1266,7 @@ class _Machine:
             self.dip(depth, change_frames)
 
         plan = []
+        moves: dict[int, tuple[int, int]] = {}
         for blk, leaf, center, t in rnd:
             pu, qv, th = infos[blk]
             cp = pu if center == blk.u else qv
@@ -1216,44 +1274,30 @@ class _Machine:
             cls_c, s_c = _conj_class(st.pending.get(center), cp)
             cls_l, s_l = _conj_class(st.pending.get(leaf), lp)
             assert cls_c == "Z" and cls_l in ("X", "Y"), (cls_c, cls_l)
-            rc = self.home[center][1]
-            rl = self.home[leaf][1]
-            if rc > rl:
-                mover, other = center, leaf
-            elif rl > rc:
-                mover, other = leaf, center
-            else:  # tie: move the atom with the shorter trip onto the other's right slot
-                cx, cy = self.home[center]
-                lx, ly = self.home[leaf]
-                move_center = _dist((cx, cy + 10), (lx + 1, ly + 10))
-                move_leaf = _dist((lx, ly + 10), (cx + 1, cy + 10))
-                mover, other = (center, leaf) if move_center <= move_leaf else (leaf, center)
-            plan.append((blk, leaf, center, t, cls_l, s_c * s_l * th, mover, other))
+            plan.append((blk, leaf, center, t, cls_l, s_c * s_l * th))
+            # anchor: an endpoint already at home if possible (shallower on a tie)
+            c_home = st.pos[center] == self.zone_home[center]
+            l_home = st.pos[leaf] == self.zone_home[leaf]
+            shallower_center = self.home[center][1] <= self.home[leaf][1]
+            if c_home and not l_home:
+                anchor = center
+            elif l_home and not c_home:
+                anchor = leaf
+            else:  # both at home or both away: the shallower one anchors
+                anchor = center if shallower_center else leaf
+            mover = leaf if anchor == center else center
+            ax, ay = self.home[anchor]
+            moves[anchor] = (ax, ay + 10)
+            moves[mover] = (ax + 1, ay + 10)
+        self._relocate(list(moves.items()))
 
-        by_t: dict[int, list] = {}
-        for item in plan:
-            by_t.setdefault(item[3], []).append(item)
-        top = max(by_t) + 1
+        for _b, leaf, center, _t, _a, _p in plan:
+            assert _partner_site(st.pos[center]) == st.pos[leaf], (st.pos[center], st.pos[leaf])
 
-        def slot(atom):
-            x, y = self.home[atom]
-            return (x + 1, y + 10)
-
-        def visit(items):
-            self._batch_moves([(it[6], st.pos[it[6]], slot(it[7])) for it in items])
-
-        def go_home(items):
-            self._batch_moves([(it[6], st.pos[it[6]], self.zone_home[it[6]]) for it in items])
-
-        for t in range(top):
-            items = by_t.get(t, [])
-            visit(items)
-            st.pulse([(it[2], it[1]) for it in items])
-            if t < top - 1:
-                go_home(items)
+        parked = {q for pair in st.occupied_pairs() for q in pair}
+        st.pulse(st.occupied_pairs())  # one cz on every occupied pair
 
         leaves = [it[1] for it in plan]
-        centers = {it[2] for it in plan}
         depth = 1 + max(st.pos[q][1] - 10 for q in leaves)
 
         def mid():
@@ -1263,24 +1307,19 @@ class _Machine:
                 if not ang:
                     continue
                 if axis == "Y":
-                    # exp(-i phi/2 Y) = S rx(phi) S^+ ; S^+ ~ rz(-pi/2), the trailing S commutes with
-                    # the second cz, so fold it into the leaf's pending frame (2 gates, not 3).
+                    # exp(-i phi/2 Y) = S rx(phi) S^+; S^+ ~ rz(-pi/2); the trailing S commutes
+                    # with the second cz, so fold it into the leaf's pending frame.
                     st.out.rz(-np.pi / 2, leaf)
                     st.out.rx(ang, leaf)
                     u = st.pending.get(leaf)
                     st.pending[leaf] = _S if u is None else u @ _S
                 else:
                     st.out.rx(ang, leaf)
-            self._flush_in_storage_except(set(leaves) | centers)
+            self._flush_in_storage_except(parked)
 
         self.dip(depth, mid)
+        st.pulse(st.occupied_pairs())  # second cz; idle leftovers get cz*cz = I
 
-        for t in range(top - 1, -1, -1):
-            items = by_t.get(t, [])
-            if t < top - 1:
-                visit(items)
-            st.pulse([(it[2], it[1]) for it in items])
-            go_home(items)
 
     def _star_round(self, rnd):
         st = self.st
