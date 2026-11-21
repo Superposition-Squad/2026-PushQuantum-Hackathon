@@ -23,8 +23,10 @@ Observations:
 1. The schedule is very serial: most pulses carry one pair (the hub's chain: 2(n−1) CZs per layer),
    the non-hub pairs come in a few large pulses (10–24 pairs at 50q). Every pulse costs at least
    one lift and one drop.
-2. Two thirds or more of all CZs need a storage visit of one atom right before them (iHVA's Y-basis
-   changes around every block), so "stay in the zone" is rarely possible.
+2. Two thirds or more of all CZs need a storage visit of one atom right before them. Half of all CZs
+   are the second CZ of a block, whose target needs storage for its mid `rx(θ)` (unavoidable); the
+   rest are basis changes around the blocks (iHVA's Y side), which blockingcz's global
+   S-conjugation removes. "Stay in the zone" is rarely possible.
 3. A block shows up as two pulses of the same pair, the second with `^s` on the target (its `rx`).
    Blocks on the hub nest (e.g. 11–7 at P13 and P16 around 11–1 at P14/P15).
 

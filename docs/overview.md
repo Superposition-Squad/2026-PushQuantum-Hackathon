@@ -170,9 +170,12 @@ One self-contained `compile_circuit` (extracted verbatim from the partner's note
 - **Global S-conjugation.** Every qubit that is ever the Y side of an iHVA block `exp(-iθ/2 Z⊗Y)` gets
   `rz(-π/2)` at the start and `rz(+π/2)` at the end. S is diagonal and commutes with Z, so every
   block becomes `Z⊗X` = `CZ · rx(θ) · CZ` with **no basis switches between blocks**. Exact,
-  because iHVA has no other 1q gates in the middle. The movement layer's storage obligations
-  drop from "two thirds of all CZs" (see [l3-input.md](l3-input.md)) to only the target's `rx`
-  between its two CZs.
+  because iHVA has no other 1q gates in the middle. What it removes are the *extra* storage visits
+  for basis changes (target before cz #1 and after cz #2, atoms that switch between the Y and Z
+  side). The target's mid `rx(θ)` between its two CZs still needs storage. In the 12q example of
+  [l3-input.md](l3-input.md), 83 % of the CZs need a storage visit right before; 50 points of that
+  are the cz #2 of every block (unavoidable), so the trick removes about a third of the CZ-level
+  obligations (≈ one storage trip per block) plus their 1q gates (depth).
 - Pauli-commutation DAG, wave scheduling (asap / alap / hub-alap), matchings with booth assignment
   (greedy + 2-opt), eviction and bulk drops chosen by micro-branching.
 - **2-leaf pipelined row-rolling hub sweep:** the hub's star is served two leaves at a time (depth 2
