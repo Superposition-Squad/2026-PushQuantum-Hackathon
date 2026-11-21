@@ -23,3 +23,5 @@ Worktrees `/home/hackathon/challenge-wt/<idea>`, branches `idea/<idea>` from `0e
 |---|---|---|---|---|---|---|
 | gates | +72.87 | +71.72 | +77.47 | full ✓ 36+13; strict 33/36 so far, no failures | c82ea11 | gate layer is the reference (commutation DAG, hub-as-control, ZXZ merge, in-zone retention); `gatesb` variant +66.39 (batching, HEA dist +75.7) |
 | rectbatch | +77.54 | +77.99 | +75.74 | full ✓ 36+13; strict 20q ✓ | 953450e | validator-exact move checker, visitor-first lifting, placement search. **Wall-clock-budgeted search → ±0.2 noise; must be made deterministic before merging** |
+| hubstream | +81.51 | +83.80 | +72.33 | full ✓ 36+13; strict running | 87210ad | hub parking (hub moves 2× per circuit), keep atoms in zone when in-between 1q = identity, exact θ=0 elision, reserved hub pair. 50q still ~1.3 atoms/move. **Round-1 leader** |
+| zonedwell | +79.59 (fa42f55) | +80.25 | +76.95 | full ✓ 36+13; strict running | fa42f55 | conveyor with hub; final tweak pending |
