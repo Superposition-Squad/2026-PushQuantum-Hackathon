@@ -179,3 +179,12 @@ headroom is in sorting atoms into the working row, not in the hub stream.
 | TOP_HOME = 8 (row 9 kept free as working row) | worse (50q stagger p3 5366 -> 6740: deeper lifts, block mid rarely fits) |
 
 **~23:20 UTC: blockingcz removed** from the project at the user's request (code, results and viz pages). Portfolio rebuilt from solo + systolic_po + rectbatch: **+90.65 %**, full 20/20, slowest compile 46 s. It stays in git history only.
+
+## ~23:55 UTC: solo special-angle blocks
+
+| compiler | v5 leaderboard set | validity | commit |
+|---|---|---|---|
+| solo (θ ≡ ±π/2 blocks = one cz + local Cliffords; θ ≡ π local Paulis) | **+91.25** | full 20/20 (re-checked by the orchestrator), sanity 13/13, strict 20q 6/6, Clifford tableaux 6/6 50q | 682d68b / docs 6b4d85f |
+| portfolio (solo, systolic_po, rectbatch) | +91.25 (solo wins all 20; others are fallbacks) | full 20/20, slowest compile 53 s | this commit |
+
+Submission candidates: `submission/portfolio.py` (with fallbacks) and `submission/solo.py` (solo alone, faster).
