@@ -681,6 +681,7 @@ class Executor:
     NOISE = 0.6
     KAPPA = 0.0
     HUBDEP = True
+    RECT_SIM = 6
     KFLOOR = 0.0
 
     def floor_row(self):
@@ -715,7 +716,7 @@ class Executor:
                         for sh in self.SHIFTS:
                             if 1 <= h and h + sh <= 9:
                                 rects.append((10 - h - sh, 9 - sh, j1, j2, par))
-        best = None
+        plans = []
         occ = m.occ
         EV = self.EVICT
         nonmem = lambda site: site in occ and occ[site] not in members
@@ -760,9 +761,29 @@ class Executor:
                     tot += EV
             h = 10 - a
             tot += 4 * math.hypot(h, 1.0 if par else 0.7)
-            if best is None or tot < best[0] - 1e-9:
-                best = (tot, a, bb, j1, j2, par, slots, ri, ci, orient)
-        _, a, bb, j1, j2, par, slots, ri, ci, orient = best
+            plans.append((tot, len(plans), (a, bb, j1, j2, par, slots, ri, ci, orient)))
+        plans.sort(key=lambda t: (t[0], t[1]))
+        if self.RECT_SIM > 1 and len(plans) > 1:
+            best = None
+            for _, _, plan in plans[: self.RECT_SIM]:
+                e = self.clone()
+                e.RECT_SIM = 0
+                try:
+                    e._exec_round(blks, members, plan)
+                except Illegal:
+                    continue
+                c = e.m.dist - m.dist + DEPTH_W * (max(e.m.depth) - max(m.depth))
+                if best is None or c < best[0] - 1e-9:
+                    best = (c, plan)
+            plan = best[1] if best is not None else plans[0][2]
+        else:
+            plan = plans[0][2]
+        self._exec_round(blks, members, plan)
+
+    def _exec_round(self, blks, members, plan):
+        m = self.m
+        occ = m.occ
+        a, bb, j1, j2, par, slots, ri, ci, orient = plan
         h = 10 - a
         targets = {}
         for i, k in zip(ri, ci):
@@ -1161,17 +1182,22 @@ def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=Fal
 
 BASE_POLS = (("look", 2.0, True, 8), ("look", 2.0, True, 20), ("look", 2.0, True, 30), ("look", 2.0, True, 40),
              ("look", 2.0, True, 48), ("thresh", 20, True), ("rounds",), ("thresh", 45))
-CANDS = [(pol, lam, mu, (("PARS", pars),)) for pars in ((0, 1), (0,)) for lam, mu in ((0.0, None), (0.0, 1.0), (0.35, 1.0))
-         for pol in BASE_POLS]
+_L8, _L20, _L40 = ("look", 2.0, True, 8), ("look", 2.0, True, 20), ("look", 2.0, True, 40)
+# chosen by a greedy set cover over the 12 non-warm scored iHVA circuits (+ their individual winners)
+CANDS = [(_L8, 0.0, 1.0, (("PARS", (0, 1)),)), (_L40, 0.0, 1.0, (("PARS", (0,)),)), (_L8, 0.35, 1.0, (("PARS", (0,)),)),
+         (_L40, 0.35, 1.0, (("PARS", (0, 1)),)), (_L8, 0.0, None, (("PARS", (0, 1)),)), (_L8, 0.0, 1.0, (("PARS", (0,)),)),
+         (_L40, 0.0, 1.0, (("PARS", (0, 1)),)), (_L8, 0.35, 1.0, (("PARS", (0, 1)),)),
+         (_L20, 0.35, 1.0, (("PARS", (0, 1)),)), (_L20, 0.0, 1.0, (("PARS", (0,)),)), (_L20, 0.35, 1.0, (("PARS", (0,)),)),
+         (("rounds",), 0.0, None, (("PARS", (0, 1)),)), (("thresh", 45), 0.0, None, (("PARS", (0, 1)),))]
 
 
 def _budget(n, nblocks):
-    """(top configs re-run with EVAL, seeds for the best config): a fixed work budget by size."""
+    """(top configs re-run with EVAL / RECT_SIM=1 / first-use layout, seeds for the best config)."""
     if nblocks <= 120:
-        return 4, 16
+        return 5, 16
     if nblocks <= 400:
-        return 3, 8
-    return 3, 4
+        return 4, 10
+    return 3, 6
 
 
 def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
@@ -1203,6 +1229,7 @@ def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
     for _, _, cand, lay in sorted(res)[:top]:
         pol, lam, mu, opts = cand
         run((pol, lam, mu, tuple(opts) + (("EVAL", True),)), lay)
+        run((pol, lam, mu, tuple(opts) + (("RECT_SIM", 1),)), lay)
     # first-use layouts derived from the best configurations' own step sequences
     for _, k, cand, lay in sorted(res)[:top]:
         ex = run_candidate(n, blocks, preds, succs, layouts[lay], *cand, allowed=allowed)
