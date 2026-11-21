@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import itertools
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from numbers import Integral
 from typing import Any
 
@@ -91,8 +91,10 @@ STORAGE_Y = (0, 9)
 ENT_X = (0, 9)
 ENT_Y = (10, 19)
 PAIR_DISTANCE = 0.3
-MAX_PAIRS = 25
-"""At most this many interaction pairs per round (five entangling rows)."""
+MAX_PAIRS = 4
+"""At most this many interaction pairs per round (fits in one entangling row beside the hub)."""
+PARK_WINDOW = 1
+"""A non-hub atom stays in the zone only if its next task is at most this many rounds away."""
 
 SQRT1_2 = 1.0 / math.sqrt(2.0)
 H_GATE = np.array([[SQRT1_2, SQRT1_2], [SQRT1_2, -SQRT1_2]], dtype=complex)
@@ -104,7 +106,7 @@ _PAIRS = [
 ]
 
 
-def _phys(site: Site) -> tuple[float, float]:
+def _physical(site: Site) -> tuple[float, float]:
     """Physical position of a grid site (storage spacing 1, entangling columns paired 0.3 apart)."""
     x, y = site
     if y >= ENT_Y[0]:
@@ -112,9 +114,31 @@ def _phys(site: Site) -> tuple[float, float]:
     return (float(x), float(y))
 
 
+_SITES = list(_STORAGE) + [slot for pair in _PAIRS for slot in pair[:2]]
+_PHYS = {site: _physical(site) for site in _SITES}
+"""Physical position of every site of the machine."""
+
+
+def _phys(site: Site) -> tuple[float, float]:
+    return _PHYS[site]
+
+
 def _dist(a: Site, b: Site) -> float:
-    (ax, ay), (bx, by) = _phys(a), _phys(b)
+    (ax, ay), (bx, by) = _PHYS[a], _PHYS[b]
     return math.hypot(ax - bx, ay - by)
+
+
+def _storage_by_closeness(site: Site) -> list[Site]:
+    """Every storage site, nearest to `site` first (cached)."""
+    cached = _CLOSENESS.get(site)
+    if cached is None:
+        px, py = _PHYS[site]
+        cached = sorted(_STORAGE, key=lambda s: ((_PHYS[s][0] - px) ** 2 + (_PHYS[s][1] - py) ** 2, s[1], s[0]))
+        _CLOSENESS[site] = cached
+    return cached
+
+
+_CLOSENESS: dict[Site, list[Site]] = {}
 
 
 def _in_storage(site: Site) -> bool:
@@ -170,6 +194,11 @@ def _zxz(u):
     return _wrap((total - spread) / 2.0), _wrap(b), _wrap((total + spread) / 2.0)
 
 
+def _rz_matrix(angle: float):
+    return np.array([[math.cos(angle / 2) - 1j * math.sin(angle / 2), 0.0],
+                     [0.0, math.cos(angle / 2) + 1j * math.sin(angle / 2)]], dtype=complex)
+
+
 def _emit_1q(out: QuantumCircuit, q: int, u) -> None:
     """Emit one merged single-qubit run as at most three `rz`/`rx` gates.
 
@@ -185,6 +214,21 @@ def _emit_1q(out: QuantumCircuit, q: int, u) -> None:
         out.append(RXGate(b), [qubit])
     if a:
         out.append(RZGate(a), [qubit])
+
+
+def _emit_1q_defer(out: QuantumCircuit, q: int, u) -> float:
+    """Emit a run except its trailing `rz`, which is returned so it can be merged into the next run.
+
+    A trailing `rz` commutes with the `cz` that comes next on the same wire, so folding it into the
+    following run is exact and saves one gate per run.
+    """
+    a, b, c = _zxz(np.asarray(u, dtype=complex))
+    qubit = out.qubits[q]
+    if c:
+        out.append(RZGate(c), [qubit])
+    if b:
+        out.append(RXGate(b), [qubit])
+    return a
 
 
 # ---------------------------------------------------------------- move replay self-check
@@ -463,38 +507,78 @@ def _run(source_row: int, target_row: int, entries: list[tuple[int, int, int]]) 
 # ---------------------------------------------------------------- 5. emit
 
 
-def _nearest_free(free: list[Site], site: Site) -> Site:
-    best = free[0]
-    best_key = None
-    for candidate in free:
-        key = (_dist(site, candidate), abs(candidate[0] - site[0]), candidate[1], candidate[0])
-        if best_key is None or key < best_key:
-            best_key, best = key, candidate
-    return best
+def _nearest_free(free: set[Site], site: Site) -> Site:
+    """The free storage site closest to `site` (ties: closer column, lower row)."""
+    for candidate in _storage_by_closeness(site):
+        if candidate in free:
+            return candidate
+    raise RuntimeError("hubstream: no free storage site left")
+
+
+def _match_columns(source_cols: list[int], free_cols: list[int]) -> list[int]:
+    """Pick `len(source_cols)` ascending columns out of `free_cols` minimising the total shift."""
+    k, m = len(source_cols), len(free_cols)
+    if m < k:
+        raise RuntimeError("hubstream: not enough free columns")
+    inf = float("inf")
+    best = [[inf] * (m + 1) for _ in range(k + 1)]
+    back = [[False] * (m + 1) for _ in range(k + 1)]
+    for j in range(m + 1):
+        best[0][j] = 0
+    for i in range(1, k + 1):
+        for j in range(1, m + 1):
+            skip = best[i][j - 1]
+            take = best[i - 1][j - 1] + abs(free_cols[j - 1] - source_cols[i - 1])
+            if take <= skip:
+                best[i][j] = take
+                back[i][j] = True
+            else:
+                best[i][j] = skip
+    picked: list[int] = []
+    i, j = k, m
+    while i > 0:
+        if back[i][j]:
+            picked.append(free_cols[j - 1])
+            i -= 1
+            j -= 1
+        else:
+            j -= 1
+    picked.reverse()
+    return picked
+
+
+def _pair_options(task, pos, hub, left, right):
+    """``(cost, slot for u, slot for v)`` options for putting `task` on the pair (`left`, `right`)."""
+    u, v = task
+    if hub is not None and (u == hub or v == hub):
+        if u == hub:  # the hub always takes the right (odd) slot of its pair
+            return [(max(_dist(pos[u], right), _dist(pos[v], left)), right, left)]
+        return [(max(_dist(pos[u], left), _dist(pos[v], right)), left, right)]
+    return [
+        (max(_dist(pos[u], left), _dist(pos[v], right)), left, right),
+        (max(_dist(pos[u], right), _dist(pos[v], left)), right, left),
+    ]
 
 
 def _best_pair(task: tuple[int, int], pos: dict[int, Site], reserved: set[Site], hub):
-    """Cheapest free interaction pair for `task`: ``(cost, slot for u, slot for v)``."""
+    """Cheapest free interaction pair for `task`: ``(cost, slot for u, slot for v)``.
+
+    Pairs are taken from the lowest entangling row that still has a free pair: keeping a whole
+    round in one row lets the lower and lift phases become one wide `move` each.
+    """
     u, v = task
-    hub_in_task = hub is not None and (u == hub or v == hub)
     best = None
+    best_row = None
     for left, right, row in _PAIRS:
         if left in reserved or right in reserved:
             continue
-        if hub_in_task:
-            # the hub always takes the right (odd, cheap-to-lower) slot of its pair
-            options = [(max(_dist(pos[u], right), _dist(pos[v], left)), right, left)] if u == hub else [
-                (max(_dist(pos[u], left), _dist(pos[v], right)), left, right)
-            ]
-        else:
-            options = [
-                (max(_dist(pos[u], left), _dist(pos[v], right)), left, right),
-                (max(_dist(pos[u], right), _dist(pos[v], left)), right, left),
-            ]
-        for cost, slot_u, slot_v in options:
-            key = (cost, row, left[0])
+        if best_row is not None and row > best_row:
+            continue
+        for cost, slot_u, slot_v in _pair_options(task, pos, hub, left, right):
+            key = (row, cost, left[0])
             if best is None or key < best[0]:
                 best = (key, (cost, slot_u, slot_v))
+                best_row = row
     if best is None:
         raise RuntimeError("hubstream: no free interaction pair left in this round")
     return best[1]
@@ -510,6 +594,13 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
     occ: dict[Site, int] = {site: qubit for qubit, site in pos.items()}
     pointer = [0] * n
     parked: set[int] = set()
+    deferred: dict[int, float] = {}
+
+    def flush_deferred(q: int) -> None:
+        angle = deferred.get(q, 0.0)
+        if angle:
+            out.append(RZGate(angle), [out.qubits[q]])
+            deferred[q] = 0.0
 
     def flush(q: int) -> None:
         wire = wires[q]
@@ -521,8 +612,12 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
                 while pointer[q] < len(wire) and wire[pointer[q]][0] == "g":
                     matrix = wire[pointer[q]][1] @ matrix
                     pointer[q] += 1
-                _emit_1q(out, q, matrix)
+                if deferred.get(q):
+                    matrix = matrix @ _rz_matrix(deferred[q])
+                    deferred[q] = 0.0
+                deferred[q] = _emit_1q_defer(out, q, matrix)
             elif entry[0] == "meas":
+                flush_deferred(q)
                 out.append(Measure(), [out.qubits[q]], [out.clbits[entry[1]]])
                 pointer[q] += 1
             else:
@@ -543,12 +638,44 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
             _move(out, qubits, rows, cols, new_rows, new_cols)
 
     def lower(atoms: list[int]) -> None:
-        free = [site for site in _STORAGE if site not in occ]
+        if not atoms:
+            return
+        free = {site for site in _STORAGE if site not in occ}
+        by_row: dict[int, list[int]] = defaultdict(list)
+        for qubit in atoms:
+            by_row[pos[qubit][1]].append(qubit)
         moves: dict[int, tuple[Site, Site]] = {}
-        for qubit in sorted(atoms, key=lambda q: (pos[q][1], pos[q][0])):
-            target = _nearest_free(free, pos[qubit])
-            free.remove(target)
-            moves[qubit] = (pos[qubit], target)
+        # pack each source row into one target row: the lower phase then needs one move per row
+        for source_row in sorted(by_row):
+            qubits = sorted(by_row[source_row], key=lambda q: (pos[q][0]))
+            need = len(qubits)
+            preferred = Counter(_nearest_free(free, pos[q])[1] for q in qubits).most_common(1)[0][0]
+            rows = sorted(
+                (row for row in range(STORAGE_Y[0], STORAGE_Y[1] + 1)
+                 if sum(1 for col in range(10) if (col, row) in free) >= need),
+                key=lambda row: (row != preferred, abs(row - source_row), -row),
+            )
+            if rows:
+                target_row = rows[0]
+            else:  # scattered fallback: closest free site per atom, from the deepest first
+                target_row = None
+            if target_row is None:
+                for qubit in reversed(qubits):
+                    target = _nearest_free(free, pos[qubit])
+                    free.discard(target)
+                    moves[qubit] = (pos[qubit], target)
+                continue
+            columns = [col for col in range(10) if (col, target_row) in free]
+            if len(columns) < need:
+                for qubit in reversed(qubits):
+                    target = _nearest_free(free, pos[qubit])
+                    free.discard(target)
+                    moves[qubit] = (pos[qubit], target)
+                continue
+            picked = _match_columns([pos[q][0] for q in qubits], columns)
+            for qubit, col in zip(qubits, picked):
+                free.discard((col, target_row))
+                moves[qubit] = (pos[qubit], (col, target_row))
         do_moves(moves)
 
     def zone_atoms() -> list[int]:
@@ -563,6 +690,8 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
             matrix = wire[i][1] if matrix is None else wire[i][1] @ matrix
             i += 1
         has_cz = i < len(wire) and wire[i][0] == "cz"
+        # a deferred `rz` commutes with every `cz` in between, so it may wait: it does not stop us
+        # from parking the atom (it is emitted with the next run that needs storage).
         return matrix, (i if has_cz else None)
 
     round_of = {}
@@ -574,7 +703,7 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
         # --- 1. assign an interaction pair to every task of this round
         slot_of: dict[int, Site] = {}
         reserved = {pos[q] for q in parked}
-        waiting: list[tuple[float, int]] = []
+        waiting: list[int] = []
         for task in round_tasks:
             u, v = tasks[task]
             if u in parked and v in parked:
@@ -585,15 +714,14 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
                 slot_of[keep], slot_of[move] = pos[keep], partner_slot
                 reserved.add(partner_slot)
             else:
-                best = _best_pair(tasks[task], pos, reserved, hub)
-                waiting.append((-best[0], task))
-        waiting.sort()
-        for _, task in waiting:
+                waiting.append(task)
+        # hardest task first: the one whose cheapest pair is worst gets first pick
+        for task in sorted(waiting, key=lambda t: (-_best_pair(tasks[t], pos, reserved, hub)[0], t)):
+            _, slot_u, slot_v = _best_pair(tasks[task], pos, reserved, hub)
             u, v = tasks[task]
-            best = _best_pair(tasks[task], pos, reserved, hub)
-            slot_of[u], slot_of[v] = best[1], best[2]
-            reserved.add(best[1])
-            reserved.add(best[2])
+            slot_of[u], slot_of[v] = slot_u, slot_v
+            reserved.add(slot_u)
+            reserved.add(slot_v)
 
         # --- 2. lower every zone atom that does not stay parked for this round
         lower([q for q in zone_atoms() if q not in parked])
@@ -634,7 +762,7 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
             task = wires[q][next_cz][1]
             # keeping an atom in the zone occupies a pair: only worth it when the pair is reused
             # immediately (or for the hub, which never leaves the zone)
-            if q != hub and round_of.get(task, 1 << 30) > round_index + 1:
+            if q != hub and round_of.get(task, 1 << 30) > round_index + PARK_WINDOW:
                 continue
             candidates[q] = (task, _remaining_cz(wires[q], next_cz))
 
@@ -670,10 +798,29 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
     lower(zone_atoms())
     for q in range(n):
         flush(q)
+        flush_deferred(q)
     return out
 
 
 # ---------------------------------------------------------------- entry point
+
+
+def _first_use_order(wires, round_of, n: int) -> list[int]:
+    """Qubits sorted by the round of their first CZ (later / never used ones last)."""
+
+    def first_use(q: int) -> int:
+        for entry in wires[q]:
+            if entry[0] == "cz":
+                return round_of.get(entry[1], 1 << 30)
+        return 1 << 30
+
+    return sorted(range(n), key=lambda q: (first_use(q), q))
+
+
+def _loading_by_first_use(wires, round_of, n: int) -> dict[int, Site]:
+    order = _first_use_order(wires, round_of, n)
+    sites = sorted(_STORAGE, key=lambda site: (9 - site[1], site[0]))
+    return {q: sites[i] for i, q in enumerate(order)}
 
 
 def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
@@ -682,10 +829,13 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
     hub = choose_hub(items, n)
     wires, tasks = build_wires(items, n, hub)
 
-    rows_used = (n + 9) // 10
-    r0 = max(0, 9 - rows_used - 2)
-    loading = {i: (i % 10, r0 + i // 10) for i in range(n)}
-
     rounds = schedule_rounds(wires, tasks, hub) if tasks else []
+    round_of = {}
+    for index, round_tasks in enumerate(rounds):
+        for task in round_tasks:
+            round_of[task] = index
+
+    loading = _loading_by_first_use(wires, round_of, n)
+
     out = emit(n, wires, tasks, rounds, hub, circuit, loading)
     return out, Architecture(loading, spec=architecture_spec)
