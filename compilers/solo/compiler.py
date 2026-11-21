@@ -135,6 +135,18 @@ _PRE_T = _H @ _rx(math.pi / 2)  # target, normal form: rx(pi/2) then h
 _POST_T = _rx(-math.pi / 2) @ _H
 _PRE_TS = _rx(math.pi / 2)  # target, swapped form
 _POST_TS = _rx(-math.pi / 2)
+_S = np.array([[1, 0], [0, 1j]], dtype=complex)
+_SD = _S.conj().T
+# Frame tables. "R": blocks as written (rotor t: rx(pi/2) h | cz rx cz | h rx(-pi/2)).
+# "S": every qubit conjugated by S (initial S^dag h, final S): a block Z_c Y_t becomes Z_c X_t =
+# cz . rx_t(th) . cz exactly, with no per-block basis change; swapped form: h on both, rx on c.
+FRAMES = {
+    "R": {"init": _H, "final": _I2, "Nt": (_PRE_T, _POST_T), "Sc": (_H, _H), "St": (_PRE_TS, _POST_TS)},
+    "S": {"init": _SD @ _H, "final": _S, "Nt": (_I2, _I2),
+          "Sc": (_rz(math.pi / 2) @ _rx(math.pi / 2), _rx(-math.pi / 2) @ _rz(-math.pi / 2)),
+          "St": (_rx(math.pi / 2) @ _rz(math.pi / 2), _rz(-math.pi / 2) @ _rx(-math.pi / 2))},
+    "SH": {"init": _SD @ _H, "final": _S, "Nt": (_I2, _I2), "Sc": (_H, _H), "St": (_H, _H)},
+}
 
 
 def _is_diag(u, eps=1e-9):
@@ -199,13 +211,30 @@ def _gate_matrix(seq):
 
 
 class Block:
-    __slots__ = ("c", "t", "th", "idx")
+    """kind: "G" generic (cz rx cz), "C" th = s*pi/2 mod 2pi (one cz + local Cliffords),
+    "P" th = pi mod 2pi (local Paulis, no cz), "Z" a bare cz (generic cz-program path)."""
 
-    def __init__(self, c, t, th, idx):
+    __slots__ = ("c", "t", "th", "idx", "kind", "s")
+
+    def __init__(self, c, t, th, idx, kind="G", s=0):
         self.c, self.t, self.th, self.idx = c, t, th, idx
+        self.kind, self.s = kind, s
 
     def qubits(self):
         return (self.c, self.t)
+
+
+def classify(th):
+    k = th / (math.pi / 2)
+    if abs(k - round(k)) < 1e-12:
+        r = int(round(k)) % 4
+        if r == 1:
+            return "C", 1
+        if r == 3:
+            return "C", -1
+        if r == 2:
+            return "P", 0
+    return "G", 0
 
 
 def _close(a, b):
@@ -312,7 +341,9 @@ def _zone(y):
 
 
 class Machine:
-    def __init__(self, n, loading, emit=True):
+    LAZY = False
+
+    def __init__(self, n, loading, emit=True, frame="S"):
         self.n = n
         self.pos = dict(loading)
         self.occ = {s: q for q, s in loading.items()}
@@ -320,7 +351,8 @@ class Machine:
         self.qc = QuantumCircuit(n, n) if emit else None
         self.dist = 0.0
         self.nmoves = 0
-        self.pend = [_H.copy() for _ in range(n)]
+        self.frame = FRAMES[frame]
+        self.pend = [self.frame["init"].copy() for _ in range(n)]
         self.depth = [0] * n  # rough per-qubit depth estimate (for cost models)
 
     # -- moves
@@ -397,6 +429,14 @@ class Machine:
         if self.pos[q][1] >= 10:
             raise Illegal(f"1q gate on {q} in zone")
         seq = _zxz(u)
+        rest = _I2.copy()
+        if self.LAZY and not force and len(seq) >= 2 and seq[-1][0] == "rz":
+            # keep the trailing z rotation pending: it commutes with cz
+            seq = seq[:-1]
+            rest = u @ np.linalg.inv(_gate_matrix(seq))
+            if not _is_diag(rest, 1e-7):
+                seq = _zxz(u)
+                rest = _I2.copy()
         if self.emit:
             for g, t in seq:
                 if g == "rz":
@@ -404,7 +444,7 @@ class Machine:
                 else:
                     self.qc.rx(t, q)
         self.depth[q] += len(seq)
-        self.pend[q] = _I2.copy()
+        self.pend[q] = rest
 
     def pulse(self, pairs, dummy=()):
         inzone = {q for q, s in self.pos.items() if s[1] >= 10}
@@ -430,6 +470,7 @@ class Machine:
         for q in range(self.n):
             if self.pos[q][1] >= 10:
                 raise Illegal("atom left in zone")
+            self.apply1(q, self.frame["final"])
             self.flush(q, force=True)
         if self.emit:
             for q in range(self.n):
@@ -553,9 +594,9 @@ def schedule_gen(blocks, preds, succs, hub, policy=("look", 2.0), posfn=None, mu
 
 
 class Executor:
-    def __init__(self, n, hub, home, emit=True):
+    def __init__(self, n, hub, home, emit=True, frame="S"):
         self.n, self.hub, self.home = n, hub, dict(home)
-        self.m = Machine(n, home, emit)
+        self.m = Machine(n, home, emit, frame)
         self.nxt = None
 
     # helpers
@@ -682,6 +723,7 @@ class Executor:
     KAPPA = 0.0
     HUBDEP = True
     RECT_SIM = 6
+    NPULSE = 2
     KFLOOR = 0.0
 
     def floor_row(self):
@@ -698,6 +740,24 @@ class Executor:
         return self.m.pos[nx] if nx is not None else None
 
     def run_round_band(self, blks):
+        m = self.m
+        for b in blks:
+            if b.kind == "P":  # exp(-i pi/2 Z_c X_t) = Z_c X_t (S-frame)
+                m.apply1(b.c, np.diag([1, -1]).astype(complex))
+                m.apply1(b.t, np.array([[0, 1], [1, 0]], dtype=complex))
+        cs = [b for b in blks if b.kind == "C"]
+        gs = [b for b in blks if b.kind in ("G", "Z")]
+        if cs:
+            saved = self.NPULSE, self.DUMMY_OFF
+            self.NPULSE, self.DUMMY_OFF = 1, True
+            try:
+                self._round(cs)
+            finally:
+                self.NPULSE, self.DUMMY_OFF = saved
+        if gs:
+            self._round(gs)
+
+    def _round(self, blks):
         from scipy.optimize import linear_sum_assignment
 
         m = self.m
@@ -760,7 +820,7 @@ class Executor:
                 elif nl or nr:
                     tot += EV
             h = 10 - a
-            tot += 4 * math.hypot(h, 1.0 if par else 0.7)
+            tot += 2 * self.NPULSE * math.hypot(h, 1.0 if par else 0.7)
             plans.append((tot, len(plans), (a, bb, j1, j2, par, slots, ri, ci, orient)))
         plans.sort(key=lambda t: (t[0], t[1]))
         if self.RECT_SIM > 1 and len(plans) > 1:
@@ -813,15 +873,35 @@ class Executor:
             reserved.add(t)
             targets[q] = t
         self.relocate(targets)
+        if self.NPULSE == 1:
+            riders = members | keep
+            for b in blks:
+                if b.kind == "C":
+                    ss = _S if b.s > 0 else _SD
+                    m.apply1(b.c, ss)
+                    m.apply1(b.t, ss @ _H)
+            for q in riders:
+                m.flush(q)
+            up = {q: (m.pos[q][0] + par, m.pos[q][1] + h) for q in riders}
+            down = {q: m.pos[q] for q in riders}
+            pairs = [(b.c, b.t) if m.pos[b.c][0] < m.pos[b.t][0] else (b.t, b.c) for b in blks]
+            m.move(up)
+            m.pulse(pairs, ())
+            m.move(down)
+            for b in blks:
+                if b.kind == "C":
+                    m.apply1(b.t, _H)
+            return
         forms = {}
         for b in blks:
             forms[b.idx] = f = self.choose_form(b)
+            F = m.frame
             if f == "N":
                 m.flush(b.c)
-                self.prep(b.t, _PRE_T)
+                self.prep(b.t, F["Nt"][0])
             else:
-                self.prep(b.c, _H)
-                self.prep(b.t, _PRE_TS)
+                self.prep(b.c, F["Sc"][0])
+                self.prep(b.t, F["St"][0])
         riders = members | keep
         up = {q: (m.pos[q][0] + par, m.pos[q][1] + h) for q in riders}
         down = {q: m.pos[q] for q in riders}
@@ -839,10 +919,10 @@ class Executor:
         m.move(down)
         for b in blks:
             if forms[b.idx] == "N":
-                m.apply1(b.t, _POST_T)
+                m.apply1(b.t, m.frame["Nt"][1])
             else:
-                m.apply1(b.c, _H)
-                m.apply1(b.t, _POST_TS)
+                m.apply1(b.c, m.frame["Sc"][1])
+                m.apply1(b.t, m.frame["St"][1])
 
     FORMS = "auto"
 
@@ -865,11 +945,11 @@ class Executor:
         for f in ("N", "S"):
             if f == "N":
                 gc, pc = self._ng(b.c, _I2)
-                gt, pt = self._ng(b.t, _PRE_T)
+                gt, pt = self._ng(b.t, self.m.frame["Nt"][0])
                 rot, pr = b.t, pt
             else:
-                gc, pc = self._ng(b.c, _H)
-                gt, pt = self._ng(b.t, _PRE_TS)
+                gc, pc = self._ng(b.c, self.m.frame["Sc"][0])
+                gt, pt = self._ng(b.t, self.m.frame["St"][0])
                 rot, pr = b.c, pc
             mid = 0 if _is_id(pr) else (1 if _is_diag(pr) else 0)
             dc, dt = dep[b.c] + gc, dep[b.t] + gt
@@ -913,6 +993,7 @@ class Executor:
         m = Machine.__new__(Machine)
         src = self.m
         m.n, m.emit, m.qc = src.n, False, None
+        m.frame = src.frame
         m.pos, m.occ = dict(src.pos), dict(src.occ)
         m.dist, m.nmoves = src.dist, src.nmoves
         m.pend = [u.copy() for u in src.pend]
@@ -921,21 +1002,44 @@ class Executor:
         return e
 
     def run_hub(self, blks):
-        best = None
-        for strat in self.HUB_STRATS:
-            e = self.clone()
-            try:
-                e._hub(blks, strat)
-            except Illegal:
+        m = self.m
+        for b in blks:
+            if b.kind == "P":
+                m.apply1(b.c, np.diag([1, -1]).astype(complex))
+                m.apply1(b.t, np.array([[0, 1], [1, 0]], dtype=complex))
+        for part in ([b for b in blks if b.kind == "C"], [b for b in blks if b.kind == "G"]):
+            if not part:
                 continue
-            c = e.m.dist - self.m.dist
-            if best is None or c < best[0] - 1e-9:
-                best = (c, strat)
-        if best is None:
-            raise Illegal("no hub strategy")
-        self._hub(blks, best[1])
+            best = None
+            for strat in self.HUB_STRATS:
+                e = self.clone()
+                try:
+                    e._hub(part, strat)
+                except Illegal:
+                    continue
+                c = e.m.dist - self.m.dist
+                if best is None or c < best[0] - 1e-9:
+                    best = (c, strat)
+            if best is None:
+                raise Illegal("no hub strategy")
+            self._hub(part, best[1])
 
-    HUB_STRATS = ("rotate", "direct", "compact")
+    HUB_STRATS = ("rotate", "direct", "compact", "gravity")
+
+    def _gravity(self):
+        """Refill holes in the bottom rows with the atoms above them (nearest first)."""
+        from scipy.optimize import linear_sum_assignment
+
+        m = self.m
+        R = max(1, math.ceil((self.n - 1) / 10))
+        lo = 10 - R
+        holes = [(x, y) for y in range(lo, 10) for x in range(10) if (x, y) not in m.occ]
+        above = sorted(q for q, st in m.pos.items() if st[1] < lo)
+        if not holes or not above:
+            return
+        cost = np.array([[_dist(m.pos[q], hs) for hs in holes] for q in above])
+        ri, ci = linear_sum_assignment(cost)
+        self.relocate({above[i]: holes[k] for i, k in zip(ri, ci)})
 
     def _compact(self, pset):
         """Relocate the batch partners densely into the bottom storage rows (row 9-r stays free)."""
@@ -995,16 +1099,37 @@ class Executor:
         for b in blks:
             p = b.t if role == "Z" else b.c
             partners.append((p, b.th))
-        if role == "Y":
-            self.prep(hub, _PRE_TS)
+        single = all(b.kind == "C" for b in blks)
+        if single:
+            # one cz per block: exp(-i s pi/4 Z_c X_t) = (I x h) cz (S^s x S^s) (I x h)
+            hs = _I2.copy()
+            for b in blks:
+                hs = (_S if b.s > 0 else _SD) @ hs
+            if role == "Z":
+                self.prep(hub, hs)
+                for b in blks:
+                    self.prep(b.t, (_S if b.s > 0 else _SD) @ _H)
+                post_p, post_h = _H, None
+            else:
+                self.prep(hub, hs @ _H)
+                for b in blks:
+                    self.prep(b.c, _S if b.s > 0 else _SD)
+                post_p, post_h = None, _H
         else:
-            m.flush(hub)
-        pre_p = _PRE_T if role == "Z" else _H
-        post_p = _POST_T if role == "Z" else _H
-        for p, _ in partners:
-            self.prep(p, pre_p)
+            if role == "Y":
+                self.prep(hub, m.frame["St"][0])
+            else:
+                m.flush(hub)
+            pre_p = m.frame["Nt"][0] if role == "Z" else m.frame["Sc"][0]
+            post_p = m.frame["Nt"][1] if role == "Z" else m.frame["Sc"][1]
+            post_h = m.frame["St"][1] if role == "Y" else None
+            for p, _ in partners:
+                self.prep(p, pre_p)
         if strat == "compact":
             self._compact({p for p, _ in partners})
+            strat = "rotate"
+        elif strat == "gravity":
+            self._gravity()
             strat = "rotate"
         hub_home = m.pos[hub]
         if strat == "direct":
@@ -1013,11 +1138,12 @@ class Executor:
             seq = [p for p, _ in order]
             for p in seq:
                 self._serve(p)
-            for p, th in partners:
-                m.apply1(p, _rx(th))
-                m.flush(p)
-            for p in reversed(seq):
-                self._serve(p)
+            if not single:
+                for p, th in partners:
+                    m.apply1(p, _rx(th))
+                    m.flush(p)
+                for p in reversed(seq):
+                    self._serve(p)
         else:
             pset = {p for p, _ in partners}
             rlo = min(m.pos[p][1] for p in pset)
@@ -1064,17 +1190,19 @@ class Executor:
                     self._rotate(rt, forward)
 
             sweep(set(pset), True)
-            for p, th in partners:
-                m.apply1(p, _rx(th))
-                m.flush(p)
-            sweep(set(pset), False)
+            if not single:
+                for p, th in partners:
+                    m.apply1(p, _rx(th))
+                    m.flush(p)
+                sweep(set(pset), False)
         if hub_home in m.occ:
             hub_home = self.nearest_free(m.pos[hub])
         self.go(hub, hub_home)
-        for p, _ in partners:
-            m.apply1(p, post_p)
-        if role == "Y":
-            m.apply1(hub, _POST_TS)
+        if post_p is not None:
+            for p, _ in partners:
+                m.apply1(p, post_p)
+        if post_h is not None:
+            m.apply1(hub, post_h)
 
 
 def default_layout(n, hub):
@@ -1127,7 +1255,11 @@ DEPTH_W = 0.2 / 13364 / (0.8 / 163364.298)  # distance units per depth unit (~3.
 
 def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=False, allowed=None):
     hub = n - 1
-    ex = Executor(n, hub, home, emit=emit)
+    frame = dict(opts).get("FRAME", "S")
+    if frame != "S" and any(b.kind != "G" for b in blocks):
+        # the special-angle forms are written for the S-frame; elsewhere use the generic form
+        blocks = [Block(b.c, b.t, b.th, b.idx) for b in blocks]
+    ex = Executor(n, hub, home, emit=emit, frame=frame)
     ex.allowed = allowed if allowed is not None else frozenset(frozenset(b.qubits()) for b in blocks)
     ex.LOOK = lam
     for k, v in opts:
@@ -1203,6 +1335,8 @@ def _budget(n, nblocks):
 def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
     allowed = frozenset(frozenset(b.qubits()) for b in blocks)  # every pair of the input (incl. th == 0)
     blocks = [b for b in blocks if b.th != 0.0]
+    for b in blocks:
+        b.kind, b.s = classify(b.th)
     for i, b in enumerate(blocks):
         b.idx = i
     hub = n - 1
@@ -1230,6 +1364,8 @@ def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
         pol, lam, mu, opts = cand
         run((pol, lam, mu, tuple(opts) + (("EVAL", True),)), lay)
         run((pol, lam, mu, tuple(opts) + (("RECT_SIM", 1),)), lay)
+        run((pol, lam, mu, tuple(opts) + (("FRAME", "R"),)), lay)
+        run((pol, lam, mu, tuple(opts) + (("FRAME", "SH"),)), lay)
     # first-use layouts derived from the best configurations' own step sequences
     for _, k, cand, lay in sorted(res)[:top]:
         ex = run_candidate(n, blocks, preds, succs, layouts[lay], *cand, allowed=allowed)
@@ -1256,6 +1392,104 @@ def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
     return qc, home
 
 
+# ---------------------------------------------------------------- generic cz-layer path (HEA)
+
+
+def parse_cz_program(circuit: QuantumCircuit):
+    """(n, ops) with ops = ("1q", q, 2x2) / ("cz", a, b), final measurements q -> q; None otherwise."""
+    from qiskit.quantum_info import Operator
+
+    n = circuit.num_qubits
+    if circuit.num_clbits < n:
+        return None
+    index = {bit: i for i, bit in enumerate(circuit.qubits)}
+    ops = []
+    measured = set()
+    for inst in circuit.data:
+        op = inst.operation
+        qs = [index[q] for q in inst.qubits]
+        if op.name == "barrier":
+            continue
+        if op.name == "measure":
+            if qs[0] != circuit.find_bit(inst.clbits[0]).index or qs[0] in measured:
+                return None
+            measured.add(qs[0])
+            continue
+        if measured & set(qs):
+            return None
+        if len(qs) == 1:
+            try:
+                u = Operator(op).data
+            except Exception:  # noqa: BLE001
+                return None
+            ops.append(("1q", qs[0], u))
+        elif op.name in ("cx", "cz") and len(qs) == 2:
+            a, b = qs
+            if op.name == "cx":
+                ops.append(("1q", b, _H))
+                ops.append(("cz", a, b))
+                ops.append(("1q", b, _H))
+            else:
+                ops.append(("cz", a, b))
+        else:
+            return None
+    if measured != set(range(n)):
+        return None
+    return n, ops
+
+
+def snake_layout(n):
+    """Two-row snake (row 9 left to right, row 8 right to left) for chains; plain rows otherwise."""
+    W = (n + 1) // 2
+    home = {}
+    if W <= 10:
+        for q in range(n):
+            home[q] = (q, 9) if q < W else (W - 1 - (q - W), 8)
+        return home
+    for q in range(n):
+        home[q] = (q % 10, 9 - q // 10)
+    return home
+
+
+def compile_cz_program(n, ops, home, emit=True, rect_sim=6, lazy=True):
+    ex = Executor(n, -1, home, emit=emit, frame="R")
+    m = ex.m
+    m.LAZY = lazy
+    m.pend = [_I2.copy() for _ in range(n)]
+    ex.NPULSE = 1
+    ex.DUMMY_OFF = True
+    ex.RECT_SIM = rect_sim
+    ex.allowed = frozenset()
+    rnd, used, after = [], set(), {}
+
+    def close():
+        nonlocal rnd, used, after
+        if rnd:
+            ex.nxt = {}
+            ex.run_round_band([Block(a, b, 0.0, k) for k, (a, b) in enumerate(rnd)])
+            for q, us in after.items():
+                for u in us:
+                    m.apply1(q, u)
+        rnd, used, after = [], set(), {}
+
+    for op in ops:
+        if op[0] == "1q":
+            _, q, u = op
+            if q in used:
+                after.setdefault(q, []).append(u)
+            else:
+                m.apply1(q, u)
+        else:
+            _, a, b = op
+            if a in used or b in used:
+                close()
+            rnd.append((a, b))
+            used |= {a, b}
+    close()
+    m.finish()
+    return ex
+
+
 def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
     parsed = None
     try:
@@ -1271,4 +1505,26 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
                 return qc, Architecture(home, spec=architecture_spec)
             except Illegal:
                 pass
+    try:
+        prog = parse_cz_program(circuit)
+        ncz = sum(1 for op in prog[1] if op[0] == "cz") if prog is not None else 0
+        if prog is not None and prog[0] <= 20 and ncz <= 240:
+            n, ops = prog
+            best = None
+            big = ncz > 60  # fixed work budget: one variant for larger programs
+            for home in (snake_layout(n),) + (() if big else (default_layout(n, n - 1),)):
+                for rs in ((1,) if big else (6, 1)):
+                    for lz in ((True,) if big else (True, False)):
+                        try:
+                            ex = compile_cz_program(n, ops, home, emit=False, rect_sim=rs, lazy=lz)
+                        except Illegal:
+                            continue
+                        c = ex.m.dist + DEPTH_W * (max(ex.m.depth) + 1)
+                        if best is None or c < best[0] - 1e-9:
+                            best = (c, home, rs, lz)
+            if best is not None:
+                ex = compile_cz_program(n, ops, best[1], emit=True, rect_sim=best[2], lazy=best[3])
+                return ex.m.qc, Architecture(best[1], spec=architecture_spec)
+    except Illegal:
+        pass
     return _naive(circuit, architecture_spec)

@@ -5,7 +5,26 @@
 
 ## Design
 
-**Gates (exact).** Each iHVA block `rx(pi/2)_t cx(c,t) rz(th)_t cx(c,t) rx(-pi/2)_t` is
+**Frame (exact).** Default "S-frame": every qubit is conjugated by S (initial `S^dag h`, final `S`),
+which turns every block Z_c Y_t into Z_c X_t = `cz . rx_t(th) . cz` with no per-block basis change
+(verified numerically). When the hub is the block's target it must stay static, so the block uses a
+swapped form found by exhaustive search over short Clifford words: rotor c gets `rx(pi/2) rz(pi/2)`
+before / inverse after, the hub gets `rz(pi/2) rx(pi/2)` / inverse (one `rx` per hub role switch
+in steady state). The old frame ("R", below) and an H-swapped variant stay as search options.
+
+**Special angles (exact).** th = s*pi/2 (mod 2pi) blocks are Clifford: in the S-frame
+exp(-i s pi/4 Z_c X_t) = (I x h) . cz . (S^s x S^s) . (I x h) (global phase), i.e. ONE pulse with c
+getting S^s (diagonal, stays pending) and t getting h then S^s before / h after; no mid rotation.
+Rounds split such blocks into a single-pulse sub-round (2 band moves, no dummies); hub batches of
+them need a single pass (hub-as-target: batch-level h on the hub makes every per-block hub gate
+diagonal). th = pi (mod 2pi) is Z_c X_t: local Paulis, no cz. Only the S-frame uses these forms;
+the other frames fall back to the generic form. All 158 special blocks of the scored set are in
+the six tree_warm circuits (every non-zero block there is +-pi/2): 12q 63/22 -> 45/15, 20q 128/32 ->
+83/21, 50q 442/72 -> 262/41 (+0.39 points). The optional triangle parity network was skipped: in
+the band machine the saved cz would need a pulse ordering with mid rotations on two different
+qubits, for a small expected gain.
+
+**Gates (frame "R").** Each iHVA block `rx(pi/2)_t cx(c,t) rz(th)_t cx(c,t) rx(-pi/2)_t` is
 exp(-i th/2 Z_c M_t), realised as `t: rx(pi/2), h, [cz], rx(th), [cz], h, rx(-pi/2)` (normal form,
 rotor = t) or `c: h, [cz], rx(th), [cz], h; t: rx(pi/2), [cz], -, [cz], rx(-pi/2)` (swapped form,
 rotor = c). `th == 0` blocks are dropped (identity). 1q gates are buffered per qubit as a 2x2 matrix;
@@ -30,13 +49,27 @@ rectangle may ride along as a *dummy pair* (cz·cz = I, nothing applied in betwe
 an interaction pair of the input (validator pair-set check above 19 qubits).
 
 **Hub batches.** The hub stays in zone row 10; partners are lifted one per pulse from storage row
-9; rows are rotated through row 9 (`row 9 -> free row`, `rows -> +1`, reversed for the second pass,
-so no restore is needed), or partners are first compacted into the bottom rows, or lifted directly;
-the cheapest strategy is chosen on a cloned machine.
+9; rows are rotated through row 9 (`row 9 -> buffer row`, `rows -> +1`; the buffer row only needs to
+be free at the columns of row 9; the second pass rotates backwards and replays the first pass in
+reverse), or partners are first compacted into the bottom rows, or holes in the bottom rows are first
+refilled from above ("gravity", +2-5 %), or partners are lifted directly; the cheapest strategy is
+chosen on a cloned machine.
 
-**Search.** Deterministic multi-start: 40 base candidates (policy x lookahead x matching key x
-parity set), the best 3 re-run with simulation-guided round composition, then seeded cost
-perturbations of the best (fixed budgets by size). Score = distance + 3.06 x depth.
+**HEA / generic cz programs.** `cx -> h cz h`, 1q gates buffered, cz's layered into rounds of
+disjoint pairs, executed by the same band executor with a single pulse (no dummies), from a 2-row
+snake layout; lazy flushing (trailing rz slides through the cz into the next flush) cuts depth.
+12q HEA p1/p3: 10.1/10 and 33.2/22 (naive 244/19, 732/43). Bounded work (<= 240 cz, one variant
+above 60 cz), otherwise naive.
+
+**Plan simulation.** Per round, the best 6 band plans by the Hungarian estimate are executed on a
+cloned machine and the cheapest real outcome (distance + 3.06 x depth delta) is kept (+1-3 % on
+50q); the hub strategy is chosen the same way.
+
+**Search.** Deterministic multi-start: 13 base candidates (hub-in-round threshold x lookahead x
+matching key x parity set, chosen by a greedy set cover over the 12 non-warm scored iHVA circuits),
+then for the best 3-5: simulation-guided round composition (EVAL), estimate-only plans, a first-use
+initial layout derived from the candidate's own step order; then seeded cost perturbations of the
+best (fixed budgets by size, no wall clock). Score = distance + 3.06 x depth.
 
 **Fallback.** Anything not iHVA-shaped (HEA, sanity circuits) goes to the naive scheme (valid; the
 portfolio covers HEA).
@@ -49,18 +82,30 @@ portfolio covers HEA).
 | v2 dynamic band + hub rotation | | +86.66 (fast) | rounds 19.5 -> 7/block |
 | v3 multi-start, hub blocks in rounds | | +88.22 (fast) | |
 | + dummy pairs, rect choice, batching, parity, form choice, search | | +89.92 (fast) | dummies were not pair-restricted: failed full mode on 50q |
-| dummies restricted to input pairs + guard | see git log | **+89.80 (full, 20/20)** | portfolio_po + solo est. **90.37** |
+| dummies restricted to input pairs + guard | 3a… | +89.80 (full, 20/20) | portfolio_po + solo est. 90.37 |
+| + layouts, partial rotation, simulated plans, pruned candidates | ed8ef89 | +90.11 (fast) | |
+| + gravity hub strategy, S-frame | | +90.36 (fast) | |
+| + HEA path | 8f5366d | +90.86 (full, 20/20) | portfolio_po + solo est. 90.91; solo wins 18/20 |
+| + special-angle blocks (+-pi/2 one cz, pi local) | 682d68b | **+91.25 (full, 20/20)** | solo wins 20/20 vs portfolio_po |
 
-Per circuit vs portfolio_po (dist/depth): solo wins 12q stagger/tree p3, all six 20q stagger/tree,
-all four 50q stagger/tree (50q stagger p3 4603/471 -> 2991/364, tree p3 5742/554 -> 3474/424).
-Portfolio keeps HEA and the tree_warm circuits.
+Per circuit vs portfolio_po (dist/depth) at 8f5366d: solo wins 18/20, e.g. 50q stagger p3 4603/471
+-> 2664/341, tree p3 5742/554 -> 3278/418, 20q stagger p3 1164/189 -> 783/150, 12q HEA p3 44/28 ->
+33/22. Portfolio keeps only 50q tree_warm p1/p3 (375/77 vs 442/72).
 
-Validity evidence: `bench --mode full` 20/20 (QCEC equivalent on all 12q), `--set sanity --mode
+Validity evidence at 682d68b: `bench --mode full` 20/20 (QCEC equivalent on all 12q), sanity 13/13
+full, strict 20q 6/6 (statevector x3), exact Clifford tableaux equal on all six 50q circuits twice:
+once as compiled (Clifford angles exercise the +-pi/2 and pi paths) and once with the special-angle
+classification forced off (generic path). Earlier evidence: `bench --mode full` 20/20 (QCEC equivalent on all 12q), `--set sanity --mode
 full` 13/13, `--mode strict --filter 20q` 6/6 (statevector x3), exact Clifford tableaux equal on all
 six 50q circuits (two angle draws each, `docs/ideas/hubwalk_cliff_check.py`), deterministic, max
 compile ~14 s (50q tree p3).
 
 ## What did not pay off
+- Beam search over per-round plan choices on a fixed step list: no better than the greedy.
+- Pooling band plans from several cost-matrix variants, eviction-target policies (push up / keep
+  compact), hub role-switch penalty (the DAG fixes the switches), lazy flushing for iHVA (the kept rz
+  lands on the rotor's mid rx, on the critical path).
+- Merging same-pair blocks: none are mergeable in the scored set.
 - Lookahead term (next partner) in slot assignment: noise level (+-3 %).
 - Distance-aware matching keys alone: +-2 %.
 - Seeded perturbations: 0-3 %.
