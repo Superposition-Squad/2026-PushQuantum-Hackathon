@@ -160,9 +160,11 @@ All runs: `bench/bench.py compilers/gates/compiler.py --jobs 2`, 36 official met
 Per family (iteration 7): hea distance +55.86 / depth +35.48, ihva +71.86 / +78.63,
 qaoa +72.40 / +76.72.
 
-Validity: 36/36 metric and 13/13 sanity circuits pass `--mode full`; `--mode strict` on the metric
-set passes as well (statevector x3 for <= 22 qubits, QCEC for the 50-qubit circuits). Compile time
-<= 1.6 s per metric circuit, 40 s for the 70-qubit sanity circuit.
+Validity: 36/36 metric and 13/13 sanity circuits pass `--mode full`. `--mode strict`: 32/36 verified
+at the time of writing (statevector x3 for <= 22 qubits; **QCEC `equivalent_up_to_global_phase` on
+all six 50-qubit iHVA circuits**), with the four 50-qubit QAOA circuits still inside the strict QCEC
+checker — nothing has failed. Compile time <= 1.6 s per metric circuit, 40 s for the 70-qubit sanity
+circuit.
 
 ### Where the remaining distance sits
 
