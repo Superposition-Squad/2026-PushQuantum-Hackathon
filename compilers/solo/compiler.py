@@ -1031,6 +1031,27 @@ def default_layout(n, hub):
     return home
 
 
+def layout_from_steps(n, hub, steps):
+    """Atoms in order of first use, filled from storage row 9 upwards; first-round pairs adjacent."""
+    order = []
+    seen = set()
+    for kind, blks in steps:
+        for b in blks:
+            for q in (b.c, b.t) if kind == "round" else ((b.t if b.c == hub else b.c),):
+                if q not in seen:
+                    seen.add(q)
+                    order.append(q)
+    order += [q for q in range(n) if q not in seen and q != hub]
+    if hub not in seen:
+        order.append(hub)
+    # hub goes last (it is lifted alone for batches; in rounds it is relocated anyway)
+    order = [q for q in order if q != hub] + [hub]
+    home = {}
+    for i, q in enumerate(order):
+        home[q] = (i % 10, 9 - i // 10)
+    return home
+
+
 def next_partners(steps):
     """nx[k][q] = q's partner in the first step after k that involves q."""
     nx = [None] * len(steps)
@@ -1062,6 +1083,7 @@ def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=Fal
             byq.setdefault(q, []).append(b)
     ptr = {q: 0 for q in byq}
     done = set()
+    ex.steps = []
     evaluator = None
     if ex.EVAL:
         def evaluator(variants):
@@ -1093,6 +1115,7 @@ def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=Fal
                     o = lst[k]
                     nxt[q] = o.t if o.c == q else o.c
         ex.nxt = nxt
+        ex.steps.append((kind, blks))
         (ex.run_round_band if kind == "round" else ex.run_hub)(blks)
         done |= cur
     ex.m.finish()
@@ -1124,29 +1147,40 @@ def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
     home = default_layout(n, hub)
     res = []
 
-    def run(cand):
+    layouts = {None: home}
+
+    def run(cand, lay=None):
         try:
-            ex = run_candidate(n, blocks, preds, succs, home, *cand, allowed=allowed)
+            ex = run_candidate(n, blocks, preds, succs, layouts[lay], *cand, allowed=allowed)
         except Illegal:
-            return
+            return None
         c = ex.m.dist + DEPTH_W * (max(ex.m.depth) + 1)
-        res.append((c, len(res), cand))
+        res.append((c, len(res), cand, lay))
+        return ex
 
     for cand in cands or CANDS:
         run(cand)
     if not res:
         raise Illegal("no candidate")
     top, nseed = _budget(n, len(blocks)) if seeds is None else seeds
-    for _, _, cand in sorted(res)[:top]:
+    for _, _, cand, lay in sorted(res)[:top]:
         pol, lam, mu, opts = cand
-        run((pol, lam, mu, tuple(opts) + (("EVAL", True),)))
+        run((pol, lam, mu, tuple(opts) + (("EVAL", True),)), lay)
+    # first-use layouts derived from the best configurations' own step sequences
+    for _, k, cand, lay in sorted(res)[:top]:
+        ex = run_candidate(n, blocks, preds, succs, layouts[lay], *cand, allowed=allowed)
+        key = ("first", k)
+        layouts[key] = layout_from_steps(n, hub, ex.steps)
+        run(cand, key)
     if nseed:
-        pol, lam, mu, opts = min(res)[2]
+        _, _, cand, lay = min(res)
+        pol, lam, mu, opts = cand
         for sd in range(1, nseed + 1):
-            run((pol, lam, mu, tuple(opts) + (("SEED", sd),)))
+            run((pol, lam, mu, tuple(opts) + (("SEED", sd),)), lay)
     best = min(res)
     if not emit:
         return best[0], best[2]
+    home = layouts[best[3]]
     ex = run_candidate(n, blocks, preds, succs, home, *best[2], emit=True, allowed=allowed)
     qc = ex.m.qc
     # guard: the interaction set must stay inside the input's pairs (validator check above 19 qubits)
