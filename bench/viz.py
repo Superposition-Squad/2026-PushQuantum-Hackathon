@@ -1,20 +1,18 @@
-"""Data extraction + CLI for the step-by-step compiled-circuit visualiser.
+#!/usr/bin/env python3
+"""Visualiser data builder for planqc compilers (companion to bench/bench.py).
 
-Extracts, with the *official* validator (so the page shows exactly what `bench/bench.py` scores),
-everything needed to animate a compilation, and writes self-contained HTML pages.
+Every number comes from the official validator, using exactly the same calls as `bench.py`, so the
+pages match the benchmark. The page and index templates are `bench/viz_page.html` and
+`bench/viz_index.html` (self-contained HTML/JS; the data is embedded as JSON, see docs/viz.md); this
+file extracts the data, writes pages and sidecars, runs the local preview server and prints the
+bench-style score.
 
-Usage (from the repo root):
-    python bench/viz.py page <compiler.py[:fn]> --circuit <label|path> [-o out.html] [--json out.json]
-    python bench/viz.py all  <compiler.py[:fn]> [--set metric|sanity|all] [--jobs N] [--name NAME]
-    python bench/viz.py index
-    python bench/viz.py serve [--port 9000] [--host 127.0.0.1]
-
-Output tree (gitignored): viz/<name>/<label>.html, viz/<name>/meta.json, viz/index.html,
-viz/status.json (written while `serve /regen` runs).  Rendering lives in `bench/viz_page.py`
-(`render_page`, `render_index`); minimal fallbacks keep this tool usable without it.
-
-The JSON embedded in every page follows the "Schema" section of docs/ideas/viz.md and is
-authoritative: field names there must be reproduced exactly.
+Commands (run from the repo root):
+    python bench/viz.py page  <compiler.py> --circuit <label|path.qasm> [--name NAME] ...
+    python bench/viz.py all   <compiler.py> [--set metric|sanity|all] [--filter SUBSTR] ...
+    python bench/viz.py index [--out DIR]
+    python bench/viz.py rewrap [--out DIR]     (re-embed existing pages into the current template)
+    python bench/viz.py serve [--host 0.0.0.0] [--port 9000] [--out DIR]
 """
 
 from __future__ import annotations
@@ -24,31 +22,34 @@ import concurrent.futures as cf
 import datetime as dt
 import functools
 import html
-import http.server
 import json
 import logging
 import math
+import numbers
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
-import urllib.parse
-from numbers import Real
+import traceback
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "bench"))
 sys.path.insert(0, str(ROOT / "vendor"))
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # so `import bench` works
 
-from bench import PhysicsError, _family, physics_check  # noqa: E402
-from pushquantum_validator._validation import (  # noqa: E402
-    ValidatedMove,
-    ValidationArchitecture,
-    physical,
+import bench  # noqa: E402  (importing bench also puts vendor/ on sys.path)
+
+from qiskit import QuantumCircuit  # noqa: E402
+
+from pushquantum_validator._validation import ValidationArchitecture, physical  # noqa: E402
+from pushquantum_validator.errors import (  # noqa: E402
+    ArchitectureError,
+    CompilerOutputError,
+    NotEquivalentError,
 )
-from pushquantum_validator.errors import ArchitectureError, CompilerOutputError  # noqa: E402
 from pushquantum_validator.spec import parse_spec  # noqa: E402
 from pushquantum_validator.verify import (  # noqa: E402
     benchmark_label,
@@ -58,921 +59,1129 @@ from pushquantum_validator.verify import (  # noqa: E402
     run_compiler,
     sanity_benchmarks,
     strip_moves,
+    verify_equivalence,
     verify_movement,
 )
 
-VIZ = ROOT / "viz"
-CHALLENGE_WT = Path("/home/hackathon/challenge-wt")
-SCHEMA = 1
-CODES = {"rz": 0, "rx": 1, "cz": 2, "move": 3, "measure": 4, "barrier": 5}
-IDENTITIES = frozenset({"move", "barrier"})
-SLUG = re.compile(r"^[A-Za-z0-9._-]+$")
-FUNCTION = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+logging.getLogger("pushquantum_validator").setLevel(logging.ERROR)  # spacing warnings are counted instead
+
+BASE_OPS = ["rx", "rz", "cz", "move", "measure", "barrier"]
+"""Name table; `ops` is this plus any other operation encountered, in order of appearance."""
+
+CHALLENGE_COMPILERS = Path("/home/hackathon/challenge/compilers")
+"""Compiler root of the canonical checkout."""
+
+WT_ROOT = Path("/home/hackathon/challenge-wt")
+"""Root of the worktree checkouts; `<wt>/compilers/<idea>/...` is allowed too."""
+
+VIZ_VERSION = 1
+
+# Minimal stand-in used only if bench/viz_page.html is missing. It is never written to disk.
+FALLBACK_TEMPLATE = """<!doctype html>
+<html><head><meta charset="utf-8"><title>__VIZ_TITLE__</title></head>
+<body>
+<script id="viz-data" type="application/json">__VIZ_DATA__</script>
+<p>The visualiser page template <code>bench/viz_page.html</code> is missing; this is a stand-in.</p>
+</body></html>
+"""
 
 
-# ---------------------------------------------------------------------- helpers
+# ---------------------------------------------------------------------- paths and names
 
 
-def _now() -> str:
-    return dt.datetime.now().isoformat(timespec="seconds")
+def sanitize_name(name: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "-", str(name)).strip("-.")
+    return cleaned or "compiler"
 
 
-def _r6(value: float) -> float:
-    return round(float(value), 6)
-
-
-def _code(name: str) -> int:
-    return CODES.get(name, 6)
+def compiler_name(path: str | Path) -> str:
+    """Page folder name for a compiler file (see the contract)."""
+    p = Path(path).resolve()
+    for root in (ROOT / "compilers", CHALLENGE_COMPILERS):
+        if p.is_relative_to(root):
+            return sanitize_name(p.parent.name)
+    try:
+        rel = p.relative_to(WT_ROOT)
+    except ValueError:
+        pass
+    else:
+        if len(rel.parts) >= 4 and rel.parts[1] == "compilers":
+            return sanitize_name(f"{rel.parts[0]}-{rel.parts[2]}")
+    return sanitize_name("scratch-" + p.parent.name)
 
 
 @functools.lru_cache(maxsize=1)
-def _naive() -> dict[str, dict[str, Any]]:
+def known_circuits() -> dict[str, Path]:
+    """Bench label -> qasm path for both bundled sets."""
+    found: dict[str, Path] = {}
+    for path in sanity_benchmarks() + metric_benchmarks():
+        label = benchmark_label(path)
+        if label:
+            found[label] = path.resolve()
+    return found
+
+
+def resolve_circuit(value: str) -> tuple[Path, str | None]:
+    """`--circuit` value (bench label or qasm path) -> (resolved path, bench label or None)."""
+    known = known_circuits()
+    if value in known:
+        return known[value], value
+    path = Path(value)
+    if path.is_file():
+        p = path.resolve()
+        return p, benchmark_label(p)
+    raise SystemExit(f"unknown circuit label or qasm file: {value}")
+
+
+def output_dir(value: str | None) -> Path:
+    out = Path(value) if value else ROOT / "viz"
+    return out.resolve()
+
+
+def _qasm_relative(path: Path) -> str:
+    base = (ROOT / "vendor" / "pushquantum_validator").resolve()
+    try:
+        return str(path.relative_to(base))
+    except ValueError:
+        return str(path)
+
+
+@functools.lru_cache(maxsize=1)
+def _naive_baseline() -> dict:
     return naive_baseline()
 
 
-def _spec_geometry() -> dict[str, Any]:
-    """Every trap of every zone, grid site + physical coordinates (docs/ideas/viz.md schema)."""
-    zones, loading_zone = parse_spec(None)
-    out: dict[str, Any] = {"loading_zone": loading_zone, "zones": []}
-    for zone in zones.values():
-        sites = [
-            [gx, gy, _r6(physical(zone, gx, "x")), _r6(physical(zone, gy, "y"))]
-            for gx in range(zone.x[0], zone.x[1] + 1)
-            for gy in range(zone.y[0], zone.y[1] + 1)
-        ]
-        out["zones"].append(
+def _naive_for(label: str | None) -> dict | None:
+    if not label:
+        return None
+    record = _naive_baseline().get(label)
+    if not record:
+        return None
+    metrics = dict(record["metrics"])
+    metrics["spacing_warnings"] = record.get("spacing_warnings")
+    return metrics
+
+
+# ---------------------------------------------------------------------- geometry
+
+
+def _zone_map() -> tuple[list, dict]:
+    """Zones in spec order plus a site -> zone map (the first zone containing a site wins)."""
+    zones, _loading_zone = parse_spec()
+    zone_list = list(zones.values())
+    zone_at: dict = {}
+    for zone in reversed(zone_list):  # later zones overwritten by earlier ones, as in the validator
+        for x in range(zone.x[0], zone.x[1] + 1):
+            for y in range(zone.y[0], zone.y[1] + 1):
+                zone_at[(x, y)] = zone
+    return zone_list, zone_at
+
+
+def _geometry() -> dict:
+    zone_list, zone_at = _zone_map()
+    zones = []
+    for index, zone in enumerate(zone_list):
+        zones.append(
             {
                 "name": zone.name,
-                "x": list(zone.x),
-                "y": list(zone.y),
-                "spacing": zone.spacing,
-                "pair_axis": zone.pair_axis,
-                "pair_distance": zone.pair_distance,
-                "operations": sorted(zone.operations),
-                "sites": sites,
+                "ops": sorted(zone.operations),
+                "x0": zone.x[0],
+                "x1": zone.x[1],
+                "y0": zone.y[0],
+                "y1": zone.y[1],
+                "px0": round(physical(zone, zone.x[0], "x"), 4),
+                "px1": round(physical(zone, zone.x[1], "x"), 4),
+                "py0": round(physical(zone, zone.y[0], "y"), 4),
+                "py1": round(physical(zone, zone.y[1], "y"), 4),
+                "paired": zone.pair_axis is not None,
             }
         )
-    return out
+    traps = []
+    claimed: set = set()
+    for index, zone in enumerate(zone_list):
+        for x in range(zone.x[0], zone.x[1] + 1):
+            for y in range(zone.y[0], zone.y[1] + 1):
+                site = (x, y)
+                if site in claimed:
+                    continue
+                claimed.add(site)
+                traps.append([round(physical(zone, x, "x"), 4), round(physical(zone, y, "y"), 4), index, x, y])
+    if traps:
+        xs = [t[0] for t in traps]
+        ys = [t[1] for t in traps]
+        bounds = [min(xs), min(ys), max(xs), max(ys)]
+    else:
+        bounds = [0.0, 0.0, 0.0, 0.0]
+    return {"zones": zones, "traps": traps, "bounds": bounds}
 
 
-def _hub_degree(circuit) -> tuple[int, list[int]]:
-    """Interaction graph of the reference: degree per qubit and the hub (lowest index on a tie)."""
-    index = {bit: i for i, bit in enumerate(circuit.qubits)}
-    neighbours: list[set[int]] = [set() for _ in range(circuit.num_qubits)]
-    found = False
-    for instruction in circuit.data:
-        if instruction.operation.name in IDENTITIES:
-            continue
+def _phys(site, arch, zone_at) -> tuple[float, float]:
+    """Physical position of a grid site, as the validator computes it."""
+    if arch is not None:
+        try:
+            return arch.physical_position(site)
+        except ArchitectureError:
+            pass
+    zone = zone_at.get(tuple(site))
+    if zone is None:
+        return float(site[0]), float(site[1])
+    return physical(zone, site[0], "x"), physical(zone, site[1], "y")
+
+
+def _loading_positions(loading, num_qubits: int, arch, zone_at) -> list[list]:
+    positions = []
+    for qubit in range(num_qubits):
+        site = loading.get(qubit, (0, 0))
+        px, py = _phys(site, arch, zone_at)
+        positions.append([round(px, 4), round(py, 4), int(site[0]), int(site[1])])
+    return positions
+
+
+# ---------------------------------------------------------------------- instruction arrays
+
+
+def _instruction_arrays(compiled: QuantumCircuit, move_of_index: dict[int, int]) -> tuple[list, dict]:
+    index = {bit: i for i, bit in enumerate(compiled.qubits)}
+    cl_index = {bit: i for i, bit in enumerate(compiled.clbits)}
+    num_qubits = compiled.num_qubits
+    next_free = [0] * num_qubits
+    level: dict = {}
+    running = 0
+    ops = list(BASE_OPS)
+    op_map = {name: i for i, name in enumerate(ops)}
+    arrays = {"op": [], "qs": [], "par": [], "col": [], "depth": [], "mv": []}
+    for i, instruction in enumerate(compiled.data):
+        operation = instruction.operation
+        name = operation.name
+        if name not in op_map:
+            op_map[name] = len(ops)
+            ops.append(name)
         qubits = [index[q] for q in instruction.qubits]
-        if len(qubits) < 2:
-            continue
-        found = True
-        for a in range(len(qubits)):
-            for b in range(a + 1, len(qubits)):
-                neighbours[qubits[a]].add(qubits[b])
-                neighbours[qubits[b]].add(qubits[a])
-    degree = [len(n) for n in neighbours]
-    return (degree.index(max(degree)) if found else -1), degree
+        clbits = [cl_index[c] for c in instruction.clbits]
+
+        if qubits:
+            span = range(min(qubits), max(qubits) + 1)
+            column = max(next_free[w] for w in span)
+            for w in span:
+                next_free[w] = column + 1
+        else:
+            column = max(next_free) if next_free else 0
+
+        if name not in ("move", "barrier"):
+            keys = [("q", q) for q in qubits] + [("c", c) for c in clbits]
+            lvl = 1 + max((level.get(key, 0) for key in keys), default=0)
+            for key in keys:
+                level[key] = lvl
+            running = max(running, lvl)
+
+        parameter = None
+        params = getattr(operation, "params", ())
+        if name != "move" and params and isinstance(params[0], numbers.Real) and not isinstance(params[0], bool):
+            value = float(params[0])
+            if math.isfinite(value):
+                parameter = round(value, 5)
+
+        arrays["op"].append(op_map[name])
+        arrays["qs"].append(qubits)
+        arrays["par"].append(parameter)
+        arrays["col"].append(column)
+        arrays["depth"].append(running)
+        arrays["mv"].append(move_of_index.get(i, -1))
+    return ops, arrays
 
 
-def _moves_from_trace(trace, loading: dict) -> list[dict[str, Any]]:
-    positions = dict(loading)
-    moves: list[dict[str, Any]] = []
+# ---------------------------------------------------------------------- move arrays
+
+
+def _move_arrays(trace, loading, arch, zone_at) -> tuple[list, list]:
+    pos = dict(loading)
+    warnings: list[str] = []
+    warning_index: dict[str, int] = {}
+    moves = []
     for record in trace:
-        before = [list(positions[q]) for q in record.qubits]
-        after = [list(record.positions[q]) for q in record.qubits]
+        qubits = list(record.qubits)
+        before = {q: pos.get(q, (0, 0)) for q in qubits}
+        after = {q: record.positions[q] for q in qubits}
+        before_sites = [before[q] for q in qubits]
+        after_sites = [after[q] for q in qubits]
+        f: list[float] = []
+        t: list[float] = []
+        ts: list[int] = []
+        for q in qubits:
+            px, py = _phys(before[q], arch, zone_at)
+            f.extend([round(px, 4), round(py, 4)])
+            px, py = _phys(after[q], arch, zone_at)
+            t.extend([round(px, 4), round(py, 4)])
+            ts.extend([int(after[q][0]), int(after[q][1])])
+        pos.update(record.positions)
+
+        w: list[int] = []
+        for message in record.spacing_warnings:
+            key = str(message)
+            if key not in warning_index:
+                warning_index[key] = len(warnings)
+                warnings.append(key)
+            w.append(warning_index[key])
+
+        rows = [int(v) for v in record.move.rows]
+        cols = [int(v) for v in record.move.cols]
+        nrows = [int(v) for v in record.move.new_rows]
+        ncols = [int(v) for v in record.move.new_cols]
+
+        if len(nrows) == len(rows):
+            row_pairs = list(zip(rows, nrows))
+        else:
+            row_pairs = sorted({(before[q][1], after[q][1]) for q in qubits})
+        if len(ncols) == len(cols):
+            col_pairs = list(zip(cols, ncols))
+        else:
+            col_pairs = sorted({(before[q][0], after[q][0]) for q in qubits})
+
+        def line_phys(sites, fallback, line: int, axis: str) -> float:
+            for site in sites:
+                if (site[1] if axis == "y" else site[0]) == line:
+                    zone = zone_at.get(tuple(site))
+                    if zone is not None:
+                        return physical(zone, line, axis)
+            zone = zone_at.get(tuple(fallback))
+            if zone is not None:
+                return physical(zone, line, axis)
+            return float(line)
+
+        br = [
+            [
+                round(line_phys(before_sites, before_sites[0], b, "y"), 4),
+                round(line_phys(after_sites, after_sites[0], a, "y"), 4),
+            ]
+            for b, a in row_pairs
+        ]
+        bc = [
+            [
+                round(line_phys(before_sites, before_sites[0], b, "x"), 4),
+                round(line_phys(after_sites, after_sites[0], a, "x"), 4),
+            ]
+            for b, a in col_pairs
+        ]
+
         moves.append(
             {
                 "i": record.index,
-                "q": list(record.qubits),
-                "a": after,
-                "b": before,
-                "rows": list(record.move.rows),
-                "cols": list(record.move.cols),
-                "nrows": list(record.move.new_rows),
-                "ncols": list(record.move.new_cols),
-                "d": float(record.distance),  # full precision: the page sums these and compares to metrics
+                "q": qubits,
+                "f": f,
+                "t": t,
+                "ts": ts,
+                "d": record.distance,
                 "s": record.step,
-                "w": len(record.spacing_warnings),
+                "w": w,
+                "rows": rows,
+                "cols": cols,
+                "nrows": nrows,
+                "ncols": ncols,
+                "br": br,
+                "bc": bc,
             }
         )
-        positions.update(record.positions)
-    return moves
+    return moves, warnings
 
 
-def _warnings(trace) -> list[list[Any]]:
-    pairs = [[i, text] for i, record in enumerate(trace) for text in record.spacing_warnings]
-    return pairs[:50]
+# ---------------------------------------------------------------------- totals
 
 
-def _partial_replay(compiled, loading: dict) -> tuple[list[dict], list[list[Any]], int | None, float]:
-    """Mirror `_ValidationArchitecture._replay`, stopping at the first violation (error card path)."""
-    arch = ValidationArchitecture.from_loading(loading, None)
-    index_of = {bit: i for i, bit in enumerate(compiled.qubits)}
-    moves: list[dict[str, Any]] = []
-    warnings: list[list[Any]] = []
-    error_index: int | None = None
-    total = 0.0
-    for index, instruction in enumerate(compiled.data):
-        qubits = tuple(index_of[q] for q in instruction.qubits)
-        try:
-            if instruction.operation.name != "move":
-                arch.check_gate(instruction.operation.name, qubits)
-                continue
-            move = ValidatedMove.from_instruction(instruction.operation)
-            before = {q: arch.positions[q] for q in qubits}
-            _mapping, spacing = arch.apply_move(move, qubits)
-            after = {q: arch.positions[q] for q in qubits}
-            distance = max(
-                (math.dist(arch.physical_position(before[q]), arch.physical_position(after[q])) for q in qubits),
-                default=0.0,
-            )
-        except ArchitectureError:
-            error_index = index
-            break
-        for text in spacing:
-            if len(warnings) < 50:
-                warnings.append([len(moves), text])
-        moves.append(
-            {
-                "i": index,
-                "q": list(qubits),
-                "a": [list(after[q]) for q in qubits],
-                "b": [list(before[q]) for q in qubits],
-                "rows": list(move.rows),
-                "cols": list(move.cols),
-                "nrows": list(move.new_rows),
-                "ncols": list(move.new_cols),
-                "d": float(distance),  # full precision (see _moves_from_trace)
-                "s": len(moves),
-                "w": len(spacing),
-            }
-        )
-        total += distance
-    return moves, warnings, error_index, total
-
-
-def _layers(compiled, instructions, moves: list[dict]) -> dict[str, Any]:
-    """ops, angles, col/ncols/colmove and depth_at for `instructions` (a prefix of `compiled.data`)."""
-    qindex = {bit: i for i, bit in enumerate(compiled.qubits)}
-    offset = len(compiled.qubits)
-    cindex = {bit: offset + i for i, bit in enumerate(compiled.clbits)}
-    nwire = offset + len(compiled.clbits)
-    col = [-1] * nwire
-    colkind: dict[int, str] = {}
-    depth = [0] * nwire
-    move_at = {m["i"]: i for i, m in enumerate(moves)}
-    ops: list[list[int]] = []
-    angles: list[float] = []
-    cols: list[int] = []
-    depth_at: list[int] = []
-    for index, instruction in enumerate(instructions):
-        name = instruction.operation.name
-        code = _code(name)
-        qubits = tuple(qindex[q] for q in instruction.qubits)
-        wires = qubits + tuple(cindex[c] for c in instruction.clbits)
-        angle = 0.0
-        if code in (0, 1) and instruction.operation.params and isinstance(instruction.operation.params[0], Real):
-            angle = round(float(instruction.operation.params[0]), 5)
-        if code == 2 and len(qubits) >= 2:
-            ops.append([2, qubits[0], qubits[1]])
-        elif code == 3:
-            ops.append([3, move_at.get(index, -1), -1])
-        else:
-            ops.append([code, qubits[0] if qubits else -1, -1])
-        angles.append(angle)
-
-        column = max((col[w] for w in wires), default=-1) + 1
-        kind = "move" if code == 3 else "gate"
-        while column in colkind and colkind[column] != kind:
-            column += 1
-        colkind[column] = kind
-        for w in wires:
-            col[w] = column
-        cols.append(column)
-
-        if name not in IDENTITIES:
-            level = max((depth[w] for w in wires), default=0) + 1
-            for w in wires:
-                depth[w] = level
-        depth_at.append(max(depth, default=0))
-
-    ncols = max(cols) + 1 if cols else 0
-    colmove = [0] * ncols
-    for column, op in zip(cols, ops):
-        if op[0] == 3:
-            colmove[column] = 1
+def _partial_totals(trace, depth: int, num_operations: int, cz: int) -> dict:
+    step_times: dict[int, float] = {}
+    spacing = 0
+    for record in trace:
+        step_times[record.step] = max(step_times.get(record.step, 0.0), record.time)
+        spacing += len(record.spacing_warnings)
     return {
-        "ops": ops,
-        "angles": angles,
-        "col": cols,
-        "ncols": ncols,
-        "colmove": colmove,
-        "depth_at": depth_at,
+        "num_moves": len(trace),
+        "move_steps": len(step_times),
+        "move_distance": round(sum(r.distance for r in trace), 6),
+        "move_time": round(sum(step_times.values()), 6),
+        "depth": depth,
+        "num_operations": num_operations,
+        "spacing_warnings": spacing,
+        "cz": cz,
+        "partial": True,
     }
 
 
-def _metrics_dict(metrics, warnings: int) -> dict[str, Any]:
+def _official_totals(metrics, cz: int, spacing_warnings: int) -> dict:
     return {
         "num_moves": metrics.num_moves,
         "move_steps": metrics.move_steps,
-        "move_distance": _r6(metrics.move_distance),
-        "move_time": _r6(metrics.move_time),
+        "move_distance": round(metrics.move_distance, 6),
+        "move_time": round(metrics.move_time, 6),
         "depth": metrics.depth,
         "num_operations": metrics.num_operations,
-        "spacing_warnings": warnings,
+        "spacing_warnings": spacing_warnings,
+        "cz": cz,
+        "partial": False,
     }
 
 
-def _meta_skeleton(compiler: str, label: str, path: Path, name: str) -> dict[str, Any]:
-    return {
-        "compiler": name,
-        "compiler_path": compiler,
-        "label": label,
-        "file": str(path.relative_to(ROOT / "vendor" / "pushquantum_validator"))
-        if path.is_relative_to(ROOT / "vendor" / "pushquantum_validator")
-        else str(path),
-        "family": _family(path),
-        "qubits": None,
-        "status": "compile_error",
-        "error": None,
-        "error_index": None,
-        "violations": [],
-        "physics_ok": None,
-        "physics": "not checked (compile error)",
-        "metrics": None,
-        "naive": None,
-        "compile_s": None,
-        "generated": _now(),
-    }
+# ---------------------------------------------------------------------- build
 
 
-def build_data(compiler: str, qasm_path: Path, name: str, timeout: float = 300) -> dict[str, Any]:
-    """Everything one page needs (schema 1 of docs/ideas/viz.md). Never raises for compiler output."""
-    from qiskit import QuantumCircuit
-
-    logging.getLogger("pushquantum_validator").setLevel(logging.ERROR)
-    path = Path(qasm_path).resolve()
-    label = benchmark_label(path) or path.stem
-    data: dict[str, Any] = {
-        "schema": SCHEMA,
-        "meta": _meta_skeleton(compiler, label, path, name),
-        "spec": _spec_geometry(),
-        "loading": [],
-        "hub": -1,
-        "degree": [],
-        "ops": [],
-        "angles": [],
-        "col": [],
-        "ncols": 0,
-        "colmove": [],
-        "depth_at": [],
-        "moves": [],
-        "warnings": [],
-    }
-    meta = data["meta"]
-    try:
-        reference = QuantumCircuit.from_qasm_file(str(path))
-        meta["qubits"] = reference.num_qubits
-        data["hub"], data["degree"] = _hub_degree(reference)
-    except Exception as error:  # unreadable file: an error card is the best we can do
-        meta["error"] = f"{type(error).__name__}: {error}"[:2000]
-        return data
-
-    baseline = _naive().get(label)
-    meta["naive"] = (
-        {"move_distance": baseline["metrics"]["move_distance"], "depth": baseline["metrics"]["depth"]}
-        if baseline
-        else None
-    )
-
-    started = time.perf_counter()
-    try:
-        compiled, loading = run_compiler(reference, compiler, timeout=timeout, network=False)
-    except CompilerOutputError as error:
-        meta["error"] = f"CompilerOutputError: {error}"[:2000]
-        return data
-    except Exception as error:
-        meta["error"] = f"{type(error).__name__}: {error}"[:2000]
-        return data
-    meta["compile_s"] = round(time.perf_counter() - started, 2)
-    data["loading"] = [list(loading[q]) for q in range(len(loading))]
-
-    movement = None
-    try:
-        movement = verify_movement(compiled, loading, log_file=os.devnull)
-        gates = strip_moves(compiled)
-        metrics = compute_metrics(compiled, movement, gates)
-    except ArchitectureError as error:
-        _build_invalid(data, compiled, loading, error)
-        return data
-
-    meta["status"] = "ok"
-    meta["physics"] = "not checked"
-    data["moves"] = _moves_from_trace(movement.trace, loading)
-    data["warnings"] = _warnings(movement.trace)
-    data.update(_layers(compiled, list(compiled.data), data["moves"]))
-    meta["metrics"] = _metrics_dict(metrics, movement.spacing_warnings)
-
-    # Sum the *stored* values, in the order the page sums them: this is exactly the page's own check.
-    total = sum(move["d"] for move in data["moves"])
-    assert abs(total - metrics.move_distance) < 1e-6, "move distances disagree with compute_metrics"
-    assert (data["depth_at"][-1] if data["depth_at"] else 0) == metrics.depth, "depth disagrees with compute_metrics"
-    assert len(data["moves"]) == metrics.num_moves, "move count disagrees with compute_metrics"
-    assert sum(m["w"] for m in data["moves"]) == movement.spacing_warnings, "warning count disagrees"
-
-    try:
-        segments = physics_check(compiled, loading, movement.trace)
-        meta["physics"], meta["physics_ok"] = f"transversal CZ ok ({segments} segments)", True
-    except PhysicsError as error:
-        meta["physics"], meta["physics_ok"] = f"PhysicsError: {error}"[:2000], False
-    return data
+def _regex_index(pattern: str, message: str) -> int | None:
+    match = re.search(pattern, message)
+    return int(match.group(1)) if match else None
 
 
-def _build_invalid(data: dict[str, Any], compiled, loading: dict, error: ArchitectureError) -> None:
-    """Partial trace up to the first violation; metrics of the truncated replay are marked partial."""
-    meta = data["meta"]
-    kinds = sorted({v.kind for v in (error.violations or (error,))})
-    meta["status"] = "invalid"
-    meta["error"] = f"ArchitectureError[{','.join(kinds)}]: {error}"[:2000]
-    meta["violations"] = [str(v)[:2000] for v in (error.violations or (error,))][:20]
-    meta["physics"], meta["physics_ok"] = "not checked (invalid replay)", None
-
-    moves, warnings, error_index, total = _partial_replay(compiled, loading)
-    meta["error_index"] = error_index
-    limit = len(compiled.data) if error_index is None else error_index + 1
-    data["moves"], data["warnings"] = moves, warnings
-    data.update(_layers(compiled, list(compiled.data)[:limit], moves))
-
-    depth_at = data["depth_at"]
-    operations = sum(1 for inst in list(compiled.data)[:limit] if inst.operation.name not in IDENTITIES)
-    meta["metrics"] = {
-        "num_moves": len(moves),
-        "move_steps": (max((m["s"] for m in moves), default=-1) + 1) if moves else 0,
-        "move_distance": _r6(total),
-        "move_time": _r6(total),
-        "depth": depth_at[-1] if depth_at else 0,
-        "num_operations": operations,
-        "spacing_warnings": sum(m["w"] for m in moves),
-    }
-    meta["metrics_partial"] = True
+def _harness_message(error: BaseException) -> str:
+    return f"{type(error).__name__}: {error}\n{traceback.format_exc()[-1500:]}"
 
 
-# ---------------------------------------------------------------------- rendering seam
-
-
-def _renderers() -> tuple[Callable[[dict], str], Callable[[dict], str]]:
-    try:
-        from viz_page import render_index, render_page  # written by another agent
-
-        return render_page, render_index
-    except Exception:
-        return _fallback_page, _fallback_index
-
-
-def _fallback_page(data: dict) -> str:
-    meta = data.get("meta", {})
-    blob = json.dumps(data, separators=(",", ":"))
-    return (
-        "<!doctype html><meta charset=utf-8><title>"
-        f"{html.escape(str(meta.get('label')))}</title>"
-        "<h1>viz fallback (bench/viz_page.py missing or broken)</h1>"
-        f"<pre>{html.escape(json.dumps(meta, indent=1))}</pre>"
-        f"<script>const DATA = {blob};</script>"
-    )
-
-
-def _fallback_index(rows: dict) -> str:
-    items = []
-    for meta in rows.get("compilers", []):
-        items.append(f"<h2>{html.escape(str(meta.get('compiler')))}</h2><ul>")
-        for circuit in meta.get("circuits", []):
-            link = html.escape(str(circuit.get("page") or ""))
-            items.append(
-                f'<li><a href="{link}">{html.escape(str(circuit.get("label")))}</a> '
-                f'{html.escape(str(circuit.get("status")))}</li>'
-            )
-        items.append("</ul>")
-    return (
-        "<!doctype html><meta charset=utf-8><title>viz</title><h1>compiled circuits</h1>"
-        f"<p>generated {html.escape(str(rows.get('generated')))}</p>" + "".join(items)
-    )
-
-
-def _render_page(data: dict) -> str:
-    render_page, _ = _renderers()
-    try:
-        return render_page(data)
-    except Exception:
-        return _fallback_page(data)
-
-
-def _render_index(rows: dict) -> str:
-    _, render_index = _renderers()
-    try:
-        return render_index(rows)
-    except Exception:
-        return _fallback_index(rows)
-
-
-# ---------------------------------------------------------------------- output naming
-
-
-def _output_name(compiler_path: Path, explicit: str | None) -> str:
-    if explicit is not None:
-        name = explicit
-    elif compiler_path.is_relative_to(ROOT):
-        name = compiler_path.parent.name
-    else:
-        name = compiler_path.parent.name
-        try:
-            parts = compiler_path.relative_to(CHALLENGE_WT).parts
-        except ValueError:
-            parts = ()
-        if len(parts) >= 3 and parts[1] == "compilers":
-            folder = parts[2] if len(parts) > 3 else compiler_path.parent.name
-            name = parts[0] if parts[0] == folder else f"{parts[0]}-{folder}"
-    if not SLUG.match(name):
-        raise SystemExit(f"unsafe output name {name!r}: expected ^[A-Za-z0-9._-]+$")
-    return name
-
-
-def _resolve_compiler(arg: str) -> tuple[str, Path]:
-    raw = arg if ":" in arg else f"{arg}:compile_circuit"
-    path_part, _, function = raw.rpartition(":")
-    if not FUNCTION.match(function):
-        raise SystemExit(f"invalid compiler function {function!r}")
-    path = Path(path_part).resolve()
-    if not path.is_file():
-        raise SystemExit(f"no such compiler file: {path}")
-    return f"{path}:{function}", path
-
-
-def _resolve_circuit(which: str) -> Path:
-    path = Path(which)
-    if path.is_file():
-        return path.resolve()
-    for candidate in sanity_benchmarks() + metric_benchmarks():
-        if benchmark_label(candidate) == which or candidate.stem == which:
-            return candidate
-    raise SystemExit(f"unknown circuit {which!r}: not a .qasm file and no such benchmark label")
-
-
-def _select_paths(which: str) -> list[Path]:
-    paths: list[Path] = []
-    if which in ("sanity", "all"):
-        paths += sanity_benchmarks()
-    if which in ("metric", "all"):
-        paths += metric_benchmarks()
-    return paths
-
-
-# ---------------------------------------------------------------------- meta.json / index
-
-
-def _meta_set(circuits: list[dict]) -> str:
-    metric = any(c["label"].startswith("metric_") for c in circuits)
-    sanity = any(c["label"].startswith("sample_") for c in circuits)
-    return "all" if metric and sanity else ("metric" if metric else "sanity")
-
-
-def summarize(circuits: list[dict]) -> dict[str, Any]:
-    """`bench/bench.py`'s score formula over the ok metric circuits present."""
-    rows = [c for c in circuits if c["label"].startswith("metric_")]
-    valid = bool(rows) and all(c["status"] == "ok" for c in rows)
-    out: dict[str, Any] = {
-        "n_metric": len(rows),
-        "distance": None,
-        "naive_distance": None,
-        "distance_improvement": None,
-        "depth": None,
-        "naive_depth": None,
-        "depth_improvement": None,
-        "score": None,
-        "valid": valid,
-    }
-    baseline = _naive()
-    done = [c for c in rows if c["status"] == "ok" and c.get("metrics") and c["label"] in baseline]
-    if not done:
-        return out
-    distance = sum(c["metrics"]["move_distance"] for c in done)
-    depth = sum(c["metrics"]["depth"] for c in done)
-    naive_distance = sum(baseline[c["label"]]["metrics"]["move_distance"] for c in done)
-    naive_depth = sum(baseline[c["label"]]["metrics"]["depth"] for c in done)
-    di = (naive_distance - distance) / naive_distance * 100 if naive_distance else 0.0
-    pi = (naive_depth - depth) / naive_depth * 100 if naive_depth else 0.0
-    out.update(
-        distance=round(distance, 3),
-        naive_distance=round(naive_distance, 3),
-        distance_improvement=round(di, 3),
-        depth=depth,
-        naive_depth=naive_depth,
-        depth_improvement=round(pi, 3),
-        score=round(0.8 * di + 0.2 * pi, 4),
-    )
+def _violation_list(errors) -> list[dict]:
+    out = []
+    for error in list(errors)[:500]:
+        out.append(
+            {
+                "i": _regex_index(r"Instruction (\d+)", str(error)),
+                "kind": getattr(error, "kind", "move"),
+                "msg": str(error)[:1000],
+            }
+        )
     return out
 
 
-def _write_meta(name: str, compiler: str, records: list[dict]) -> dict[str, Any]:
-    """Merge `records` into viz/<name>/meta.json (circuits not rebuilt keep their record)."""
-    VIZ.mkdir(parents=True, exist_ok=True)
-    folder = VIZ / name
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / "meta.json"
-    merged: dict[str, dict] = {}
-    if path.is_file():
-        try:
-            for circuit in json.loads(path.read_text(encoding="utf-8")).get("circuits", []):
-                merged[circuit["label"]] = circuit
-        except Exception:
-            merged = {}
-    for record in records:
-        merged[record["label"]] = record
-    circuits = sorted(merged.values(), key=lambda c: c["label"])
-    meta = {
-        "compiler": name,
-        "compiler_path": compiler,
-        "set": _meta_set(circuits),
-        "generated": _now(),
-        "circuits": circuits,
-        "summary": summarize(circuits),
-    }
-    path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
-    return meta
+def build(compiler_path: str | Path, qasm_path: str | Path, name: str, mode: str, timeout: float = 300):
+    """Compile `qasm_path`, replay it and return `(data, summary)` (see docs/viz.md)."""
+    compiler_path = Path(compiler_path).resolve()
+    qasm_path = Path(qasm_path).resolve()
+    bench_label = benchmark_label(qasm_path)
+    label = bench_label or qasm_path.stem
+    family = bench._family(qasm_path) if bench_label else "other"
+    zone_list, zone_at = _zone_map()
+    generated = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-
-def _collect_metas() -> list[dict]:
-    out = []
-    for path in sorted(VIZ.glob("*/meta.json")):
-        try:
-            meta = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        meta["circuits"] = sorted(meta.get("circuits", []), key=lambda c: c.get("label", ""))
-        out.append(meta)
-    return sorted(out, key=lambda m: str(m.get("compiler") or ""))
-
-
-def rebuild_index() -> dict[str, Any]:
-    rows = {"generated": _now(), "compilers": _collect_metas()}
-    VIZ.mkdir(parents=True, exist_ok=True)
-    (VIZ / "index.html").write_text(_render_index(rows), encoding="utf-8")
-    return rows
-
-
-# ---------------------------------------------------------------------- parallel builds
-
-
-def _lite(data: dict, name: str, page: Path) -> dict[str, Any]:
-    meta = data["meta"]
-    return {
-        "label": meta["label"],
-        "file": meta["file"],
-        "family": meta["family"],
-        "qubits": meta["qubits"],
-        "status": meta["status"],
-        "page": f"{name}/{page.name}",
-        "metrics": meta["metrics"],
-        "naive": meta["naive"],
-        "physics_ok": meta["physics_ok"],
-        "error": meta["error"],
-        "compile_s": meta["compile_s"],
-        "bytes": page.stat().st_size,
+    data = {
+        "version": VIZ_VERSION,
+        "meta": {
+            "name": name,
+            "compiler": str(compiler_path),
+            "circuit": label,
+            "qasm": _qasm_relative(qasm_path),
+            "family": family,
+            "num_qubits": 0,
+            "num_clbits": 0,
+            "generated": generated,
+            "compile_s": 0.0,
+            "mode": mode,
+            "warnings": [],
+        },
+        "geometry": _geometry(),
+        "loading": None,
+        "ops": list(BASE_OPS),
+        "inst": {"op": [], "qs": [], "par": [], "col": [], "depth": [], "mv": []},
+        "moves": [],
+        "warnings": [],
+        "violations": [],
+        "error": None,
+        "totals": {
+            "num_moves": 0,
+            "move_steps": 0,
+            "move_distance": 0.0,
+            "move_time": 0.0,
+            "depth": 0,
+            "num_operations": 0,
+            "spacing_warnings": 0,
+            "cz": 0,
+            "partial": True,
+        },
+        "naive": _naive_for(bench_label),
+        "equivalence": "skipped (fast)" if mode == "fast" else "not checked",
+        "physics": {"ok": None, "segments": None, "msg": None},  # None = not checked
+        "regen": {"compiler": str(compiler_path), "circuit": bench_label},
     }
 
-
-def _task(compiler: str, qasm: str, name: str, timeout: float) -> dict[str, Any]:
-    """One circuit: extract -> render -> write its page. Never raises."""
-    path = Path(qasm)
     try:
-        data = build_data(compiler, path, name, timeout)
-        folder = VIZ / name
-        folder.mkdir(parents=True, exist_ok=True)
-        target = folder / f"{data['meta']['label']}.html"
-        target.write_text(_render_page(data), encoding="utf-8")
-        return _lite(data, name, target)
-    except Exception as error:  # a broken page must not kill the run
-        label = benchmark_label(path) or path.stem
-        return {
-            "label": label,
-            "file": str(path),
-            "family": _family(path),
-            "qubits": None,
-            "status": "error",
-            "page": None,
-            "metrics": None,
-            "naive": None,
-            "physics_ok": None,
-            "error": f"{type(error).__name__}: {error}"[:2000],
-            "compile_s": None,
-            "bytes": 0,
+        reference = QuantumCircuit.from_qasm_file(str(qasm_path))
+    except Exception as error:  # noqa: BLE001 - the page must still be produced
+        data["error"] = {"stage": "harness", "msg": _harness_message(error)[:2000], "i": None}
+        return data, _summary(data)
+
+    data["meta"]["num_qubits"] = reference.num_qubits
+    data["meta"]["num_clbits"] = reference.num_clbits
+
+    t0 = time.perf_counter()
+    try:
+        compiled, loading = run_compiler(
+            reference, f"{compiler_path}:compile_circuit", timeout=timeout, network=False
+        )
+    except CompilerOutputError as error:
+        data["meta"]["compile_s"] = round(time.perf_counter() - t0, 3)
+        data["error"] = {"stage": "compile", "msg": str(error)[:2000], "i": None}
+        data["equivalence"] = "skipped (compile failed)"
+        return data, _summary(data)
+    except Exception as error:  # noqa: BLE001
+        data["meta"]["compile_s"] = round(time.perf_counter() - t0, 3)
+        data["error"] = {"stage": "harness", "msg": _harness_message(error)[:2000], "i": None}
+        return data, _summary(data)
+    data["meta"]["compile_s"] = round(time.perf_counter() - t0, 3)
+
+    try:
+        gates = strip_moves(compiled)
+        depth = gates.depth()
+        num_operations = gates.size()
+    except Exception as error:  # noqa: BLE001
+        data["error"] = {"stage": "harness", "msg": _harness_message(error)[:2000], "i": None}
+        return data, _summary(data)
+    cz_count = sum(1 for instruction in compiled.data if instruction.operation.name == "cz")
+
+    try:
+        arch = ValidationArchitecture.from_loading(loading)
+    except ArchitectureError:
+        arch = None
+
+    movement = None
+    trace: list = []
+    loading_failed = False
+    try:
+        movement = verify_movement(compiled, loading, log_file=os.devnull)
+        trace = movement.trace
+    except ArchitectureError as error:
+        partial_errors = [error]
+        if arch is not None:
+            try:
+                trace, partial_errors = arch._replay(compiled, [])
+            except ArchitectureError as replay_error:
+                trace = []
+                partial_errors = [replay_error]
+                loading_failed = True
+            else:
+                loading_failed = not partial_errors
+        else:
+            loading_failed = True
+        if not partial_errors:
+            partial_errors = [error]
+        first = partial_errors[0]
+        data["violations"] = _violation_list(partial_errors)
+        if loading_failed:
+            if error.kind != "loading" and partial_errors and getattr(partial_errors[0], "kind", "") == "loading":
+                first = partial_errors[0]
+            data["error"] = {"stage": "loading", "msg": str(first)[:2000], "i": None}
+        else:
+            data["error"] = {
+                "stage": "movement",
+                "msg": str(first)[:2000],
+                "i": _regex_index(r"Instruction (\d+)", str(first)),
+            }
+
+    if movement is not None:
+        try:
+            metrics = compute_metrics(compiled, movement, gates)
+            totals = _official_totals(metrics, cz_count, movement.spacing_warnings)
+        except Exception as error:  # noqa: BLE001
+            totals = _partial_totals(trace, depth, num_operations, cz_count)
+            if data["error"] is None:
+                data["error"] = {"stage": "harness", "msg": _harness_message(error)[:2000], "i": None}
+    else:
+        totals = _partial_totals(trace, depth, num_operations, cz_count)
+    data["totals"] = totals
+
+    if movement is not None:
+        try:
+            segments = bench.physics_check(compiled, loading, movement.trace)
+            data["physics"] = {"ok": True, "segments": segments, "msg": None}
+        except bench.PhysicsError as error:
+            message = str(error)
+            data["physics"] = {"ok": False, "segments": None, "msg": message[:2000]}
+            if data["error"] is None:
+                data["error"] = {
+                    "stage": "physics",
+                    "msg": message[:2000],
+                    "i": _regex_index(r"instruction (\d+)", message),
+                }
+        except Exception as error:  # noqa: BLE001
+            if data["error"] is None:
+                data["error"] = {"stage": "harness", "msg": _harness_message(error)[:2000], "i": None}
+
+    if mode == "full":
+        try:
+            result = verify_equivalence(compiled, reference, gates)
+            if result is None:
+                data["equivalence"] = "interaction pairs only (> 19 qubits)"
+            else:
+                data["equivalence"] = str(result.equivalence).split(".")[-1]
+        except NotEquivalentError as error:
+            data["equivalence"] = "FAILED: " + str(error)
+            if data["error"] is None:
+                data["error"] = {"stage": "equivalence", "msg": str(error)[:2000], "i": None}
+        except Exception as error:  # noqa: BLE001
+            data["equivalence"] = "error: " + type(error).__name__
+            if data["error"] is None:
+                data["error"] = {"stage": "harness", "msg": _harness_message(error)[:2000], "i": None}
+
+    move_of_index = {record.index: k for k, record in enumerate(trace)}
+
+    try:
+        ops, arrays = _instruction_arrays(compiled, move_of_index)
+        data["ops"] = ops
+        data["inst"] = arrays
+    except Exception as error:  # noqa: BLE001
+        if data["error"] is None:
+            data["error"] = {"stage": "harness", "msg": _harness_message(error)[:2000], "i": None}
+
+    try:
+        moves, warnings = _move_arrays(trace, loading, arch, zone_at)
+        data["moves"] = moves
+        data["warnings"] = warnings
+    except Exception as error:  # noqa: BLE001
+        if data["error"] is None:
+            data["error"] = {"stage": "harness", "msg": _harness_message(error)[:2000], "i": None}
+
+    try:
+        data["loading"] = _loading_positions(loading, reference.num_qubits, arch, zone_at)
+    except Exception as error:  # noqa: BLE001
+        if data["error"] is None:
+            data["error"] = {"stage": "harness", "msg": _harness_message(error)[:2000], "i": None}
+
+    # Internal consistency checks: never fatal, only reported.
+    if movement is not None and data["inst"]["depth"]:
+        depths = data["inst"]["depth"]
+        if depths[-1] != totals["depth"]:
+            message = f"depth mismatch: inst {depths[-1]} vs metrics {totals['depth']}"
+            data["meta"]["warnings"].append(message)
+            print("WARNING " + message, file=sys.stderr, flush=True)
+        distance = sum(record.distance for record in trace)
+        if abs(distance - totals["move_distance"]) > 1e-6:
+            message = f"distance mismatch: trace {distance:.6f} vs metrics {totals['move_distance']:.6f}"
+            data["meta"]["warnings"].append(message)
+            print("WARNING " + message, file=sys.stderr, flush=True)
+
+    return data, _summary(data)
+
+
+def _summary(data: dict) -> dict:
+    error = data["error"]
+    totals = data["totals"]
+    official = not totals.get("partial", True)
+    metrics = None
+    if official:
+        metrics = {
+            "num_moves": totals["num_moves"],
+            "move_steps": totals["move_steps"],
+            "move_distance": totals["move_distance"],
+            "move_time": totals["move_time"],
+            "depth": totals["depth"],
+            "num_operations": totals["num_operations"],
+            "spacing_warnings": totals["spacing_warnings"],
         }
+    return {
+        "name": data["meta"]["name"],
+        "label": data["meta"]["circuit"],
+        "family": data["meta"]["family"],
+        "ok": error is None,
+        "stage": error["stage"] if error else None,
+        "error": error["msg"] if error else None,
+        "error_i": error["i"] if error else None,
+        "metrics": metrics,
+        "totals": totals,
+        "cz": totals["cz"],
+        "compile_s": data["meta"]["compile_s"],
+        "equivalence": data["equivalence"],
+        "physics": data["physics"],
+        "page_bytes": None,
+    }
 
 
-def _print_record(record: dict) -> None:
-    if record["status"] == "ok" and record.get("metrics"):
-        m = record["metrics"]
+# ---------------------------------------------------------------------- writing pages
+
+
+def _template_text() -> str:
+    path = ROOT / "bench" / "viz_page.html"
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return FALLBACK_TEMPLATE
+
+
+def write_outputs(data: dict, summary: dict, out: Path) -> tuple[dict, Path]:
+    """Write `viz/<name>/<label>.html` and the sidecar JSON; return the updated summary and path."""
+    name = data["meta"]["name"]
+    label = data["meta"]["circuit"]
+    directory = out / name
+    directory.mkdir(parents=True, exist_ok=True)
+    page_path = directory / f"{label}.html"
+    sidecar_path = directory / f"{label}.json"
+
+    payload = json.dumps(data, separators=(",", ":"), allow_nan=False).replace("</", "<\\/")
+    template = _template_text()
+    if template.count("__VIZ_DATA__") != 1:
         print(
-            f"PASS {record['label']:<18} {record['file']:<44} "
-            f"dist {m['move_distance']:.1f} depth {m['depth']} [{record['compile_s']}s]",
+            f"WARNING: template {ROOT / 'bench' / 'viz_page.html'} has "
+            f"{template.count('__VIZ_DATA__')} __VIZ_DATA__ placeholders (expected 1)",
+            file=sys.stderr,
             flush=True,
         )
-    else:
-        print(f"FAIL {record['label']:<18} {record['file']:<44} {str(record['error'])[:300]}", flush=True)
+    page_text = template.replace("__VIZ_DATA__", payload, 1)
+    if "__VIZ_TITLE__" in page_text:
+        page_text = page_text.replace("__VIZ_TITLE__", html.escape(f"{name} · {label}"))
+    page_path.write_text(page_text, encoding="utf-8")
+    page_bytes = len(page_text.encode("utf-8"))
 
-
-def run_builds(
-    compiler: str,
-    paths: list[Path],
-    bset: str,
-    jobs: int,
-    name: str,
-    timeout: float = 300,
-    on_done: Callable[[int, int, dict], None] | None = None,
-    verbose: bool = True,
-) -> dict[str, Any]:
-    """Build + render every path in a process pool, then write meta.json and rebuild the index."""
-    records: list[dict] = []
-    total = len(paths)
-    VIZ.mkdir(parents=True, exist_ok=True)
-    try:
-        with cf.ProcessPoolExecutor(max_workers=max(1, jobs)) as pool:
-            futures = {pool.submit(_task, compiler, str(p), name, timeout): p for p in paths}
-            for future in cf.as_completed(futures):
-                try:
-                    record = future.result()
-                except Exception as error:
-                    record = _task(compiler, str(futures[future]), name, timeout)
-                    record["status"] = "error"
-                    record["error"] = f"{type(error).__name__}: {error}"[:2000]
-                records.append(record)
-                if verbose:
-                    _print_record(record)
-                if on_done:
-                    on_done(len(records), total, record)
-    finally:
-        meta = _write_meta(name, compiler, records) if records else _empty_meta(name, compiler, bset)
-        rebuild_index()
-    return meta
-
-
-def _empty_meta(name: str, compiler: str, bset: str) -> dict[str, Any]:
-    VIZ.mkdir(parents=True, exist_ok=True)
-    folder = VIZ / name
-    folder.mkdir(parents=True, exist_ok=True)
-    meta = {"compiler": name, "compiler_path": compiler, "set": bset, "generated": _now(), "circuits": [],
-            "summary": summarize([])}
-    (folder / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
-    return meta
-
-
-def _print_summary(meta: dict[str, Any]) -> None:
-    summary = meta.get("summary", {})
-    circuits = meta.get("circuits", [])
-    ok = sum(1 for c in circuits if c["status"] == "ok")
-    print("-" * 80)
-    print(f"{meta['compiler']}: {ok}/{len(circuits)} passed ({meta['set']})")
-    if summary.get("score") is not None:
-        print(
-            f"SCORE (metric circuits): {summary['score']:+.2f}%  "
-            f"(distance {summary['distance']:.1f} vs {summary['naive_distance']:.1f}: "
-            f"{summary['distance_improvement']:+.2f}%; depth {summary['depth']} vs "
-            f"{summary['naive_depth']}: {summary['depth_improvement']:+.2f}%)"
-        )
-    elif summary.get("n_metric"):
-        print("SCORE: not computed (a metric circuit failed)")
-
-
-# ---------------------------------------------------------------------- serve
-
-
-def _is_allowed_compiler(path: Path) -> bool:
-    if path.is_relative_to(ROOT / "compilers"):
-        return True
-    try:
-        parts = path.relative_to(CHALLENGE_WT).parts
-    except ValueError:
-        return False
-    return len(parts) >= 3 and parts[1] == "compilers" and (CHALLENGE_WT / parts[0]).is_dir()
-
-
-def _served_compiler(raw: str) -> tuple[str, Path, str]:
-    """Validate a `/regen?compiler=` argument; raises ValueError with a short reason."""
-    if not raw:
-        raise ValueError("missing compiler")
-    path_part, sep, function = raw.rpartition(":")
-    if not sep:
-        path_part, function = raw, "compile_circuit"
-    if not FUNCTION.match(function):
-        raise ValueError("invalid function name")
-    path = Path(path_part).resolve()
-    if path.suffix != ".py" or not path.is_file():
-        raise ValueError("compiler must be an existing .py file")
-    if not _is_allowed_compiler(path):
-        raise ValueError("compiler must live under compilers/ in this repo or a challenge-wt worktree")
-    name = _output_name(path, None)
-    return f"{path}:{function}", path, name
-
-
-_REGEN_LOCK = threading.Lock()
-_REGEN: dict[str, Any] = {"thread": None}
-
-
-def _write_status(payload: dict[str, Any]) -> None:
-    VIZ.mkdir(parents=True, exist_ok=True)
-    tmp = VIZ / "status.json.tmp"
-    tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, VIZ / "status.json")
-
-
-def _regen_running() -> bool:
-    thread = _REGEN.get("thread")
-    return bool(thread is not None and thread.is_alive())
-
-
-def _regen_job(compiler: str, paths: list[Path], bset: str, jobs: int, name: str) -> None:
-    status: dict[str, Any] = {
-        "running": True,
-        "compiler": name,
-        "message": "starting",
-        "done": 0,
-        "total": len(paths),
-        "started": _now(),
-        "finished": None,
-        "ok": False,
+    error = data["error"]
+    official = not data["totals"].get("partial", True)
+    sidecar = {
+        "name": name,
+        "label": label,
+        "family": data["meta"]["family"],
+        "qubits": data["meta"]["num_qubits"],
+        "compiler": data["meta"]["compiler"],
+        "ok": summary["ok"],
+        "stage": error["stage"] if error else None,
+        "error": error["msg"][:300] if error else None,
+        "metrics": summary["metrics"] if official else None,
+        "cz": data["totals"]["cz"],
+        "naive": data["naive"],
+        "equivalence": data["equivalence"],
+        "compile_s": data["meta"]["compile_s"],
+        "page": f"{label}.html",
+        "page_bytes": page_bytes,
+        "generated": data["meta"]["generated"],
     }
-    _write_status(status)
+    if not official:
+        sidecar["partial"] = data["totals"]
+    sidecar_path.write_text(json.dumps(sidecar, indent=1), encoding="utf-8")
 
-    def on_done(done: int, total: int, record: dict) -> None:
-        status.update(done=done, total=total, message=f"{record['label']}: {record['status']}")
-        _write_status(status)
-
-    try:
-        status["message"] = f"building {len(paths)} circuits"
-        _write_status(status)
-        meta = run_builds(compiler, paths, bset, jobs, name, on_done=on_done, verbose=False)
-        status["ok"] = all(c["status"] == "ok" for c in meta["circuits"]) if meta["circuits"] else False
-        status["message"] = f"done ({status['done']}/{status['total']})"
-    except Exception as error:
-        status["message"] = f"error: {type(error).__name__}: {error}"[:500]
-        status["ok"] = False
-    finally:
-        status.update(running=False, finished=_now())
-        _write_status(status)
+    updated = dict(summary)
+    updated["page_bytes"] = page_bytes
+    updated["page_path"] = str(page_path)
+    return updated, page_path
 
 
-class _Handler(http.server.SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, directory=str(VIZ), **kwargs)
+# ---------------------------------------------------------------------- index data
 
-    def _json(self, code: int, payload: dict[str, Any]) -> None:
-        body = json.dumps(payload).encode()
-        self.send_response(code)
+
+def collect_index(out: Path) -> list[dict]:
+    """Load every sidecar under `out` and group it per compiler, with bench scores when possible."""
+    out = Path(out)
+    sidecars = []
+    if out.is_dir():
+        for path in sorted(out.glob("*/*.json")):
+            try:
+                sidecar = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(sidecar, dict):
+                sidecars.append(sidecar)
+
+    groups: dict[str, list[dict]] = {}
+    for sidecar in sidecars:
+        name = sidecar.get("name")
+        if not name:
+            continue
+        groups.setdefault(str(name), []).append(sidecar)
+
+    metric_labels = {label for label in _naive_baseline() if label.startswith("metric_")}
+    result = []
+    for name in sorted(groups, key=lambda value: (value != "naive", value)):
+        rows = groups[name]
+        rows.sort(key=lambda row: (0 if str(row.get("label", "")).startswith("metric_") else 1,
+                                   str(row.get("label", ""))))
+        present = {row.get("label") for row in rows}
+        summary = None
+        if metric_labels and metric_labels.issubset(present):
+            records = [
+                {
+                    "label": row.get("label"),
+                    "family": row.get("family"),
+                    "ok": bool(row.get("ok")),
+                    "metrics": row.get("metrics"),
+                }
+                for row in rows
+                if row.get("label") in metric_labels
+            ]
+            summary = bench.score(records)
+        compilers = sorted({str(row.get("compiler")) for row in rows if row.get("compiler")})
+        result.append(
+            {
+                "name": name,
+                "compiler": compilers[0] if compilers else None,
+                "summary": summary,
+                "rows": rows,
+            }
+        )
+    return result
+
+
+def render_index(groups: list[dict]) -> str:
+    """The index page: `bench/viz_index.html` with the groups embedded as JSON (rendered client-side)."""
+    payload = {"generated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"), "groups": groups}
+    text = json.dumps(payload, separators=(",", ":"), allow_nan=False).replace("</", "<\\/")
+    template = (ROOT / "bench" / "viz_index.html").read_text(encoding="utf-8")
+    return template.replace("__VIZ_INDEX__", text, 1)
+
+
+def regenerate_index(out: Path) -> Path:
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    text = render_index(collect_index(out))
+    path = out / "index.html"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+# ---------------------------------------------------------------------- CLI helpers
+
+
+def _format_size(num_bytes: int) -> str:
+    if num_bytes < 1024:
+        return f"{num_bytes} B"
+    if num_bytes < 1024 * 1024:
+        return f"{num_bytes / 1024:.0f} KB"
+    return f"{num_bytes / (1024 * 1024):.1f} MB"
+
+
+def _summary_line(summary: dict) -> str:
+    size = _format_size(summary["page_bytes"] or 0)
+    if summary["ok"]:
+        metrics = summary["metrics"] or {}
+        baseline = _naive_baseline().get(summary["label"], {}).get("metrics")
+        relative = ""
+        if baseline:
+            distance = metrics.get("move_distance", 0.0)
+            depth = metrics.get("depth", 0)
+            relative = (
+                f" dist {distance:.1f} ({(distance / baseline['move_distance'] - 1) * 100:+.1f}%)"
+                f" depth {depth} ({(depth / baseline['depth'] - 1) * 100:+.1f}%)"
+            )
+        return (
+            f"PASS {summary['label']:<18}{relative} "
+            f"moves {metrics.get('num_moves')} cz {summary['cz']} [{summary['compile_s']}s] {size}"
+        )
+    return (
+        f"FAIL {summary['label']:<18} {summary['stage']}: "
+        f"{(summary['error'] or '')[:200]} {size}"
+    )
+
+
+def _worker(args: tuple) -> dict:
+    compiler_path, qasm_path, name, mode, timeout, out = args
+    data, summary = build(compiler_path, qasm_path, name, mode, timeout)
+    summary, _ = write_outputs(data, summary, Path(out))
+    return summary
+
+
+# ---------------------------------------------------------------------- server
+
+
+class VizRequestHandler(SimpleHTTPRequestHandler):
+    """Static server with a no-store cache policy and the regenerate API."""
+
+    output_dir: Path = ROOT / "viz"
+
+    def end_headers(self) -> None:  # noqa: D102
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def log_message(self, format: str, *args) -> None:  # noqa: D102
+        sys.stderr.write(f"{self.address_string()} - {format % args}\n")
+
+    def _send_json(self, status: int, payload: dict) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
-    def _regen(self, url: urllib.parse.ParseResult) -> None:
-        params = urllib.parse.parse_qs(url.query)
-        one = lambda key, default: (params.get(key) or [default])[0]  # noqa: E731
-        try:
-            compiler, path, name = _served_compiler(one("compiler", ""))
-            bset = one("set", "metric")
-            if bset not in ("metric", "sanity", "all"):
-                raise ValueError("set must be metric, sanity or all")
-            jobs = max(1, min(8, int(one("jobs", "2"))))
-            name = _output_name(path, one("name", "") or None)
-        except SystemExit as error:  # unsafe derived folder name
-            return self._json(400, {"error": str(error)})
-        except ValueError as error:
-            return self._json(400, {"error": str(error)})
-        paths = _select_paths(bset)
-        with _REGEN_LOCK:
-            if _regen_running():
-                return self._json(409, {"error": "a regeneration is already running"})
-            thread = threading.Thread(
-                target=_regen_job, args=(compiler, paths, bset, jobs, name), daemon=True, name="viz-regen"
-            )
-            _REGEN["thread"] = thread
-            thread.start()
-        self._json(202, {"started": True, "compiler": name, "set": bset, "jobs": jobs, "total": len(paths)})
-
-    def do_GET(self) -> None:  # noqa: N802
-        url = urllib.parse.urlparse(self.path)
-        if url.path == "/regen":
-            return self._regen(url)
-        if url.path in ("/", "/index.html") and not (VIZ / "index.html").exists():
-            rebuild_index()
+    def do_GET(self) -> None:  # noqa: D102
+        if self.path.split("?", 1)[0] == "/api/ping":
+            self._send_json(200, {"ok": True})
+            return
         super().do_GET()
 
-    def do_HEAD(self) -> None:  # noqa: N802
-        if urllib.parse.urlparse(self.path).path == "/regen":
-            return self._json(405, {"error": "method not allowed"})
-        super().do_HEAD()
+    def do_POST(self) -> None:  # noqa: D102
+        if self.path.split("?", 1)[0] != "/api/regenerate":
+            self._send_json(404, {"ok": False, "error": "not found"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._send_json(400, {"ok": False, "error": "bad Content-Length"})
+            return
+        if length <= 0 or length > 10000:
+            self._send_json(400, {"ok": False, "error": "bad body size"})
+            return
+        try:
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            self._send_json(400, {"ok": False, "error": "invalid JSON"})
+            return
+        if not isinstance(body, dict):
+            self._send_json(400, {"ok": False, "error": "expected a JSON object"})
+            return
 
-    def _reject(self) -> None:
-        self._json(405, {"error": "method not allowed"})
+        compiler = body.get("compiler")
+        label = body.get("circuit")
+        mode = body.get("mode", "fast")
 
-    do_POST = do_PUT = do_DELETE = do_PATCH = _reject  # noqa: N815
+        if not isinstance(compiler, str) or not compiler:
+            self._send_json(403, {"ok": False, "error": "compiler path is required"})
+            return
+        try:
+            resolved = Path(compiler).resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            self._send_json(403, {"ok": False, "error": "compiler path does not exist"})
+            return
+        if not _compiler_allowed(resolved):
+            self._send_json(403, {"ok": False, "error": "compiler path is not allowed"})
+            return
+        if not isinstance(label, str) or label not in known_circuits():
+            self._send_json(400, {"ok": False, "error": "unknown circuit label"})
+            return
+        if mode not in ("fast", "full"):
+            self._send_json(400, {"ok": False, "error": "mode must be fast or full"})
+            return
+        if not REGEN_LOCK.acquire(blocking=False):
+            self._send_json(409, {"ok": False, "error": "a regeneration is already running"})
+            return
+        try:
+            url = f"/{compiler_name(resolved)}/{label}.html"
+            command = [
+                sys.executable,
+                str(ROOT / "bench" / "viz.py"),
+                "page",
+                str(resolved),
+                "--circuit",
+                label,
+                "--mode",
+                mode,
+                "--out",
+                str(self.output_dir),
+            ]
+            try:
+                completed = subprocess.run(
+                    command, capture_output=True, text=True, timeout=900, cwd=str(ROOT)
+                )
+                log = (completed.stdout or "") + (completed.stderr or "")
+                ok = completed.returncode == 0
+            except subprocess.TimeoutExpired as error:
+                log = f"regeneration timed out after 900 s: {error}"
+                ok = False
+            except OSError as error:
+                log = f"could not start regeneration: {error}"
+                ok = False
+            self._send_json(200, {"ok": ok, "url": url, "log": log[-2000:]})
+        finally:
+            REGEN_LOCK.release()
 
 
-def serve(host: str, port: int) -> None:
-    VIZ.mkdir(parents=True, exist_ok=True)
-    if not (VIZ / "index.html").exists():
-        rebuild_index()
-    server = http.server.ThreadingHTTPServer((host, port), _Handler)
-    print(f"viz: http://{host}:{port}/  (serving {VIZ})", flush=True)
+REGEN_LOCK = threading.Lock()
+
+
+def _compiler_allowed(path: Path) -> bool:
+    if not (path.suffix == ".py" and path.is_file()):
+        return False
+    if path.is_relative_to(CHALLENGE_COMPILERS):
+        return True
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nviz: shutting down", flush=True)
-    finally:
-        server.shutdown()
-        server.server_close()
+        relative = path.relative_to(WT_ROOT)
+    except ValueError:
+        return False
+    return len(relative.parts) >= 4 and relative.parts[1] == "compilers"
 
 
-# ---------------------------------------------------------------------- CLI
+# ---------------------------------------------------------------------- commands
 
 
-def _cmd_page(args: argparse.Namespace) -> int:
-    compiler, path = _resolve_compiler(args.compiler)
-    name = _output_name(path, args.name)
-    circuit = _resolve_circuit(args.circuit)
-    data = build_data(compiler, circuit, name, timeout=args.timeout)
-    meta = data["meta"]
-    out = Path(args.output) if args.output else VIZ / name / f"{meta['label']}.html"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(_render_page(data), encoding="utf-8")
-    if out.parent == VIZ / name:  # a page inside viz/ belongs in meta.json and the index
-        _write_meta(name, compiler, [_lite(data, name, out)])
-        rebuild_index()
-    if args.json:
-        target = Path(args.json)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(data, indent=1), encoding="utf-8")
-        print(f"json: {target}")
-    print(f"page: {out} ({out.stat().st_size} bytes)")
-    print(f"{meta['label']} ({meta['family']}, {meta['qubits']} qubits): {meta['status']}  {meta['physics']}")
-    if meta["error"]:
-        print(f"error: {meta['error'][:500]}")
-    if meta["metrics"]:
-        m = meta["metrics"]
-        tag = " (partial)" if meta.get("metrics_partial") else ""
+def cmd_page(args) -> int:
+    compiler = Path(args.compiler).resolve()
+    if not compiler.is_file():
+        raise SystemExit(f"no such compiler file: {compiler}")
+    qasm, bench_label = resolve_circuit(args.circuit)
+    name = sanitize_name(args.name) if args.name else compiler_name(compiler)
+    out = output_dir(args.out)
+    data, summary = build(compiler, qasm, name, args.mode, args.timeout)
+    summary, page_path = write_outputs(data, summary, out)
+    regenerate_index(out)
+    print(f"{page_path} ({_format_size(summary['page_bytes'])})")
+    print(_summary_line(summary))
+    for warning in data["meta"]["warnings"]:
+        print("WARNING " + warning, file=sys.stderr)
+    return 0 if summary["ok"] else 1
+
+
+def cmd_all(args) -> int:
+    compiler = Path(args.compiler).resolve()
+    if not compiler.is_file():
+        raise SystemExit(f"no such compiler file: {compiler}")
+    name = sanitize_name(args.name) if args.name else compiler_name(compiler)
+    out = output_dir(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+
+    paths: list[Path] = []
+    if args.bset in ("sanity", "all"):
+        paths += sanity_benchmarks()
+    if args.bset in ("metric", "all"):
+        paths += metric_benchmarks()
+    if args.filter:
+        paths = [p for p in paths if args.filter in (benchmark_label(p) or "") or args.filter in str(p)]
+    if not paths:
+        raise SystemExit("no benchmarks selected")
+
+    naive = _naive_baseline()
+    t0 = time.perf_counter()
+    summaries: list[dict] = []
+    with cf.ProcessPoolExecutor(max_workers=args.jobs) as pool:
+        futures = {
+            pool.submit(_worker, (str(compiler), str(path), name, args.mode, args.timeout, str(out))): path
+            for path in paths
+        }
+        for future in cf.as_completed(futures):
+            path = futures[future]
+            try:
+                summary = future.result()
+            except Exception as error:  # noqa: BLE001 - one circuit must not stop the run
+                label = benchmark_label(path) or path.stem
+                summary = {
+                    "name": name,
+                    "label": label,
+                    "family": bench._family(path) if benchmark_label(path) else "other",
+                    "ok": False,
+                    "stage": "harness",
+                    "error": _harness_message(error),
+                    "error_i": None,
+                    "metrics": None,
+                    "totals": {},
+                    "cz": 0,
+                    "compile_s": 0.0,
+                    "equivalence": None,
+                    "physics": None,
+                    "page_bytes": 0,
+                }
+            summaries.append(summary)
+            print(_summary_line(summary), flush=True)
+
+    summaries.sort(key=lambda item: str(item["label"]))
+    records = [
+        {
+            "label": item["label"],
+            "family": item["family"],
+            "ok": bool(item["ok"]),
+            "metrics": item["metrics"],
+        }
+        for item in summaries
+    ]
+    result = bench.score(records)
+    elapsed = round(time.perf_counter() - t0, 1)
+    failed = [item["label"] for item in summaries if not item["ok"]]
+
+    index_path = regenerate_index(out)
+    print("-" * 80)
+    print(
+        f"{name}: {len(summaries) - len(failed)}/{len(summaries)} passed in {elapsed}s ({args.mode})"
+    )
+    if failed:
+        print("FAILED:", ", ".join(failed))
+    if result.get("valid"):
+        tag = "OFFICIAL SCORE" if result["official"] else f"partial score ({result['n']} metric circuits)"
         print(
-            f"metrics{tag}: {m['num_moves']} moves in {m['move_steps']} steps, "
-            f"distance {m['move_distance']:.3f}, depth {m['depth']}, "
-            f"{m['num_operations']} ops, {m['spacing_warnings']} warnings"
+            f"{tag}: {result['score']:+.2f}%  (distance {result['distance']:.1f} vs "
+            f"{result['naive_distance']:.1f}: {result['distance_improvement']:+.2f}%; "
+            f"depth {result['depth']} vs {result['naive_depth']}: {result['depth_improvement']:+.2f}%)"
         )
+        for family, values in result["families"].items():
+            print(
+                f"  {family:<5} distance {values['distance_improvement']:+.2f}%  "
+                f"depth {values['depth_improvement']:+.2f}%"
+            )
+    elif result.get("n"):
+        print("SCORE: not computed (a metric benchmark failed)")
+    print(f"index: {index_path}")
+    return 1 if failed else 0
+
+
+def cmd_index(args) -> int:
+    out = output_dir(args.out)
+    path = regenerate_index(out)
+    groups = collect_index(out)
+    print(f"{path} ({len(groups)} compiler(s))")
     return 0
 
 
-def _cmd_all(args: argparse.Namespace) -> int:
-    compiler, path = _resolve_compiler(args.compiler)
-    name = _output_name(path, args.name)
-    paths = _select_paths(args.bset)
-    if not paths:
-        raise SystemExit("no benchmarks selected")
-    meta = run_builds(compiler, paths, args.bset, args.jobs, name, timeout=args.timeout)
-    _print_summary(meta)
-    return 0 if all(c["status"] == "ok" for c in meta["circuits"]) else 1
+_DATA_RE = re.compile(r'<script id="viz-data" type="application/json">(.*?)</script>', re.S)
 
 
-def _cmd_index(args: argparse.Namespace) -> int:
-    rows = rebuild_index()
-    count = sum(len(m.get("circuits", [])) for m in rows["compilers"])
-    print(f"index: {VIZ / 'index.html'} ({len(rows['compilers'])} compilers, {count} circuits)")
+def cmd_rewrap(args) -> int:
+    """Re-embed the data of every existing page into the current `bench/viz_page.html` (no recompile)."""
+    out = output_dir(args.out)
+    template = _template_text()
+    count = 0
+    for page in sorted(out.glob("*/*.html")):
+        text = page.read_text(encoding="utf-8")
+        match = _DATA_RE.search(text)
+        if not match:
+            continue
+        data = json.loads(match.group(1).replace("<\\/", "</"))
+        payload = json.dumps(data, separators=(",", ":"), allow_nan=False).replace("</", "<\\/")
+        title = html.escape(f"{data['meta']['name']} · {data['meta']['circuit']}")
+        page.write_text(template.replace("__VIZ_DATA__", payload, 1).replace("__VIZ_TITLE__", title), encoding="utf-8")
+        count += 1
+    regenerate_index(out)
+    print(f"rewrapped {count} page(s) in {out}")
+    return 0
+
+
+def cmd_serve(args) -> int:
+    out = output_dir(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    if not (out / "index.html").is_file():
+        regenerate_index(out)
+    VizRequestHandler.output_dir = out
+    handler = functools.partial(VizRequestHandler, directory=str(out))
+    server = ThreadingHTTPServer((args.host, args.port), handler)
+    server.daemon_threads = True
+    print(f"serving {out} on http://{args.host}:{args.port}/", file=sys.stderr, flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("shutting down", file=sys.stderr, flush=True)
+    finally:
+        server.server_close()
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    page = sub.add_parser("page", help="build one circuit's page")
-    page.add_argument("compiler", help="path/to/compiler.py[:function] (default: compile_circuit)")
-    page.add_argument("--circuit", required=True, help="benchmark label or .qasm path")
-    page.add_argument("-o", "--output", default=None)
-    page.add_argument("--json", default=None, help="also dump the raw data dict here")
-    page.add_argument("--name", default=None, help="output folder (default: derived from the compiler)")
+    page = sub.add_parser("page", help="build one page")
+    page.add_argument("compiler")
+    page.add_argument("--circuit", required=True, help="bench label or path to a .qasm file")
+    page.add_argument("--name", default=None)
+    page.add_argument("--mode", choices=["fast", "full"], default="fast")
     page.add_argument("--timeout", type=float, default=300)
-    page.set_defaults(func=_cmd_page)
+    page.add_argument("--out", default=None)
+    page.set_defaults(func=cmd_page)
 
-    every = sub.add_parser("all", help="build a whole benchmark set")
+    every = sub.add_parser("all", help="build every page")
     every.add_argument("compiler")
-    every.add_argument("--set", dest="bset", choices=["metric", "sanity", "all"], default="metric")
+    every.add_argument("--set", dest="bset", choices=["metric", "sanity", "all"], default="all")
+    every.add_argument("--filter", default=None)
     every.add_argument("--jobs", type=int, default=2)
     every.add_argument("--name", default=None)
+    every.add_argument("--mode", choices=["fast", "full"], default="fast")
     every.add_argument("--timeout", type=float, default=300)
-    every.set_defaults(func=_cmd_all)
+    every.add_argument("--out", default=None)
+    every.set_defaults(func=cmd_all)
 
-    index = sub.add_parser("index", help="rebuild viz/index.html from every viz/*/meta.json")
-    index.set_defaults(func=_cmd_index)
+    index = sub.add_parser("index", help="regenerate the index")
+    index.add_argument("--out", default=None)
+    index.set_defaults(func=cmd_index)
 
-    server = sub.add_parser("serve", help="serve viz/ with a /regen endpoint")
-    server.add_argument("--port", type=int, default=9000)
-    server.add_argument("--host", default="127.0.0.1")
-    server.set_defaults(func=lambda a: serve(a.host, a.port) or 0)
+    rewrap = sub.add_parser("rewrap", help="re-embed existing pages into the current page template")
+    rewrap.add_argument("--out", default=None)
+    rewrap.set_defaults(func=cmd_rewrap)
+
+    serve = sub.add_parser("serve", help="serve the output directory")
+    serve.add_argument("--host", default="0.0.0.0")
+    serve.add_argument("--port", type=int, default=9000)
+    serve.add_argument("--out", default=None)
+    serve.set_defaults(func=cmd_serve)
 
     args = parser.parse_args(argv)
     return args.func(args)
