@@ -190,7 +190,12 @@ Measured on the 8-circuit probe subset (score / distance), used to pick knobs:
 
 **Final round 2 (`0c9961a`, full mode): +82.01 %** (distance +83.69 %, depth +75.28 %; round 1 was
 +81.51 / +83.80 / +72.33). Families: hea +81.48 / +48.39, ihva +86.07 / +77.97, qaoa +80.24 / +72.25.
-36/36 full, 13/13 sanity full; strict-mode evidence for the DAG reordering path: see below.
+36/36 full, 13/13 sanity full. Strict-mode evidence (frozen copies of `da802c0` and `0c9961a`):
+all 12 × 12q exact (QCEC), **all 12 × 20q pass the statevector check ×3** (incl. the four QAOA
+circuits that take the DAG path), 50q HEA p1/p3 QCEC-equivalent. The 50q iHVA/QAOA QCEC did not
+conclude within the 60 min shell budget on the loaded machine (12 strict processes running); those
+circuits use exactly the same n-independent code paths as the 20q ones, and every rewrite is exact
+algebra (§2) plus reordering only along gates' commutation DAG.
 
 What round 2 did: gates' exact commutation DAG (copied, not imported) as a second front end that
 feeds the unchanged hubstream mover, and a deterministic per-circuit candidate grid (wire / DAG
