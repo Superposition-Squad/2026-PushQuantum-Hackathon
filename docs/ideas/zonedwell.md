@@ -2,7 +2,7 @@
 
 - Branch: idea/zonedwell · Worktree: /home/hackathon/challenge-wt/zonedwell
 - Base: main 0ea558b, compiler starts from `compilers/naive/compiler.py`
-- Status: implemented (stage 0-2; see Results)
+- Status: done — ready for merge review (final `e0c88c4`, +80.79 %)
 
 ## Hypothesis
 
@@ -261,4 +261,51 @@ blocked because Z-side and Y-side hub blocks anticommute on the hub, so their or
 
 ## Verdict
 
-(pending)
+**Done, ready for merge review: +80.79 % official (distance +81.68 %, depth +77.25 %) at `e0c88c4`.**
+Per family: QAOA distance +87.6 % / depth +80.7 %, iHVA +78.4 % / +75.3 %, HEA +63.7 % / +25.8 %.
+
+Validity, checked by the planner on frozen snapshots of the committed code (not only the
+implementer's runs): `--mode full` 36/36 metric and `--set sanity --mode full` 13/13 (every sanity
+circuit up to 18 qubits exactly `equivalent_up_to_global_phase` under QCEC; the 40- and 70-qubit
+kitchen sinks go through the generic fallback). `--mode strict` on `e0c88c4`: all 20-qubit circuits
+(HEA, all six iHVA variants, QAOA) pass the statevector ×3 check; 50-qubit QCEC results are listed
+below. Max compile time 6.3 s on the metric set, 12.8 s on the 70-qubit sanity circuit.
+
+**Per-round cost vs "lift and return".** A hub `cz` costs one conveyor slide of exactly **1.0**,
+and that slide is also the partner's storage trip. Lift-and-return pays at least **2.0** per hub
+`cz` (lift 1.0 and lower 1.0, before any restaging). Measured: ~100 of distance for the 98 hub
+`cz` of a 50-qubit QAOA cost layer. Moves: QAOA 5 584 (naive 12 128) at 2.53 per move (naive 8.93);
+iHVA 11 736 (18 192) at 3.26 per move; HEA 1 260 (680) at 1.76 per move. HEA uses *more* moves than
+naive but much shorter ones; only distance is scored.
+
+What worked:
+* The vertical conveyor (even-column lanes, a lone atom on a pair) is at its theoretical floor and
+  is the main reason QAOA reaches −88 % on 20 and 50 qubits.
+* Per-qubit 1q buffering as 2×2 matrices, flushed only in storage. This makes `H·H` and
+  `rx(−π/2)·rx(π/2)` cancellations (target chaining) automatic and removed a whole class of
+  equivalence bugs. The planner's own prototype had exactly such a bug (a missing `H`) that
+  `verify_movement` did not catch.
+* A ready-set (antichain) scheduler on the iHVA commutation DAG; exact by construction.
+* Placement by local search on (Σ non-hub endpoint distance + conveyor slides): worth ~4 points.
+* Shallow bulk dips (shift by 1 + the deepest atom needing a 1q gate instead of 10): +1.2 points.
+
+What did not work / open issues:
+* A shallow dip *inside* the conveyor's storage phase made a 12-qubit iHVA circuit
+  `not_equivalent`. It was reverted, not diagnosed. The shallow dips that remain are covered by
+  exact QCEC at 12 q, statevector ×3 at 20 q and the 13 sanity circuits, but the root cause should
+  be understood before anyone builds on that code path.
+* iHVA is still 70 % of the remaining distance. Z-side and Y-side hub blocks anticommute on the
+  hub, so iHVA splits into 29 (stagger) and 57 (tree) scheduling groups, each paying storage
+  transitions.
+* On tiny unscored sanity circuits the lane machinery costs more distance than naive (e.g. 2-qubit
+  `sample_circuit_01`: 46 vs 20). This is irrelevant to the score, but the fallback threshold could
+  route very small circuits to the plain path.
+
+What should carry over to other branches: the conveyor primitive (`conveyor_lane`), per-qubit 1q
+buffering with storage-only flushes, the ready-set iHVA scheduler, and shallow dips.
+
+Most promising next steps, in order: (1) iHVA: a cheaper way into storage before a group's first
+`cz` (shallow dips in the conveyor once the bug above is understood) and a scheduler that minimises
+the number of groups rather than greedily taking hub-Z first; (2) super-rounds for the non-hub
+matchings (disjoint target sets, one dip for several matchings); (3) a placement search scored by
+running the real planner (compile time is ≤ 7 s of a 60 s budget).
