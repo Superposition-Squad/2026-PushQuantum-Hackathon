@@ -2281,6 +2281,7 @@ def _naive(circuit: QuantumCircuit, spec: Any):
 # ---------------------------------------------------------------- entry point
 
 
+MAX_OPS = 1500  # larger (irregular, unscored) circuits go to the naive fallback; scored ones have <= ~600
 BEAM_BUDGET = 15000  # beam width = BEAM_BUDGET / (atoms x ops): ~10 at 12q p1, 1 at 20q p3 and 50q
 IDLE_RULE = True  # validator v1.0.0: every atom in the entangling zone must be in a CZ of each pulse
 DEV_FAST = False  # dev iteration only (bench/devbench.sh flips it in a scratch copy): one plan, no search
@@ -2299,6 +2300,8 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
     options = options or {}
     comp = Compiler(circuit, spec, options)
     hub = find_hub(comp.ops, comp.n)
+    if IDLE_RULE and len(comp.ops) > MAX_OPS:
+        raise Unsupported("too many operations for the beam planner")  # naive fallback, fast
     if IDLE_RULE and options.get("planner", "pulse") == "pulse":
         # deterministic effort: beam width from the problem size (n atoms x ops), both layouts
         size = max(1, comp.n * len(comp.ops))
