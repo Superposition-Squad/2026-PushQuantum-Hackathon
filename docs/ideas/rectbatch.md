@@ -119,6 +119,31 @@ most atoms move alone. Visitors (the second atom of a cross-row pair) are ~70 % 
 | iteration | commit | score | dist % | depth % | notes |
 |---|---|---|---|---|---|
 
+## Where the remaining distance goes (and the one big next step)
+
+With a **static** placement and "everything returns to storage after every round", the distance is
+essentially
+`Σ over rounds Σ over participating atoms 2·(10 − y_atom + horizontal)`,
+because in dense storage (50 atoms in rows 5–9) hardly any rectangle is ghost-free, so most atoms
+move alone. Our 50q numbers are within ~10 % of that bound, i.e. **the batching part of this idea is
+done**; what is left is structural:
+
+For the hub-dominated circuits the partner term is even *placement-invariant*: every one of the
+n−1 partners is lifted exactly twice per layer, so the partner cost is
+`Σ_v 4·(10 − y_v)` = a constant over the multiset of occupied rows {5,…,9}. No static placement can
+improve it — which is exactly why the local search only buys a few percent at 50 qubits.
+
+**Next step (quantified, not implemented): storage row staging.** In every QAOA/iHVA benchmark the
+hub's partners appear in strict index order (`cx q[0],q[49] … cx q[48],q[49]`, verified in the QASM),
+so with a row-major placement 10 consecutive partners sit in one storage row and are used in 20
+consecutive rounds. Rotating the occupied block by one row costs **7.0 total for all 50 atoms**
+(move row 9 → the free row 4: 5.0; rows 5–8 → 6–9 in one rectangle: 1.0; row 4 → row 5: 1.0), after
+which the next batch of 10 partners is in row 9. Five rotations per layer cost 35, while every round
+in that layer then costs ≈ 2.4 instead of ≈ 2·(10 − y) ≈ 6–10. Hand estimate for 50q QAOA p3:
+≈ 850 instead of our 9 900 — a factor 3–6 on the circuits that carry 60 % of the metric. It needs
+`pos` to become time-dependent (a per-round position state plus a lookahead rule for when to
+rotate), which is a real refactor of `plan_moves`/`plan_cost`, so it did not fit the time box.
+
 ## Verdict
 
 TBD
