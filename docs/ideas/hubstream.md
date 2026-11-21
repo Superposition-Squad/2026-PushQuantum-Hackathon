@@ -129,7 +129,30 @@ them, on the free storage sites nearest to `(10, 0)` (iteration 2).
 | iteration | commit | score | dist % | depth % | notes |
 |---|---|---|---|---|---|
 | naive | – | 0.00 | 0.0 | 0.0 | D = 276 726.91, P = 23 676 |
+| step 1 (round template) | `83101da` | 76.93 | 78.41 | 71.01 | D = 59 758.6; naive rows 2–6 loading, 25 pairs/round, per-atom nearest lowering |
+| + loading by first use, one-row rounds, packed lowering | `ff4d3b3` | 81.06 | 83.24 | 72.33 | D = 46 367.6, P = 6 550; `MAX_PAIRS = 4` |
+
+Measured on the 8-circuit probe subset (score / distance), used to pick knobs:
+
+- round size `MAX_PAIRS`: 3 → 80.45, **4 → 80.80**, 5 → 80.38, 6 → 80.12 (full metric set, fast mode).
+- hub loading of §6/STEP 2 (`_loading_hub`: hub at storage `(1,9)`, partners queued nearest to
+  entangling slot `(0,10)`) with `MAX_PAIRS = 4`: **80.53** vs first-use loading **80.80** — the
+  first-use loading wins, so the hub-specific loading was dropped (the hub itself is lifted once and
+  then never moves, so where its partners start matters less than starting the soonest-used atoms
+  shallow).
+- parking a non-hub atom only when its next task is ≤ K rounds away: K = 0 → 79.10, **K = 1 → 80.80**,
+  K = 2 → 80.80, K = 5 → 80.57.
+- forcing the hub onto the lowest-leftmost pair (so the rest of row 10 stays contiguous): 80.19.
+- assigning each round to a contiguous *block* of pairs: 80.24 (the block constraint costs more in
+  lift distance than the merged moves save).
+- deferring the trailing `rz` of every single-qubit run across the next `cz` (it commutes): exact,
+  −1 gate per run, depth 71.01 % → 72.33 % at unchanged distance.
 
 ## Verdict
 
-(pending)
+Works and is well behaved: 36/36 metric circuits and 13/13 sanity circuits pass, hub qubit is moved
+twice per circuit (its first lift and its final lowering) instead of ~1 000 times, `D` is 6× smaller
+than naive. Remaining cost is dominated by the storage depth of the ~50 atoms: each task needs one
+lower + one lift, and 50 atoms occupy rows 9…5, so the mean move length is ≈3 instead of ≈1.
+A round is still split into several `move`s when a parked atom sits between the moving columns of a
+row (the validator's ghost rule forbids spanning it), which is where the next gain is.

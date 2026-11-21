@@ -119,10 +119,6 @@ _PHYS = {site: _physical(site) for site in _SITES}
 """Physical position of every site of the machine."""
 
 
-def _phys(site: Site) -> tuple[float, float]:
-    return _PHYS[site]
-
-
 def _dist(a: Site, b: Site) -> float:
     (ax, ay), (bx, by) = _PHYS[a], _PHYS[b]
     return math.hypot(ax - bx, ay - by)
@@ -139,10 +135,6 @@ def _storage_by_closeness(site: Site) -> list[Site]:
 
 
 _CLOSENESS: dict[Site, list[Site]] = {}
-
-
-def _in_storage(site: Site) -> bool:
-    return STORAGE_X[0] <= site[0] <= STORAGE_X[1] and STORAGE_Y[0] <= site[1] <= STORAGE_Y[1]
 
 
 def _in_ent(site: Site) -> bool:
@@ -197,23 +189,6 @@ def _zxz(u):
 def _rz_matrix(angle: float):
     return np.array([[math.cos(angle / 2) - 1j * math.sin(angle / 2), 0.0],
                      [0.0, math.cos(angle / 2) + 1j * math.sin(angle / 2)]], dtype=complex)
-
-
-def _emit_1q(out: QuantumCircuit, q: int, u) -> None:
-    """Emit one merged single-qubit run as at most three `rz`/`rx` gates.
-
-    ``_zxz`` gives ``u = rz(a) rx(b) rz(c)``, so the gates go out in reverse: ``rz(c), rx(b), rz(a)``.
-    """
-    if _is_identity(u):
-        return
-    a, b, c = _zxz(np.asarray(u, dtype=complex))
-    qubit = out.qubits[q]
-    if c:
-        out.append(RZGate(c), [qubit])
-    if b:
-        out.append(RXGate(b), [qubit])
-    if a:
-        out.append(RZGate(a), [qubit])
 
 
 def _emit_1q_defer(out: QuantumCircuit, q: int, u) -> float:
@@ -275,6 +250,9 @@ def _needs_transpile(circuit: QuantumCircuit) -> bool:
 def parse_items(circuit: QuantumCircuit) -> list:
     """Flatten the circuit into exact items (see the module docstring)."""
     if _needs_transpile(circuit):
+        # optimisation_level MUST stay <= 1: from level 2 qiskit's ElidePermutations pass turns
+        # `swap`s into a `final_layout` permutation, and reading `.data` afterwards would silently
+        # drop them (wrong circuit). Level 1 keeps every swap visible as `rx/rz/cz` gates.
         circuit = transpile(circuit, basis_gates=["rx", "rz", "cz"], optimization_level=1)
     index = {bit: i for i, bit in enumerate(circuit.qubits)}
     cindex = {bit: i for i, bit in enumerate(circuit.clbits)}
