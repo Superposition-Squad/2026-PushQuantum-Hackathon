@@ -701,7 +701,7 @@ def plan_phases(blocks, hub):
 # ---------------------------------------------------------------- layout
 
 
-def plan_layout(n, hub, blocks, groups, use_conveyor=True):
+def plan_layout(n, hub, blocks, groups, use_conveyor=True, seed=12345, row_major=True):
     """Pack the partners into the five even lanes (10 slots each) and improve the packing."""
     first = {}
     for idx, blk in enumerate(blocks):
@@ -713,13 +713,15 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True):
     if len(partners) > 49:
         return None
     partners.sort(key=lambda q: (first.get(q, 10 ** 9), q))
-    slots = [(2 * j, s) for s in range(10) for j in range(5) if (j, s) != (4, 0)][
-        : len(partners)
-    ]
+    if row_major:
+        order = [(2 * j, s) for s in range(10) for j in range(5) if (j, s) != (4, 0)]
+    else:
+        order = [(2 * j, s) for j in range(5) for s in range(10) if (j, s) != (4, 0)]
+    slots = order[: len(partners)]
     assign = {slots[i]: partners[i] for i in range(len(partners))}
     costs = _LayoutCost(blocks, groups, hub, use_conveyor)
     best = costs.eval(assign)
-    rng = np.random.default_rng(12345)
+    rng = np.random.default_rng(seed)
     keys = list(assign)
     for _ in range(200 * len(keys)):
         i, j = rng.integers(0, len(keys), 2)
@@ -1909,31 +1911,34 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
             plans = None
         if plans is not None:
             phase_groups = [g for run_plan in plans for _kind, g in run_plan]
-            lay = plan_layout(n, hub, blocks, phase_groups, use_conveyor)
-            if lay is not None:
-                if use_conveyor:
-                    best = None
-                    best_lazy = True
-                    for lazy in (True, False):
-                        try:
-                            cand = _compile_lanes(circuit, items, lay, plans, lazy=lazy)
-                        except AssertionError:
-                            if _DEBUG:
-                                raise
-                            continue
-                        cost = _official_cost(cand)
-                        if best is None or cost < best[0] - 1e-12:
-                            best, best_lazy = (cost, cand), lazy
-                    st = best[1] if best is not None else None
-                    if st is not None:
-                        st.variant_lazy = best_lazy
-                else:
+            layouts = [(12345, True)]
+            if use_conveyor or n >= 20:
+                layouts.append((777, False))
+            if n <= 20:
+                layouts.append((999, True))
+            lazies = (True, False) if use_conveyor else (True,)
+            best = None
+            best_info = None
+            for seed, row_major in layouts:
+                lay = plan_layout(
+                    n, hub, blocks, phase_groups, use_conveyor, seed=seed, row_major=row_major
+                )
+                if lay is None:
+                    continue
+                for lazy in lazies:
                     try:
-                        st = _compile_lanes(circuit, items, lay, plans)
+                        cand = _compile_lanes(circuit, items, lay, plans, lazy=lazy)
                     except AssertionError:
                         if _DEBUG:
                             raise
-                        st = None
+                        continue
+                    cost = _official_cost(cand)
+                    if best is None or cost < best[0] - 1e-12:
+                        best, best_info = (cost, cand), (seed, row_major, lazy)
+            if best is not None:
+                st = best[1]
+                st.variant_lazy = best_info[2]
+                st.variant_layout = (best_info[0], best_info[1])
     if st is None:
         st = _compile_generic(circuit, architecture_spec)
     if os.environ.get("HUBWALK_STATS") == "1":
