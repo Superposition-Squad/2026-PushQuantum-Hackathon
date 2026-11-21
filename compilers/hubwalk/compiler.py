@@ -581,7 +581,9 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True):
     if len(partners) > 49:
         return None
     partners.sort(key=lambda q: (first.get(q, 10 ** 9), q))
-    slots = [(2 * j, s) for s in range(10) for j in range(5)][: len(partners)]
+    slots = [(2 * j, s) for s in range(10) for j in range(5) if (j, s) != (4, 0)][
+        : len(partners)
+    ]
     assign = {slots[i]: partners[i] for i in range(len(partners))}
     costs = _LayoutCost(blocks, groups, hub, use_conveyor)
     best = costs.eval(assign)
@@ -599,11 +601,11 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True):
         else:
             assign[a], assign[b] = assign[b], assign[a]
     home = {q: site for site, q in assign.items()}
-    home[hub] = (9, 9)
+    home[hub] = (9, 0)
     if len(set(home.values())) != n:
         return None
     zone_home = {q: (s[0], s[1] + 10) for q, s in home.items()}
-    if (8, 19) in zone_home.values() or (8, 9) in assign:
+    if (8, 10) in zone_home.values() or (8, 0) in assign:
         return None
     return {"home": home, "zone_home": zone_home, "lanes": _lanes(partners, home), "hub": hub,
             "partners": partners, "conveyor": use_conveyor}
@@ -722,7 +724,7 @@ class _Machine:
                 self.st.flush(q)
 
     def park_hub(self):
-        site = (9, 19)
+        site = (9, 10)
         p = self.st.pos[self.hub]
         if p != site:
             self.st.cat = "hubhop"
