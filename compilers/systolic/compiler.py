@@ -197,6 +197,11 @@ def _free_site(occ, zone_only=False):
             s = (col, row)
             if s not in occ and _partner_site(s) not in occ:
                 return s
+    for row in range(9, -1, -1):
+        for col in range(10):
+            s = (col, row)
+            if s not in occ and _partner_site(s) not in occ:
+                return s
     if zone_only:
         return None
     for row in range(9, -1, -1):
@@ -288,13 +293,23 @@ def _plan_moves(reloc, occ):
 
 
 def _free_site_away(busy):
-    """A free zone site (and partner) that is not in `busy` and so stays free for a whole plan."""
+    """A free site (and partner) that is not in `busy`, so it stays free for a whole plan."""
     for row in range(19, 9, -1):
         for col in range(10):
             s = (col, row)
             if s not in busy and _partner_site(s) not in busy:
                 return s
-    raise AssertionError("no free zone site for a cycle break")
+    for row in range(9, -1, -1):
+        for col in range(10):
+            s = (col, row)
+            if s not in busy and _partner_site(s) not in busy:
+                return s
+    for row in range(19, -1, -1):
+        for col in range(10):
+            s = (col, row)
+            if s not in busy:
+                return s
+    raise AssertionError("no free site for a cycle break")
 
 
 # ---------------------------------------------------------------- 1q algebra
