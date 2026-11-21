@@ -565,7 +565,7 @@ def plan_layout(n, hub, blocks, groups, use_conveyor=True):
     if len(partners) > 49:
         return None
     partners.sort(key=lambda q: (first.get(q, 10 ** 9), q))
-    slots = [(2 * j, s) for j in range(5) for s in range(10)][: len(partners)]
+    slots = [(2 * j, s) for s in range(10) for j in range(5)][: len(partners)]
     assign = {slots[i]: partners[i] for i in range(len(partners))}
     costs = _LayoutCost(blocks, groups, hub, use_conveyor)
     best = costs.eval(assign)
