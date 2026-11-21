@@ -508,8 +508,21 @@ class _State:
         return out
 
     def pulse(self, pairs):
-        """Emit one `cz` on each pair; in debug mode assert that nothing else is hit."""
+        """Emit one `cz` on each pair.
+
+        Planqc validator v1.0.0 `idle`: in a segment that contains a two-qubit gate, every atom in
+        the entangling zone must take part in a two-qubit gate of that segment.  Because every
+        pulse here is one layer (moves delimit layers), the atoms in the zone must be exactly the
+        pulsed pair atoms.  `_DEBUG` additionally checks that no other interaction pair is occupied.
+        """
         expect = {frozenset(p) for p in pairs}
+        participants = set()
+        for pair in pairs:
+            participants.update(pair)
+        zone = {q for q, site in self.pos.items() if _in_zone(site)}
+        assert zone == participants, (
+            f"idle: zone atoms {sorted(zone)} != pulsed {sorted(participants)}"
+        )
         if _DEBUG:
             got = {frozenset(p) for p in self.occupied_pairs()}
             assert got == expect, (
@@ -1184,7 +1197,9 @@ class _Machine:
     def flush_dip(self, qubits):
         """Flush the pending 1q gates of `qubits` with the shallowest dip that reaches storage."""
         st = self.st
-        need = [q for q in qubits if q in st.pending]
+        eye = np.eye(2)
+        need = [q for q in qubits
+                if q in st.pending and not _eq_phase(st.pending[q], eye, 1e-9)]
         if not need:
             return
         if not st.in_zone:
@@ -1205,10 +1220,21 @@ class _Machine:
                 self.st.flush(q)
 
     def park_hub(self):
-        site = self.lay["park"]
-        p = self.st.pos[self.hub]
-        if p != site:
-            self.st.move((p[1],), (p[0],), (site[1],), (site[0],))
+        """Park the hub on the nearest free lone site of the lane rows (ADR-0010 keeps it in the
+        zone rows that `to_storage` carries).  A lone site means its pair partner is empty too."""
+        st = self.st
+        p = st.pos[self.hub]
+        best, best_key = None, None
+        for y in range(10, 10 + self.lay["L"]):
+            for x in range(10):
+                s = (x, y)
+                if s == p or s in st.occ or _partner_site(s) in st.occ:
+                    continue
+                key = (_dist(p, s), s)
+                if best_key is None or key < best_key:
+                    best, best_key = s, key
+        if best is not None and best != p:
+            st.move((p[1],), (p[0],), (best[1],), (best[0],))
 
     # -- conveyor ------------------------------------------------------
     def _conveyor_ops(self, group, targ):
@@ -1491,8 +1517,14 @@ class _Machine:
             out.append((blk, qu, qv, su, sv, self._pick_targ(blk, qu, qv, su)))
         return out
 
-    def _assign_cost(self, assign):
-        """Simulated cost of a placement: batched outward trip + return trip + the storage dip."""
+    def _assign_cost(self, assign, has_mid=True):
+        """Simulated cost of a placement: batched outward trip + return trip + the storage dips.
+
+        Two dips are paid (each move costs its depth, and each dip is a down+up pair): the flush
+        dip that stores the pre-gates before `cz #1` and the mid dip that carries the `rx`.  Both
+        reach the deepest atom that needs them, so a placement that pulls those atoms into low rows
+        is cheaper.
+        """
         st = self.st
         sites = {q: site for _, qa, qb, sa, sb, _ in assign for q, site in ((qa, sa), (qb, sb))}
         reloc = {q: (st.pos[q], site) for q, site in sites.items() if st.pos[q] != site}
@@ -1505,8 +1537,20 @@ class _Machine:
                 pos[q] = d
         back = {q: (pos[q], st.pos[q]) for q in reloc if pos[q] != st.pos[q]}
         cost += sum(_move_cost(g) for g in _plan_moves(back, occ))
-        targs = [t for *_, t in assign]
-        cost += 2.0 * (1 + max(0, max(pos[t][1] - 10 for t in targs)))
+        eye = np.eye(2)
+        need = []
+        for blk, qa, qb, sa, sb, targ in assign:
+            pre: dict = {}
+            for q, u in _block_pre(blk, targ):
+                pre[q] = u @ pre.get(q, eye)
+            for q in (qa, qb, targ):
+                if not _eq_phase(pre.get(q, eye) @ st.pending.get(q, eye), eye, 1e-9):
+                    need.append(pos[q][1])
+        flush = 1 + max(0, max(need) - 10) if need else 0
+        cost += 2.0 * flush
+        if has_mid:
+            targs = [t for *_, t in assign]
+            cost += 2.0 * max(flush, 1 + max(0, max(pos[t][1] - 10 for t in targs)))
         return cost
 
     def _assign_runs(self, M):
@@ -1585,16 +1629,17 @@ class _Machine:
     def _choose_assign(self, M):
         """Pick the placement strategy with the cheapest simulated batched cost (deterministic)."""
         best, best_cost = None, None
+        has_mid = M[0].mid is not None
         for penalty, dweller_only in ((0.5, False), (2.0, False), (0.5, True), (4.0, False), (1.5, True)):
             assign = self._assign(M, penalty, dweller_only)
             if assign is None:
                 continue
-            cost = self._assign_cost(assign)
+            cost = self._assign_cost(assign, has_mid)
             if best_cost is None or cost < best_cost - 1e-12:
                 best, best_cost = assign, cost
         runs = self._assign_runs(M)
         if runs is not None:
-            cost = self._assign_cost(runs)
+            cost = self._assign_cost(runs, has_mid)
             if best_cost is None or cost < best_cost - 1e-12:
                 best, best_cost = runs, cost
         return best
@@ -1891,6 +1936,590 @@ def _parked_qubit(items, n):
     return min(range(n), key=lambda q: (deg.get(q, 0), -q))
 
 
+# ------------------------------------------------ storage-home machine (validator v1.0.0 `idle`)
+#
+# v1.0.0 forbids lone atoms in the entangling zone while a two-qubit gate runs, so every atom's
+# home is in STORAGE and the zone only ever holds the pairs of the current pulse:
+#
+#   * matching round: queue the pre-gates, flush them at home, lift the matched atoms
+#     (storage -> zone, every move single-zone on each side), pulse cz #1, bring them home, apply
+#     the mid `rx` in storage, lift them with the *same* placement again, pulse cz #2, home again;
+#   * hub group: lift the hub into the zone once, then per partner move the hub to the partner's
+#     pair slot (single-atom zone move), lift the partner straight up to row 10, pulse, bring it
+#     home; after every cz #1 apply the partner `rx` gates in storage, then repeat in reverse for
+#     cz #2, and bring the hub home last.
+#
+# Between rounds every atom is at its storage home, so pending 1q gates are flushed for free: no
+# dips, no zone switches, no dwellers.  `_State.pulse` asserts the zone holds exactly the pulsed
+# atoms, which is the idle rule as replayed by the validator.
+
+
+def _storage_rows(n):
+    return list(range(10 - max(1, min(10, -(-n // 10))), 10))
+
+
+class _StorageCost:
+    """Layout proxy: lift distances (paid twice per pulse) and the hub hops along row 10."""
+
+    def __init__(self, groups, hub):
+        self.hub = hub
+        self.groups = groups
+        self._of: dict[int, list[int]] = {}
+        for idx, group in enumerate(groups):
+            for q in {q for b in group for q in (b.u, b.v)}:
+                self._of.setdefault(q, []).append(idx)
+        self._hub_group = [all(hub in (b.u, b.v) for b in group) for group in groups]
+
+    def affected(self, qa, qb):
+        return sorted(set(self._of.get(qa, ())) | set(self._of.get(qb, ())))
+
+    def group_cost(self, idx, pos):
+        group = self.groups[idx]
+        if self._hub_group[idx]:
+            cost = 0.0
+            pairs = []
+            for b in group:
+                p = b.v if b.u == self.hub else b.u
+                s = pos[p]
+                cost += 2.0 * (10 - s[1])
+                pairs.append(s[0] // 2)
+            if pairs:
+                cost += 2.0 * (max(pairs) - min(pairs))
+            cost += 2.0 * (10 - pos[self.hub][1])
+            return cost
+        cost = 0.0
+        for b in group:
+            su, sv = pos[b.u], pos[b.v]
+            weight = 4.0 if b.mid is not None else 2.0
+            cost += weight * ((10 - su[1]) + (10 - sv[1]))
+            cost += 2.0 * abs(su[0] - sv[0])
+        return cost
+
+    def eval(self, assign):
+        pos = {q: s for s, q in assign.items()}
+        return sum(self.group_cost(k, pos) for k in range(len(self.groups)))
+
+
+def plan_layout_storage(n, hub, blocks, groups, use_conveyor=True, seed=12345):
+    """Pack every atom's home into storage rows 10-R..9 (all ten columns), then improve it."""
+    rows = _storage_rows(n)
+    slots = [(x, y) for y in reversed(rows) for x in range(10)]
+    if len(slots) < n:
+        return None
+    first = {}
+    for idx, blk in enumerate(blocks):
+        first.setdefault(blk.u, idx)
+        first.setdefault(blk.v, idx)
+    order = [hub] + sorted((q for q in range(n) if q != hub), key=lambda q: (first.get(q, 10 ** 9), q))
+    assign = {slots[i]: order[i] for i in range(n)}
+    costs = _StorageCost(groups, hub)
+    pos = {q: site for site, q in assign.items()}
+    gcost = [costs.group_cost(k, pos) for k in range(len(groups))]
+    rng = np.random.default_rng(seed)
+    keys = list(assign)
+    for _ in range(150 * n):
+        i, j = rng.integers(0, n, 2)
+        if i == j:
+            continue
+        a, b = keys[i], keys[j]
+        qa, qb = assign[a], assign[b]
+        affected = costs.affected(qa, qb)
+        if not affected:
+            continue
+        old = sum(gcost[k] for k in affected)
+        pos[qa], pos[qb] = pos[qb], pos[qa]
+        new = sum(costs.group_cost(k, pos) for k in affected)
+        if new < old - 1e-12:
+            for k in affected:
+                gcost[k] = costs.group_cost(k, pos)
+            assign[a], assign[b] = assign[b], assign[a]
+        else:
+            pos[qa], pos[qb] = pos[qb], pos[qa]
+    home = {q: site for site, q in assign.items()}
+    if len(home) != n or len(set(home.values())) != n:
+        return None
+    return {"home": home, "hub": hub, "R": len(rows), "conveyor": use_conveyor,
+            "partners": [q for q in range(n) if q != hub]}
+
+
+def _pairing_layout(n, hub, blocks, use_conveyor, variant=0):
+    """Lay out a *matching* of real blocks in adjacent slot pairs (one block per slot pair).
+
+    Round 1 of the block scheduler can then be lifted as one rigid grid translation: every
+    endpoint sits in the same row as its partner, in the two columns of one interaction pair.
+    The hub is kept out of the pairing (its walk lifts partners in their own columns)."""
+    rows = _storage_rows(n)
+    pairs = [((2 * c, y), (2 * c + 1, y)) for y in reversed(rows) for c in range(5)]
+    cand = [b for b in blocks if hub not in (b.u, b.v)]
+    if variant == 1:
+        cand = [b for b in reversed(cand)]
+    used: set = set()
+    chosen = []
+    for blk in cand:
+        if blk.u in used or blk.v in used:
+            continue
+        used.update((blk.u, blk.v))
+        chosen.append(blk)
+        if len(chosen) == len(pairs):
+            break
+    assign = {}
+    for (sa, sb), blk in zip(pairs, chosen):
+        assign[sa] = blk.u
+        assign[sb] = blk.v
+    rest = [q for q in range(n) if q not in used]
+    rest.sort(key=lambda q: (q != hub, q))
+    free = [site for pair in pairs[len(chosen):] for site in pair]
+    for site, q in zip(free, rest):
+        assign[site] = q
+    home = {q: site for site, q in assign.items()}
+    if len(home) != n or len(set(home.values())) != n:
+        return None
+    return {"home": home, "hub": hub, "R": len(rows), "conveyor": use_conveyor,
+            "partners": [q for q in range(n) if q != hub]}
+
+
+def _path_layout(n, hub, blocks, use_conveyor=True):
+    """Boustrophedon longest-path layout: the non-hub block graph's longest simple path is laid
+    along storage slots row by row (snaking), so every path edge is an adjacent column pair in one
+    home row.  Sparse families (iHVA trees/stagger, HEA chains) then lift whole rows / shifted rows
+    in one move per row."""
+    rows = _storage_rows(n)
+    slots = []
+    for k, y in enumerate(reversed(rows)):
+        xs = range(10) if k % 2 == 0 else range(9, -1, -1)
+        slots.extend((x, y) for x in xs)
+    if len(slots) < n:
+        return None
+    adj: dict[int, set] = {}
+    for b in blocks:
+        if hub in (b.u, b.v):
+            continue
+        adj.setdefault(b.u, set()).add(b.v)
+        adj.setdefault(b.v, set()).add(b.u)
+    partners = [q for q in range(n) if q != hub]
+    path = _longest_path(sorted(partners), adj)
+    on = set(path)
+    order = path + [q for q in partners if q not in on]
+    order.append(hub)
+    assign = {slots[i]: order[i] for i in range(n)}
+    home = {q: site for site, q in assign.items()}
+    if len(home) != n or len(set(home.values())) != n:
+        return None
+    return {"home": home, "hub": hub, "R": len(rows), "conveyor": use_conveyor,
+            "partners": [q for q in range(n) if q != hub]}
+
+
+def _layout_stream_storage(n, hub, blocks, groups, use_conveyor, pool_groups, offset=0):
+    """Best-guess-first stream.  Large circuits start with the block-pairing layout (its rigid
+    lifts are what make the batcher pay); smaller ones start with the local-search layout and
+    still get the pairing layout as the second candidate of every schedule."""
+    def pair(v):
+        return _pairing_layout(n, hub, blocks, use_conveyor, v)
+
+    def seed(s):
+        return plan_layout_storage(n, hub, blocks, pool_groups, use_conveyor, s)
+
+    pairs = [("pair0", lambda: pair(0)), ("pair1", lambda: pair(1)),
+             ("path", lambda: _path_layout(n, hub, blocks, use_conveyor))]
+    seeds = [(f"seed{s}", (lambda s=s: seed(s))) for s in LAYOUT_SEEDS]
+    order = pairs + seeds if n > 34 else [seeds[0]] + pairs + seeds[1:]
+    if offset:
+        order = order[offset % len(order):] + order[:offset % len(order)]
+    for name, thunk in order:
+        lay = thunk()  # lazy: only the layouts a candidate budget actually reaches are computed
+        if lay is not None:
+            yield name, lay
+
+
+class _StorageMachine:
+    """Movement on storage homes: see the module section comment above."""
+
+    _conveyor_ops = _Machine._conveyor_ops
+
+    def __init__(self, st, lay):
+        self.st = st
+        self.lay = lay
+        self.home = lay["home"]
+        self.hub = lay["hub"]
+        self.R = lay["R"]
+
+    # -- batched placement -------------------------------------------------
+    def _place(self, assign):
+        st = self.st
+        reloc = {}
+        homes = {}
+        for blk, qa, qb, sa, sb, targ in assign:
+            for q, site in ((qa, sa), (qb, sb)):
+                if st.pos[q] != site:
+                    homes[q] = st.pos[q]
+                    reloc[q] = (st.pos[q], site)
+        _emit_plan(st, _plan_moves(reloc, st.occ))
+        return homes
+
+    def _unplace(self, homes):
+        st = self.st
+        reloc = {q: (st.pos[q], h) for q, h in homes.items() if st.pos[q] != h}
+        _emit_plan(st, _plan_moves(reloc, st.occ))
+
+    # -- assignment --------------------------------------------------------
+    def _assign(self, M):
+        st = self.st
+        claimed: set = set()
+        out = []
+        for blk in M:
+            best = None
+            for cipher in range(5):
+                for row in range(10, 20):
+                    a_site, b_site = (2 * cipher, row), (2 * cipher + 1, row)
+                    if a_site in claimed or b_site in claimed:
+                        continue
+                    if any(s in st.occ for s in (a_site, b_site)):
+                        continue
+                    for (qu, su), (qv, sv) in (
+                        ((blk.u, a_site), (blk.v, b_site)),
+                        ((blk.u, b_site), (blk.v, a_site)),
+                    ):
+                        cost = _dist(st.pos[qu], su) + _dist(st.pos[qv], sv)
+                        if best is None or cost < best[0]:
+                            best = (cost, qu, qv, su, sv)
+            if best is None:
+                return None
+            _, qu, qv, su, sv = best
+            claimed.update((su, sv))
+            out.append((blk, qu, qv, su, sv, _targ_of(blk, qu, qv, su)))
+        return out
+
+    def _assign_cost(self, assign, has_mid):
+        """Simulated cost of the exact round: lift all, pulse, (targets home, `rx`, targets back,
+        pulse), then everyone home.  Controls stay in the zone across the mid `rx` (no `cz` runs
+        while they sit there, so the idle rule does not apply)."""
+        st = self.st
+        sites = {q: site for _, qa, qb, sa, sb, _ in assign for q, site in ((qa, sa), (qb, sb))}
+        occ, pos = dict(st.occ), dict(st.pos)
+        cost = 0.0
+
+        def trip(targets):
+            nonlocal cost
+            reloc = {q: (pos[q], s) for q, s in targets.items() if pos[q] != s}
+            for g in _plan_moves(reloc, occ):
+                cost += _move_cost(g)
+                _apply_atoms(occ, {q: (pos[q], d) for q, (s, d) in g.items()})
+                for q, (s, d) in g.items():
+                    pos[q] = d
+
+        trip(dict(sites))
+        if has_mid:
+            targs = [t for *_, t in assign]
+            spots = self._mid_spots(sites, targs)
+            trip(spots)
+            trip({q: sites[q] for q in targs})
+        trip({q: st.pos[q] for q in sites})
+        return cost
+
+    def _assign_vertical(self, M, rowlift=False):
+        """Column-preserving placement: every atom lifts straight up (its own column).
+
+        `rowlift` maps every home row to one zone row (`19 - y`): a whole home row then lifts as a
+        single single-row move (single-row moves may cross the zone boundary), costing `10 - y` for
+        up to ten atoms instead of one move each.  Otherwise the row is `y + dy` (a rigid column
+        shift).  Blocks whose homes are not the two slots of one pair fall back to a free pair."""
+        st = self.st
+        claimed: set = set()
+        out = []
+        ymin = min(st.pos[q][1] for blk in M for q in (blk.u, blk.v))
+        dy = 10 - ymin
+        for blk in M:
+            pu, pv = st.pos[blk.u], st.pos[blk.v]
+            placed = False
+            for (qu, au), (qv, av) in (((blk.u, pu), (blk.v, pv)), ((blk.u, pv), (blk.v, pu))):
+                c0, c1 = au[0], av[0]
+                if c1 != c0 + 1 or c0 % 2 != 0:
+                    continue
+                if rowlift:
+                    if au[1] != av[1]:
+                        continue
+                    r = 19 - au[1]
+                else:
+                    r = au[1] + dy
+                if not 10 <= r <= 19:
+                    continue
+                sa, sb = (c0, r), (c1, r)
+                if sa in claimed or sb in claimed or sa in st.occ or sb in st.occ:
+                    continue
+                claimed.update((sa, sb))
+                out.append((blk, qu, qv, sa, sb, _targ_of(blk, qu, qv, sa)))
+                placed = True
+                break
+            if placed:
+                continue
+            best = None
+            for cipher in range(5):
+                for row in range(10, 20):
+                    a_site, b_site = (2 * cipher, row), (2 * cipher + 1, row)
+                    if a_site in claimed or b_site in claimed or a_site in st.occ or b_site in st.occ:
+                        continue
+                    for (qu, su), (qv, sv) in (
+                        ((blk.u, a_site), (blk.v, b_site)),
+                        ((blk.u, b_site), (blk.v, a_site)),
+                    ):
+                        cost = _dist(st.pos[qu], su) + _dist(st.pos[qv], sv)
+                        if best is None or cost < best[0]:
+                            best = (cost, qu, qv, su, sv)
+            if best is None:
+                return None
+            _, qu, qv, su, sv = best
+            claimed.update((su, sv))
+            out.append((blk, qu, qv, su, sv, _targ_of(blk, qu, qv, su)))
+        return out
+
+    def _choose_assign(self, M):
+        """Cheapest of a few deterministic block orders (the greedy claim order matters)."""
+        has_mid = M[0].mid is not None
+        best, best_cost = None, None
+        cands = [self._assign(list(M)),
+                 self._assign(sorted(M, key=lambda b: (self.home[b.u][1], self.home[b.v][1], b.u, b.v))),
+                 self._assign_vertical(M),
+                 self._assign_vertical(M, rowlift=True),
+                 self._assign_vertical(list(reversed(M)), rowlift=True)]
+        for assign in cands:
+            if assign is None:
+                continue
+            cost = self._assign_cost(assign, has_mid)
+            if best_cost is None or cost < best_cost - 1e-12:
+                best, best_cost = assign, cost
+        return best
+
+    # -- rounds ------------------------------------------------------------
+    def matching(self, group):
+        for sub in ([b for b in group if b.mid is not None], [b for b in group if b.mid is None]):
+            if not sub:
+                continue
+            for M in _greedy_matchings(self._diag_order(sub) if DIAG and len(sub) >= DIAG_MIN else sub):
+                self.matching_round(M)
+
+    def _diag_order(self, sub):
+        """Order blocks by their homes (row, then column): the greedy packing then puts whole
+        home rows into one matching round, which is what the row-lift placement can batch."""
+        def key(b):
+            pu, pv = self.home.get(b.u), self.home.get(b.v)
+            if pu is None or pv is None:
+                return (99, 99, b.u, b.v)
+            return (max(pu[1], pv[1]), min(pu[0], pv[0]), b.u, b.v)
+
+        return sorted(sub, key=key)
+
+    def _trip(self, targets):
+        """Batched relocation `{qubit: site}` (empties are dropped)."""
+        st = self.st
+        reloc = {q: (st.pos[q], s) for q, s in targets.items() if st.pos[q] != s}
+        _emit_plan(st, _plan_moves(reloc, st.occ))
+
+    def _mid_spots(self, sites, targs):
+        """Storage sites for the mid `rx`: the homes the lifted atoms freed, shallowest first.
+
+        The targets do not have to visit their own home between the two pulses; any storage site
+        does.  Taking the shallowest freed site (nearest on a tie) shortens both middle trips."""
+        freed = sorted({self.home[q] for q in sites}, key=lambda s: (-s[1], s[0]))
+        out = {}
+        used = set()
+        for t in sorted(targs, key=lambda q: (-sites[q][1], q)):
+            best = None
+            for site in freed:
+                if site in used:
+                    continue
+                key = (_dist(sites[t], site), -site[1], site)
+                if best is None or key < best[0]:
+                    best = (key, site)
+            out[t] = best[1]
+            used.add(best[1])
+        return out
+
+    def matching_round(self, M):
+        st = self.st
+        assign = self._choose_assign(M)
+        if assign is None:
+            for blk in M:
+                self.single_block(blk)
+            return
+        has_mid = M[0].mid is not None
+        pairs = [(qa, qb) for _, qa, qb, _, _, _ in assign]
+        for blk, qa, qb, sa, sb, targ in assign:
+            for q, u in _block_pre(blk, targ):
+                st.queue_1q(q, u)
+        st.flush_all()  # every atom is at home in storage
+        sites = {q: site for _, qa, qb, sa, sb, _ in assign for q, site in ((qa, sa), (qb, sb))}
+        self._trip(sites)
+        st.pulse(pairs)
+        if has_mid:
+            targs = [targ for *_, targ in assign]
+            # the controls stay on their pairs (the zone is idle-free while only 1q gates run);
+            # the targets visit the shallowest freed storage site for the rx
+            self._trip(self._mid_spots(sites, targs))
+            for blk, qa, qb, sa, sb, targ in assign:
+                theta = _mid_theta(blk.mid)
+                if theta is not None and _tight(theta):
+                    st.out.rx(_tight(theta), targ)
+            self._trip({t: sites[t] for t in targs})
+            st.pulse(pairs)
+        self._trip({q: self.home[q] for q in sites})
+        for blk, qa, qb, sa, sb, targ in assign:
+            for q, u in _block_post(blk, targ):
+                st.queue_1q(q, u)
+
+    def single_block(self, blk):
+        self.matching_round([blk])
+
+    # -- hub group ---------------------------------------------------------
+    def _pair(self, p):
+        """The pair the partner `p` lifts into: its home column at row 10, hub on the other slot."""
+        s = (self.home[p][0], 10)
+        return s, _partner_site(s)
+
+    def _hub_order(self, partners):
+        """Monotone along row 10: the hub hops between adjacent pair slots only."""
+        return sorted(partners, key=lambda p: (_phys(self._pair(p)[1])[0], p))
+
+    def _hub_move(self, site):
+        st = self.st
+        cur = st.pos[self.hub]
+        if cur != site:
+            st.move((cur[1],), (cur[0],), (site[1],), (site[0],))
+
+    def _lift(self, q, site):
+        st = self.st
+        cur = st.pos[q]
+        if cur != site:
+            st.move((cur[1],), (cur[0],), (site[1],), (site[0],))
+
+    def _serve_partner(self, p, back_site, theta):
+        """One complete hub block: lift p to row 10, cz #1, home, `rx` in storage, lift, cz #2,
+        home.  Blocks of a hub group commute and the hub is the control of every one, so its two
+        `cz` gates may follow each other with only the target's storage visit between them."""
+        st = self.st
+        hub = self.hub
+        site = (self.home[p][0], 10)
+        self._hub_move(_partner_site(site))
+        self._lift(p, site)
+        st.pulse([(hub, p)])
+        self._lift(p, back_site)
+        ang = _tight(theta)
+        if ang:
+            st.out.rx(ang, p)
+        self._lift(p, site)
+        st.pulse([(hub, p)])
+        self._lift(p, back_site)
+
+    def _rotate_storage(self):
+        """One storage row rotation: row 9 -> row 9-R, then rows 9-R..8 -> 10-R..9 (cost R + 1).
+
+        Columns are preserved, so every partner keeps its pair column; after R rotations the whole
+        arrangement (every atom back at its home) is restored."""
+        st = self.st
+        top = 10 - self.R
+        st.move((9,), tuple(range(10)), (top - 1,), tuple(range(10)))
+        st.move(tuple(range(top - 1, 9)), tuple(range(10)), tuple(range(top, 10)), tuple(range(10)))
+
+    def _lift_cost(self, p, row):
+        return math.hypot(10.0 - row, 0.7 if self.home[p][0] % 2 else 0.0)
+
+    def hub_group(self, group):
+        st = self.st
+        hub = self.hub
+        targ = {blk: (blk.v if blk.u == hub else blk.u) for blk in group}
+        theta = {}
+        for blk in group:
+            t = _mid_theta(blk.mid)
+            if t is None:
+                return False
+            theta[blk] = t
+        ops = self._conveyor_ops(group, targ)
+        if ops is None:
+            return False
+        before, after = ops
+        for q, u in before.items():
+            st.queue_1q(q, u)
+        st.flush_all()  # every atom is home in storage
+        partners = [targ[b] for b in group]
+        theta_p = {targ[b]: theta[b] for b in group}
+        hub_home = self.home[hub]
+        rotate = False
+        if 2 <= self.R <= 8:
+            direct = sum(4.0 * self._lift_cost(p, self.home[p][1]) for p in partners)
+            rot = self.R * (self.R + 1) + sum(4.0 * self._lift_cost(p, 9) for p in partners)
+            rotate = rot < direct
+        def cz_pass(p, back_site):
+            site = (self.home[p][0], 10)
+            self._hub_move(_partner_site(site))
+            self._lift(p, site)
+            st.pulse([(hub, p)])
+            self._lift(p, back_site)
+
+        def batch_run(batch, back_site):
+            """cz #1 for the whole batch, then every `rx` in ONE layer (all partners in storage),
+            then cz #2 in reverse: the hub's `cz` gates are serialised anyway, the `rx` are not."""
+            if not batch:
+                return
+            self._hub_move(_partner_site((self.home[batch[0]][0], 10)))
+            for p in batch:
+                cz_pass(p, back_site(p))
+            for p in batch:
+                ang = _tight(theta_p[p])
+                if ang:
+                    st.out.rx(ang, p)
+            for p in reversed(batch):
+                cz_pass(p, back_site(p))
+
+        if rotate:
+            for k in range(self.R):
+                row = 9 - k
+                batch = sorted((p for p in partners if self.home[p][1] == row),
+                               key=lambda p: (_phys(_partner_site((self.home[p][0], 10)))[0], p))
+                batch_run(batch, lambda p: (self.home[p][0], 9))
+                self._rotate_storage()  # restores the homes after the R-th rotation
+        else:
+            batch_run(self._hub_order(partners), lambda p: self.home[p])
+        self._hub_move(hub_home)
+        for q, u in after.items():
+            st.queue_1q(q, u)
+        st.flush_all()
+        return True
+
+
+def _compile_storage(circuit, items, lay, groups):
+    n = circuit.num_qubits
+    st = _State(n, circuit.num_clbits)
+    st.load(lay["home"])
+    mach = _StorageMachine(st, lay)
+    hub = lay["hub"]
+    use_conveyor = lay.get("conveyor", True)
+    measures = [(it[1], it[2]) for it in items if it[0] == "measure"]
+
+    def schedule(group_list):
+        for group in group_list:
+            if (use_conveyor and all(hub in (b.u, b.v) for b in group)
+                    and all(b.kind == "zz" and _mid_theta(b.mid) is not None for b in group)):
+                if mach.hub_group(group):
+                    continue
+            mach.matching(group)
+
+    todo = list(groups)
+    idx = 0
+    while idx < len(items):
+        item = items[idx]
+        if item[0] == "blk":
+            schedule(todo.pop(0) if todo else [])
+            while idx < len(items) and items[idx][0] == "blk":
+                idx += 1
+            continue
+        if item[0] == "1q":
+            st.queue_1q(item[1], item[2])
+        idx += 1
+    st.flush_all()
+    for q, c in measures:
+        st.out.measure(q, c)
+    return st
+
+
 # ---------------------------------------------------------------- entry point
 
 
@@ -1912,7 +2541,7 @@ def _candidate_budget(n, nblocks):
     if n <= 20:
         return 12
     if n <= 34:
-        return 8
+        return 12
     return 4
 
 
@@ -1963,7 +2592,8 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
             streams = []
             for policy, gs in scheds:
                 pool = [g for gg in gs for g in gg]
-                streams.append((policy, _layout_stream(n, hub, blocks, gs, use_conveyor, pool)))
+                streams.append((policy, _layout_stream_storage(
+                    n, hub, blocks, gs, use_conveyor, pool, len(streams))))
             # round-robin over the schedules, so a short budget still tries every policy
             sched_groups = {policy: gs for policy, gs in scheds}
             # policies that yield the same grouping are the same candidate: dedupe on the groups
@@ -1985,7 +2615,7 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
                     seen.add(key)
                     budget -= 1
                     try:
-                        cand = _compile_lanes(circuit, items, lay, sched_groups[policy])
+                        cand = _compile_storage(circuit, items, lay, sched_groups[policy])
                     except AssertionError:
                         _STATS["fell_back"] += 1
                         if _DEBUG:
