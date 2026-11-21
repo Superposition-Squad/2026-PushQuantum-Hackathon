@@ -70,3 +70,14 @@ Worktrees `/home/hackathon/challenge-wt/<idea>`, branches `idea/<idea>` from `0e
 Portfolio of these four: 86.24 %. Exchange rate: 1 depth unit = 2.92 distance units.
 
 All four branches merged into main (2609b0a). Decision: round 2 builds a **portfolio** compiler (best valid result per circuit) and keeps improving the components where they win.
+
+## Round 2 (15:25–18:45 UTC, incl. a 40 min Opus usage-limit pause)
+
+| idea | score | dist % | depth % | validity | commit | notes |
+|---|---|---|---|---|---|---|
+| zonedwell r2 | +87.32 | +89.02 | +80.51 | full ✓ 36+13; 20q statevector ✓; 50q Clifford-tableau exact ×6; QCEC ✓ ×7 | 25f752c | compact lanes, θ=0 elision, relaxed hub detection; fixed latent conveyor bug (e884bb5) |
+| hubstream r2 | +82.01 | +83.69 | +75.28 | full ✓ 36+13; 12q QCEC, 20q statevector ✓ | 0c9961a | gates' commutation DAG front end + deterministic per-circuit variant grid |
+| rectbatch r2 | +76.98 | +77.11 | +76.47 | full ✓ 36+13; deterministic (2 identical runs) | 8b1b536 | fixed work budget; winners unchanged; in-zone parking measured −40 %, off |
+| portfolio (zonedwell, hubstream, rectbatch) | **+87.83** | +89.56 | +80.90 | full ✓ 36/36 metric + 13/13 sanity | (this commit) | gates dropped (wins nothing); picks: zonedwell 24, hubstream 6, rectbatch 6 |
+
+Bounds (docs/bounds.md): ceiling 96.9 %. Phase B (hubwalk, systolic) running until 21:30 UTC.
