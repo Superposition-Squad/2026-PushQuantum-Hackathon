@@ -98,6 +98,9 @@ See the implementer spec in the session log; summary:
 | 4D: 2-gate Y mids (S folded into the leaf frame) | a6b2e3a | +88.67 | 90.77 | 80.26 | depth 4913→4674 at equal distance; conveyor frames retried with it: +88.6705 vs +88.6708, not kept |
 | 4L: lazy return + parity rule | f54d907 | +88.70 | 90.91 | 79.87 | movers stay on their anchors; idle pairs get cz·cz=I. Distance 25531→25156, depth 4674→4765 |
 | 4O: deeper pairs first | (not kept) | +88.64 | 90.89 | 79.66 | with 4L it regressed (52q QAOA depth); reverted |
+| 5Q: fixed bipartition for QAOA phases | 3b6a209 | +88.73 | 90.93 | 79.92 | ~1 frame-change dip per pass instead of one per round |
+| 5V: per-circuit lazy on/off selection | 9ef4e3e | +88.79 | 90.92 | 80.26 | QAOA picks lazy, iHVA picks non-lazy; depth 4753→4673 |
+| ADR-0010: zone-span compliance | ed8a876 | +88.85 | 90.92 | 80.57 | dips restricted to rows 10..9+depth; conveyor → hub walk; `_State.move` guard; all 36 + sanity pass under the new bench check |
 
 Planner offline models (`/tmp/hwproto/sim*.py`): with random chords, neither star rounds with
 SA layout (≈800 for the 50q QAOA p1 non-hub part) nor whole-lane shears (≈870) batch well; the
