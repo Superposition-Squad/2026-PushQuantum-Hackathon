@@ -2,7 +2,7 @@
 
 - Branch: idea/rectbatch  ·  Worktree: /home/hackathon/challenge-wt/rectbatch
 - Base: main 0ea558b, starting from `compilers/naive/compiler.py`
-- Status: in progress
+- Status: done (recommend merging the movement core)
 
 ## Hypothesis
 
@@ -119,11 +119,27 @@ most atoms move alone. Visitors (the second atom of a cross-row pair) are ~70 % 
 | iteration | commit | score | dist % | depth % | notes |
 |---|---|---|---|---|---|
 | v1 (opt level 2) | (uncommitted) | 73.88 | 74.69 | 70.64 | 36/36 metric pass, but 3 sanity circuits fail: level 2 permutes qubits / drifts angles |
-| v2 (level 1, flat+compact, LS 14 s) | 0c73d88 | **77.59** | **78.05** | **75.74** | 36/36 metric and 13/13 sanity pass in `--mode full`; slowest compile 22.5 s (50q p3) |
+| v2 (level 1, flat+compact, LS 14 s) | — | 77.59 | 78.05 | 75.74 | same code, 14 s search budget (not committed) |
+| **v2 (committed, LS 20 s)** | **0c73d88 / results 5fdc3b2** | **77.54** | **77.99** | **75.74** | 36/36 metric and 13/13 sanity pass in `--mode full`; slowest compile 22.1 s, all 36 sum to 368 s |
+| v3 (exact LS cost cache) | reverted | 77.09 / 76.95 | 77.42 / 77.26 | 75.74 | correct objective, but the full-placement cache key kills the hit rate and costs more proposals than it gains |
 
-Per family (v2): HEA distance −95.31 %, iHVA −80.54 %, QAOA −73.35 %; depth HEA −35.48 %,
+Per family (committed): HEA distance −95.31 %, iHVA −80.42 %, QAOA −73.38 %; depth HEA −35.48 %,
 iHVA −80.00 %, QAOA −70.91 %. Biggest remaining circuits: metric_circuit_20 (50q iHVA stagger p3)
 8 876 and metric_circuit_36 (50q QAOA warm p3) 8 586, vs 24 907 naive each.
+
+Validity evidence beyond `--mode full`:
+
+- `--filter 20q --mode strict`: 12/12 pass, every one with `statevector x3 ok` — real equivalence
+  evidence above the official QCEC limit (ADR 0003), partial score +84.24 %.
+- `--set sanity --mode strict`: the 11 circuits up to 19 qubits pass (QCEC exact, same check as full
+  mode). I stopped the run on `sample_circuit_12` (40 q) and `sample_circuit_13` (70 q): their
+  strict path is QCEC with a best-effort timeout on a ~38 000-gate circuit and it did not finish in
+  15 minutes on a box shared by three branches. Both pass in `--mode full`.
+- Structural argument (the real reason to trust it): the compiler never rewrites a gate. It emits
+  exactly the gates of `transpile(circuit, ["rx","rz","cz"], optimization_level=1)` in a different
+  but still topological order of that circuit's per-qubit DAG, so the compiled circuit is equal to
+  the native circuit gate for gate, not merely "probably equivalent".
+- `bench/package.py` accepts the file (stdlib + qiskit only, single file, ADR 0006).
 
 ## Where the remaining distance goes (and the one big next step)
 
