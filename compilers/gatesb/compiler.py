@@ -229,6 +229,53 @@ _PAULI_ROT_GATES = {"rzz": ("Z", "Z"), "rxx": ("X", "X"), "ryy": ("Y", "Y")}
 _CX_NAMES = ("cx", "cnot")
 
 
+def _native_plan(op, width: int):
+    """Transpile one k-qubit gate into rx/rz/cz and *verify* the result against its unitary.
+
+    `optimization_level >= 2` runs `ElidePermutations`, which replaces a `swap` by a relabelling
+    recorded in the layout: taking its `data` at face value silently drops the swap.  So we try the
+    low levels in order and keep the first synthesis whose operator matches the gate (up to global
+    phase).  Nothing here may be relaxed — ADR 0003 requires true equivalence at every size.
+    """
+    target = None
+    if width <= 5:
+        target = np.asarray(Operator(op).data, dtype=complex)
+    last_error = None
+    for level in (1, 0):
+        scratch = QuantumCircuit(width)
+        scratch.append(op, range(width))
+        native = transpile(scratch, basis_gates=["rx", "rz", "cz"], optimization_level=level)
+        nidx = {b: k for k, b in enumerate(native.qubits)}
+        steps = [(ins.operation.name,
+                  tuple(nidx[b] for b in ins.qubits),
+                  tuple(float(p) for p in ins.operation.params))
+                 for ins in native.data if ins.operation.name != "barrier"]
+        plan = (steps, float(native.global_phase))
+        if target is None:
+            return plan
+        check = QuantumCircuit(width)
+        check.global_phase = plan[1]
+        for sname, sqs, sparams in steps:
+            if sname == "cz":
+                check.cz(sqs[0], sqs[1])
+            elif sname == "rx":
+                check.rx(sparams[0], sqs[0])
+            elif sname == "rz":
+                check.rz(sparams[0], sqs[0])
+            else:
+                check = None
+                break
+        if check is None:
+            last_error = f"unexpected gate in synthesis of {op.name}"
+            continue
+        got = np.asarray(Operator(check).data, dtype=complex)
+        overlap = abs(np.trace(got.conj().T @ target)) / target.shape[0]
+        if overlap > 1 - 1e-9:
+            return plan
+        last_error = f"synthesis of {op.name} at level {level} is not equivalent (overlap {overlap:.6f})"
+    raise ValueError(f"cannot synthesise {op.name} exactly: {last_error}")
+
+
 def _next_on(positions, q, i):
     lst = positions[q]
     k = bisect.bisect_right(lst, i)
@@ -299,14 +346,7 @@ def lower_to_items(circuit: QuantumCircuit) -> tuple[list[Item], float]:
         key = (name, tuple(float(p) for p in op.params) if op.params else (), len(qs))
         plan = cache.get(key)
         if plan is None:
-            scratch = QuantumCircuit(len(qs))
-            scratch.append(op, range(len(qs)))
-            native = transpile(scratch, basis_gates=["rx", "rz", "cz"], optimization_level=2)
-            nidx = {b: k for k, b in enumerate(native.qubits)}
-            plan = ([(ins2.operation.name,
-                      tuple(nidx[b] for b in ins2.qubits),
-                      tuple(float(p) for p in ins2.operation.params))
-                     for ins2 in native.data], float(native.global_phase))
+            plan = _native_plan(op, len(qs))
             cache[key] = plan
         steps, gphase = plan
         phase += gphase
