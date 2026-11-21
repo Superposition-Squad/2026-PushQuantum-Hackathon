@@ -576,6 +576,97 @@ class Executor:
                 m.apply1(k, qk)
             m.apply1(r, qr)
 
+    # ---------------------------------------------------------- band rounds
+    def relocate(self, targets):
+        """Storage-only relocations q -> dst (dst free or vacated by another relocating atom)."""
+        m = self.m
+        pending = {q: d for q, d in targets.items() if m.pos[q] != d}
+        reserved = set(targets.values())
+        while pending:
+            progress = False
+            for q in sorted(pending, key=lambda q: _dist(m.pos[q], pending[q])):
+                d = pending[q]
+                o = m.occ.get(d)
+                if o is None:
+                    m.move({q: d})
+                    del pending[q]
+                    progress = True
+                elif o not in pending:
+                    raise Illegal("relocation target held by a fixed atom")
+            if not progress:
+                q = min(pending)
+                tmp = self.nearest_free(m.pos[q], avoid=reserved)
+                m.move({q: tmp})
+        return
+
+    def nearest_free(self, s, avoid=(), rows=range(10)):
+        best = None
+        for y in rows:
+            for x in range(10):
+                t = (x, y)
+                if t in self.m.occ or t in avoid:
+                    continue
+                d = _dist(s, t)
+                if best is None or d < best[0]:
+                    best = (d, t)
+        if best is None:
+            raise Illegal("no free site")
+        return best[1]
+
+    def run_round_band(self, blks):
+        from scipy.optimize import linear_sum_assignment
+
+        m = self.m
+        P = len(blks)
+        h = max(1, math.ceil(P / 5))
+        rows = list(range(10 - h, 10))
+        slots = [(j, y) for y in rows for j in range(5)]
+        cost = np.zeros((P, len(slots)))
+        orient = np.zeros((P, len(slots)), dtype=bool)
+        for i, b in enumerate(blks):
+            pa, pb = m.pos[b.c], m.pos[b.t]
+            for k, (j, y) in enumerate(slots):
+                L, R = (2 * j, y), (2 * j + 1, y)
+                c1 = _dist(pa, L) + _dist(pb, R)
+                c2 = _dist(pa, R) + _dist(pb, L)
+                cost[i, k] = min(c1, c2)
+                orient[i, k] = c2 < c1
+        ri, ci = linear_sum_assignment(cost)
+        targets = {}
+        for i, k in zip(ri, ci):
+            b = blks[i]
+            j, y = slots[k]
+            L, R = (2 * j, y), (2 * j + 1, y)
+            if orient[i, k]:
+                targets[b.c], targets[b.t] = R, L
+            else:
+                targets[b.c], targets[b.t] = L, R
+        members = set(targets)
+        reserved = set(targets.values())
+        # evict non-members from the band rows
+        for q in sorted(q for q, s in m.pos.items() if s[1] in rows and q not in members):
+            t = self.nearest_free(m.pos[q], avoid=reserved, rows=range(0, 10 - h))
+            reserved.add(t)
+            targets[q] = t
+        self.relocate(targets)
+        for b in blks:
+            m.flush(b.c)
+            self.prep(b.t, _PRE_T)
+        up = {q: (m.pos[q][0], m.pos[q][1] + h) for q in members}
+        down = {q: m.pos[q] for q in members}
+        pairs = [(b.c, b.t) if m.pos[b.c][0] < m.pos[b.t][0] else (b.t, b.c) for b in blks]
+        m.move(up)
+        m.pulse(pairs)
+        m.move(down)
+        for b in blks:
+            m.apply1(b.t, _rx(b.th))
+            m.flush(b.t)
+        m.move(up)
+        m.pulse(pairs)
+        m.move(down)
+        for b in blks:
+            m.apply1(b.t, _POST_T)
+
     def lift(self, mapping):
         """Realise a set of independent atom relocations with few legal rectangle moves."""
         todo = {q: d for q, d in mapping.items() if self.m.pos[q] != d}
@@ -605,40 +696,123 @@ class Executor:
             if not progressed:
                 raise Illegal(f"cannot realise relocations {todo}")
 
+    def clone(self):
+        e = Executor.__new__(Executor)
+        e.n, e.hub, e.home = self.n, self.hub, self.home
+        m = Machine.__new__(Machine)
+        src = self.m
+        m.n, m.emit, m.qc = src.n, False, None
+        m.pos, m.occ = dict(src.pos), dict(src.occ)
+        m.dist, m.nmoves = src.dist, src.nmoves
+        m.pend = [u.copy() for u in src.pend]
+        m.depth = list(src.depth)
+        e.m = m
+        return e
+
     def run_hub(self, blks):
+        best = None
+        for strat in ("rotate", "direct"):
+            e = self.clone()
+            try:
+                e._hub(blks, strat)
+            except Illegal:
+                continue
+            c = e.m.dist - self.m.dist
+            if best is None or c < best[0] - 1e-9:
+                best = (c, strat)
+        if best is None:
+            raise Illegal("no hub strategy")
+        self._hub(blks, best[1])
+
+    def _hub_site(self, px):
+        """(hub site, partner site) in zone row 10 for a partner lifted from storage column px."""
+        if px % 2 == 0:
+            return (px + 1, 10), (px, 10)
+        return (px - 1, 10), (px, 10)
+
+    def _serve(self, p):
+        m, hub = self.m, self.hub
+        px, py = m.pos[p]
+        hs, ps = self._hub_site(px)
+        if m.pos[hub] != hs:
+            if hs in m.occ:
+                raise Illegal("hub site busy")
+            self.go(hub, hs)
+        back = m.pos[p]
+        self.go(p, ps)
+        m.pulse([(hub, p)] if hs[0] < ps[0] else [(p, hub)])
+        self.go(p, back)
+
+    def _rotate(self, rt, forward):
+        m = self.m
+        K = 9 - rt
+        if forward:
+            row9 = {q: (s[0], rt) for q, s in m.pos.items() if s[1] == 9}
+            m.move(row9)
+            m.move({q: (s[0], s[1] + 1) for q, s in m.pos.items() if rt <= s[1] <= 8})
+        else:
+            m.move({q: (s[0], s[1] - 1) for q, s in m.pos.items() if rt + 1 <= s[1] <= 9})
+            m.move({q: (s[0], 9) for q, s in m.pos.items() if s[1] == rt})
+
+    def _hub(self, blks, strat):
         m, hub = self.m, self.hub
         role = "Z" if blks[0].c == hub else "Y"
         partners = []
         for b in blks:
             p = b.t if role == "Z" else b.c
             partners.append((p, b.th))
-        # hub frame (swapped form when the hub is the target)
         if role == "Y":
             self.prep(hub, _PRE_TS)
         else:
             m.flush(hub)
         pre_p = _PRE_T if role == "Z" else _H
         post_p = _POST_T if role == "Z" else _H
-        order = sorted(partners, key=lambda pt: (-self.home[pt[0]][1], self.home[pt[0]][0]))
-        for p, _ in order:
+        for p, _ in partners:
             self.prep(p, pre_p)
-        seq = order + order[::-1]
-        first = True
-        for idx, (p, th) in enumerate(seq):
-            if idx == len(order):
-                for q, t in order:
-                    m.apply1(q, _rx(t))
-                    m.flush(q)
-            hx, hy = self.home[p]
-            j = hx // 2
-            hsite, psite = (2 * j, 10), (2 * j + 1, 10)
-            if m.pos[hub] != hsite:
-                self.go(hub, hsite)
-            self.go(p, psite)
-            m.pulse([(hub, p)])
-            self.go(p, self.home[p])
-        self.go(hub, self.home[hub])
-        for p, _ in order:
+        hub_home = m.pos[hub]
+        if strat == "direct":
+            base = {q: m.pos[q] for q in range(self.n)}
+            order = sorted(partners, key=lambda pt: (-base[pt[0]][1], base[pt[0]][0]))
+            seq = [p for p, _ in order]
+            for p in seq:
+                self._serve(p)
+            for p, th in partners:
+                m.apply1(p, _rx(th))
+                m.flush(p)
+            for p in reversed(seq):
+                self._serve(p)
+        else:
+            pset = {p for p, _ in partners}
+            rlo = min(m.pos[p][1] for p in pset)
+            others = {q for q in range(self.n) if q != hub}
+            rt = None
+            for r in range(rlo - 1, -1, -1):
+                if not any(m.pos[q][1] == r for q in others):
+                    rt = r
+                    break
+            if rt is None:
+                raise Illegal("no free row for rotation")
+            k = 9 - rlo
+            visits = []  # list of partner lists per rotation state
+            for step in range(k + 1):
+                row = [p for p in pset if m.pos[p][1] == 9]
+                d = 1 if step % 2 == 0 else -1
+                row.sort(key=lambda p: d * m.pos[p][0])
+                for p in row:
+                    self._serve(p)
+                visits.append(row)
+                if step < k:
+                    self._rotate(rt, True)
+            for p, th in partners:
+                m.apply1(p, _rx(th))
+                m.flush(p)
+            for step in range(k, -1, -1):
+                for p in reversed(visits[step]):
+                    self._serve(p)
+                if step > 0:
+                    self._rotate(rt, False)
+        self.go(hub, hub_home)
+        for p, _ in partners:
             m.apply1(p, post_p)
         if role == "Y":
             m.apply1(hub, _POST_TS)
@@ -666,7 +840,7 @@ def compile_ihva(n, blocks, policy="look"):
     ex = Executor(n, hub, home)
     for kind, blks in steps:
         if kind == "round":
-            ex.run_round(blks)
+            ex.run_round_band(blks)
         else:
             ex.run_hub(blks)
     ex.m.finish()
