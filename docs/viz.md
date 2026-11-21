@@ -163,7 +163,7 @@ data is fetched from its page over http; under `file://` the browser blocks that
 view shows a message with a link to its page instead.
 
 **URL hash** (kept when switching pages, updated as you go): `p` progress 0–1, `play=1`,
-`gran=frame`, `sp` speed, `cmp=<name>` split view, `side=0` sidebar hidden, `ov=1` only valid,
+`gran=inst` (instruction steps; default: frame), `sp` speed, `cmp=<name>` split view, `side=0` sidebar hidden, `ov=1` only valid,
 `lbl=0` atom labels off. Example: `gates/metric_circuit_36.html#cmp=zonedwell&p=0.25`.
 
 ## Invalid compilations

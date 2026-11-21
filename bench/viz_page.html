@@ -228,7 +228,7 @@ footer summary { cursor: pointer; }
   var DPR = window.devicePixelRatio || 1;
 
   // global playback settings shared by all views
-  var G = { gran: "inst", playing: false, lastStepTs: 0, speed: 2, showLabels: true, animMoves: true, split: false };
+  var G = { gran: "frame", playing: false, lastStepTs: 0, speed: 2, showLabels: true, animMoves: true, split: false };
   function stepDuration() { return 1 / G.speed; }
 
   // ================================================================== Model: one compilation, precomputed
@@ -1579,7 +1579,7 @@ footer summary { cursor: pointer; }
   if (HASH.ov === "1") $("onlyValid").checked = true;
   if (HASH.lbl === "0") setLabels(false);
   setSpeed(HASH.sp ? parseFloat(HASH.sp) || 2 : 2);
-  G.gran = HASH.gran === "frame" ? "frame" : "inst"; $("granSel").value = G.gran;
+  G.gran = HASH.gran === "inst" ? "inst" : "frame"; $("granSel").value = G.gran;
   renderSidebar();
   arrange();
   if (HASH.p) setCursor(A.kAt(clamp(parseFloat(HASH.p) || 0, 0, 1)), false);
