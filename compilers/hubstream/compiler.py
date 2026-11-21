@@ -617,6 +617,9 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
             _move(out, qubits, rows, cols, new_rows, new_cols)
 
     def lower(atoms: list[int]) -> None:
+        """3a: batched descent.  The whole group lands in ONE storage row (a monotone column map),
+        so a descent costs one `move` instead of one per atom: a move's cost is the longest distance
+        any of its atoms travels, so batching is free score."""
         if not atoms:
             return
         free = {site for site in _STORAGE if site not in occ}
@@ -624,37 +627,27 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
         for qubit in atoms:
             by_row[pos[qubit][1]].append(qubit)
         moves: dict[int, tuple[Site, Site]] = {}
-        # pack each source row into one target row: the lower phase then needs one move per row
         for source_row in sorted(by_row):
-            qubits = sorted(by_row[source_row], key=lambda q: (pos[q][0]))
+            qubits = sorted(by_row[source_row], key=lambda q: pos[q][0])
             need = len(qubits)
-            preferred = Counter(_nearest_free(free, pos[q])[1] for q in qubits).most_common(1)[0][0]
-            rows = sorted(
-                (row for row in range(STORAGE_Y[0], STORAGE_Y[1] + 1)
-                 if sum(1 for col in range(10) if (col, row) in free) >= need),
-                key=lambda row: (row != preferred, abs(row - source_row), -row),
-            )
-            if rows:
-                target_row = rows[0]
-            else:  # scattered fallback: closest free site per atom, from the deepest first
-                target_row = None
-            if target_row is None:
+            target = None
+            for row in range(9, STORAGE_Y[0] - 1, -1):
+                columns = [col for col in range(10) if (col, row) in free]
+                if len(columns) >= need:
+                    if row >= 7:  # deep rows are not worth it: keep the atoms near the zone
+                        target = (row, columns)
+                    break
+            if target is None:  # nothing near the zone fits the group: closest free site per atom
                 for qubit in reversed(qubits):
-                    target = _nearest_free(free, pos[qubit])
-                    free.discard(target)
-                    moves[qubit] = (pos[qubit], target)
+                    choice = _nearest_free(free, pos[qubit])
+                    free.discard(choice)
+                    moves[qubit] = (pos[qubit], choice)
                 continue
-            columns = [col for col in range(10) if (col, target_row) in free]
-            if len(columns) < need:
-                for qubit in reversed(qubits):
-                    target = _nearest_free(free, pos[qubit])
-                    free.discard(target)
-                    moves[qubit] = (pos[qubit], target)
-                continue
+            row, columns = target
             picked = _match_columns([pos[q][0] for q in qubits], columns)
             for qubit, col in zip(qubits, picked):
-                free.discard((col, target_row))
-                moves[qubit] = (pos[qubit], (col, target_row))
+                free.discard((col, row))
+                moves[qubit] = (pos[qubit], (col, row))
         do_moves(moves)
 
     def zone_atoms() -> list[int]:
