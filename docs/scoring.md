@@ -1,5 +1,10 @@
 # Scoring and validation (what actually counts)
 
+> **Validator v5.0.0 (final, ADR 0011):** only 20 circuits are scored (18 iHVA + 12q HEA p1/p3;
+> naive totals D = 163 364.3, depth = 13 364), the `idle` rule applies (every atom in the entangling
+> zone must be in a two-qubit gate of each gate layer), moves pick up / drop off in one zone, and the
+> entangling zone allows only `cz`. Sections below describe the original v0.0.0 scoring where they differ.
+
 Source of truth: `vendor/pushquantum_validator/` (copied from the public workspace
 `planqc/pushquantum-2026-leaderboard` v0.0.0) and its scoring notebook
 `planqc-pushquantum-2026/leaderboard/readme.py`. Where the prose brief and the validator disagree,

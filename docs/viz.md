@@ -21,8 +21,10 @@ Run from the repo root (inside a worktree use `/home/hackathon/challenge/.venv/b
 # one page (bench label or any .qasm file); also refreshes viz/index.html
 python bench/viz.py page compilers/<idea>/compiler.py --circuit metric_circuit_07 [--mode full]
 
-# every circuit of a set (default: all 49), 2 workers; prints bench-style lines and the score
-python bench/viz.py all compilers/<idea>/compiler.py [--set metric|sanity|all] [--filter 50q] [--jobs 2]
+# every circuit of a set, 2 workers; prints bench-style lines and the score. Like bench.py, the
+# metric set defaults to the 20 circuits the v5 leaderboard scores (--full-set: all 36);
+# --set all = those + the 13 sanity circuits
+python bench/viz.py all compilers/<idea>/compiler.py [--set metric|sanity|all] [--full-set] [--filter 50q] [--jobs 2]
 
 python bench/viz.py index        # rebuild viz/index.html + viz/manifest.json, refresh page snapshots
 python bench/viz.py rewrap       # re-embed existing pages into the current template (no recompile)
@@ -44,8 +46,10 @@ python bench/viz.py serve        # http://<host>:9000/ serving viz/ (default hos
   of the others, so its pages add nothing). `page` and `all` refuse them unless `--force`, the
   regenerate endpoint refuses them (403), and the index, `manifest.json`, the comparison sidebar and
   the split-view picker skip them even if their pages exist on disk (also `<worktree>-portfolio`).
-- `--mode fast` (default) = compile + replay + metrics + transversal-CZ check, like `bench.py`;
-  `--mode full` adds the official equivalence check.
+- `--mode fast` (default) = compile + replay + metrics + zone-span check (ADR 0010) + transversal-CZ
+  check (ADR 0007), like `bench.py`; `--mode full` adds the official equivalence check. The index
+  score and the sidebar's ranking weights use the v5 leaderboard set (naive totals 163 364.3 /
+  13 364).
 - The pages work from `file://` too; only the ↻ Regenerate button needs the server.
 - `serve` exposes `POST /api/regenerate` `{"compiler": <abs path>, "circuit": <bench label>,
   "mode": "fast"|"full"}`, used by the page's ↻ button: it recompiles that circuit and rebuilds
@@ -73,7 +77,7 @@ the controls and the live stats.
 | play / pause | `Space` |
 | step back / forward (current granularity) | `←` / `→` |
 | step one frame back / forward | `Shift`+`←` / `→` |
-| previous / next move | `↑` / `↓` |
+| previous / next move (lands on its step A) | `↑` / `↓` |
 | start (initial loading) / end | `Home` / `End` |
 | granularity: instruction ↔ frame | `G` |
 | speed ×1.5 / ÷1.5 (0.25–60 steps/s) | `+` / `−` |
@@ -86,29 +90,24 @@ the controls and the live stats.
 | jump to the first error | `E` |
 | jump anywhere | click the circuit, the overview strip, or drag the scrubber |
 
-- Cursor = "instruction *i* has just executed"; position 0 is the initial loading. A **frame** is
-  one move, or a maximal block of consecutive non-move instructions.
-- **Moves**: while the cursor is on a move (instruction or frame mode) and during its animation,
-  the atom view shows the start and the end selection together:
-  - start (green): the picked rows and the picked cols, each one contiguous interval drawn as a
-    single shaded band (rows across the whole array, cols per zone, at that zone's column
-    positions), and their intersection, the **active rectangle**, outlined solid dark green: every
-    atom inside it moves (a legal move has no ghost inside);
-  - end (magenta): every target row and col (`new_rows`/`new_cols`, possibly spread or squeezed)
-    as its own line, and the dashed **target rectangle**; parts outside the zones the move uses
-    are drawn faintly;
-  - line map: connectors from each picked line to its target line, rows in the right margin, cols
-    in the top margin (from the picked col's position in the start zone to the target col's
-    position in the target zone), so spreads like (0,1,2,3)→(0,2,4,6) and squeezes read directly.
-    The map is the validator's: with fewer target lines than picked lines the empty picked lines
-    are dropped first, and those get a red ✕ (`rm`/`cm` in the page data);
-  - the caption above the atom view gives `rows a–b → … · cols … → …` and how many empty lines
-    were dropped.
-  Stepping forward onto a move animates the atoms (ease-in-out) with the AOD lines travelling as
-  thin dotted lines; dashed ghosts and arrows mark the old positions. Jumps and backward steps are
-  instant.
-- Stats: position and frame, the current instruction (angles in rad and multiples of π), moves
-  m/M, this (or the last) move's distance, Σ distance so far vs this circuit's total and the
+- **Steps.** The cursor walks *display steps*: a gate (or barrier, measurement, illegal move) is one
+  step, a replayed `move` is **two**: step **A (origin)**, atoms still at their old positions, the
+  picked-up rectangle (picked rows × picked cols, one contiguous area, dropped empty lines
+  included) shaded green and the atoms that will move haloed; and step **B (target)**, atoms at
+  their new positions, the target rectangle (bounding box of `new_rows` × `new_cols`) in magenta
+  with every target line inside it dashed (spread or squeezed targets show their gaps), the moved
+  atoms haloed and dashed ghosts + arrows at their old positions. Going A → B (playing or stepping
+  forward) slides the atoms from origin to target while the green rectangle fades into the
+  magenta one; stepping back B → A slides them back. Jumps are instant. Position 0 is the initial
+  loading. The step counter, scrubber, `#p=` progress and the split view all count a move as two
+  steps; the wire diagram points both steps at the move's column, with an **A**/**B** tag on the
+  cursor.
+- A **frame** is a maximal block of consecutive gates, or one half of a move: frame mode steps a
+  gate block, then the move's A, then its B.
+- Stats: step and frame, the current instruction (angles in rad and multiples of π; `· A origin
+  (pending)` / `· B target` on moves), moves m/M, the move's distance (at step A as "pending move:
+  distance d", not yet counted; it is added to the move counter and Σ distance at step B), the last
+  move's distance between moves, Σ distance so far vs this circuit's total and the
   naive compiler's (black tick on the bar; Δ % = total/naive − 1, negative is better), depth so
   far (moves and barriers stripped, as scored) vs total and naive, CZ count, spacing warnings,
   parallel step, validity (validator replay, equivalence status, transversal-CZ check), and the
@@ -125,9 +124,8 @@ Legend (also on the page, "legend" in the footer):
 | blue ring: `rx` on that atom | two orange dots + line: `cz` |
 | green ring + dashed crosshair: `rz` (targeted) | purple bar + diamonds: `move` (diamonds on moved qubits) |
 | orange overlapping discs: `cz` pair | gray "M": `measure`; dashed gray line: `barrier` |
-| green bands + solid dark-green box: picked rows/cols of the current move, active rectangle | yellow background: current instruction (pale: rest of its frame) |
-| magenta lines + dashed box: target rows/cols, target rectangle | |
-| margin connectors (green dot → magenta dot; red ✕ = dropped empty line): line map | |
+| step A: green rectangle = picked rows × picked cols; green halo = atoms that move | yellow background: current instruction (pale: rest of its frame) |
+| step B: magenta rectangle = target bounding box, dashed magenta = target lines; magenta halo, dashed ghosts + arrows | A / B tag on the cursor: move step |
 | red ✕: instruction that violates a rule | faded glyphs: not executed yet; red outline/fill: violation/error |
 | red dashed ring: under-pulsed pair of a failing CZ segment | red dashed line: cursor |
 
@@ -140,11 +138,11 @@ in the atom view, so you can see the whole parallel block around the cursor.
 
 - *Compilations of this circuit*: every compiler with a page for this circuit label, ranked by the
   score points it earns on this circuit vs naive,
-  `100 · (0.8 · (D_naive − D) / 276 726.91 + 0.2 · (P_naive − P) / 23 676)` (the leaderboard's
-  weighting; the totals come from `naive_baseline.json`), with the raw distance and depth and their
+  `100 · (0.8 · (D_naive − D) / 163 364.3 + 0.2 · (P_naive − P) / 13 364)` (the leaderboard's
+  weighting; the totals are the naive compiler's over the v5 leaderboard set), with the raw distance and depth and their
   % vs naive, a validity badge, ★ for the best. Invalid compilations are listed last, unranked.
   Click a row to open that compiler's page **at the same relative progress** (fraction of the
-  instruction list), with play state, granularity, speed and split view carried over; `⇄` opens it
+  step list), with play state, granularity, speed and split view carried over; `⇄` opens it
   in the split view instead.
 - *Split view*: "compare with…" picker (or `C`).
 - *Circuits* of the current compiler grouped by family (HEA / iHVA / QAOA / sanity) and size, with
@@ -154,14 +152,15 @@ in the atom view, so you can see the whole parallel block around the cursor.
   generated after this page appear without rebuilding it) and from the embedded snapshot under
   `file://` ("snapshot").
 
-**Split view** (off by default): A = this page's compilation (left), B = the picked one (right),
-each with its atom view, a compact circuit strip, overview and stats; one shared control bar. The
-scrubber, steps and play run on A, and B follows at the same relative progress (moves of B are
-animated too when B advances by exactly one move). Clicking B's circuit or overview jumps B and
-puts A at the same progress. Below: a difference table (distance, depth, moves, CZ so far and
-final, B − A and B / A). "⇆ swap" opens B's page with A on the right; "✕" or `C` closes it.
-B's data is fetched from its page over http; under `file://` the browser blocks that, and the
-split view shows a message with a link to B's page instead.
+**Split view** (off by default): side 1 = this page's compilation (left), side 2 = the picked one
+(right; sides are numbered because A/B name the move steps), each with its atom view, a compact
+circuit strip, overview and stats; one shared control bar. The scrubber, steps and play run on
+side 1, and side 2 follows at the same relative step progress (its moves slide too when it goes
+from a move's A to its B). Clicking side 2's circuit or overview jumps it and puts side 1 at the
+same progress. Below: a difference table (distance, depth, moves, CZ so far and final, 2 − 1 and
+2 / 1). "⇆ swap" opens side 2's page with this one on the right; "✕" or `C` closes it. Side 2's
+data is fetched from its page over http; under `file://` the browser blocks that, and the split
+view shows a message with a link to its page instead.
 
 **URL hash** (kept when switching pages, updated as you go): `p` progress 0–1, `play=1`,
 `gran=frame`, `sp` speed, `cmp=<name>` split view, `side=0` sidebar hidden, `ov=1` only valid,
@@ -179,7 +178,11 @@ split view shows a message with a link to B's page instead.
   not applied, exactly like the validator.
 - `physics` (transversal CZ, ADR 0007): official metrics are kept; the banner jumps to the last
   instruction of the faulty segment and the under-pulsed pairs are ringed in red.
+- `zonespan` (ADR 0010: a multi-row move whose picked or target rows span both zones): official
+  metrics kept, the banner jumps to the move.
 - `equivalence` (`--mode full` only): banner with the QCEC / interaction-pair message.
+- Validator v5 violations such as the idle rule (`Instructions a-b …: qubits … sit in that zone
+  without taking part in a two-qubit gate`) are `movement` errors; the jump goes to instruction a.
 
 ## Limitations
 
@@ -262,7 +265,7 @@ top, as in the brief). Physical numbers are rounded to 4 decimals. *Sites* are i
      "rows": [5], "cols": [2, 3], "nrows": [10], "ncols": [2, 3],  // raw move params
      "br": [[5.0, 10.0]],               // AOD row bands: [physical y before, after] per used row line
      "bc": [[2.0, 2.0], [3.0, 2.3]],    // AOD col bands: [physical x before, after] per used col line
-     "rm": [[5, 10]], "cm": [[2, 2], [3, 3]]  // line map [picked, target] after dropping empty lines
+     "rm": [[5, 10]], "cm": [[2, 2], [3, 3]]  // line map [picked, target] after dropping empty lines (kept for tooling; not drawn)
     }
   ],
   "warnings": ["Target cols ... not evenly spaced ...", ...],  // unique spacing-warning texts

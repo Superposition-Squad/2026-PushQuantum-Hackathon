@@ -13,7 +13,10 @@ Modes:
     strict full + our own extra checks above 19 qubits: random-input statevector comparison for
            <= 22 qubits, QCEC with a timeout (best effort) for 50 qubits. Use before merging anything.
 
-The score printed for `--set metric` without `--filter` is exactly the official leaderboard score.
+**Default = the v5 leaderboard set** (validator v5.0.0, final): only the 20 circuits the leaderboard
+scores (18 iHVA + 12q HEA p1/p3) are run, and the score printed for `--set metric` without `--filter`
+is exactly the official leaderboard score. `--full-set` runs all 36 metric circuits (pre-v5 score,
+written to results/<name>-full36.json).
 With `--filter`, a partial score over the selected circuits is shown (same formula).
 Results go to results/<name>.json (latest, meant to be committed) and results/runs/ (history).
 """
@@ -249,9 +252,18 @@ def run_one(path_str: str, compiler: str, mode: str, timeout: float) -> dict:
     return record
 
 
-def score(records: list[dict]) -> dict:
+def leaderboard_labels(full_set: bool = False) -> set[str]:
+    """Labels of the circuits the v5 leaderboard scores (`metric_benchmarks(reduced=True)`: the 18 iHVA
+    circuits and the first two HEA ones), or all 36 metric circuits with `full_set`."""
+    return {benchmark_label(p) for p in metric_benchmarks(reduced=not full_set)}
+
+
+def score(records: list[dict], full_set: bool = False) -> dict:
+    """The leaderboard formula over the scored set: by default the v5 leaderboard set (20 circuits,
+    docs/adr/0011); with `full_set` all 36 metric circuits (the pre-v5 score)."""
     naive = naive_baseline()
-    rows = [r for r in records if r["label"].startswith("metric_")]
+    scored = leaderboard_labels(full_set)
+    rows = [r for r in records if r["label"] in scored]
     out = {"n": len(rows), "valid": all(r["ok"] for r in rows) and bool(rows)}
     if not out["valid"]:
         return out
@@ -263,7 +275,7 @@ def score(records: list[dict]) -> dict:
     out.update(distance=round(d, 3), naive_distance=round(nd, 3), distance_improvement=round(di, 3),
                depth=p, naive_depth=npth, depth_improvement=round(pi, 3),
                score=round(SCORE_DISTANCE_WEIGHT * di + SCORE_DEPTH_WEIGHT * pi, 4),
-               official=len(rows) == 36)
+               official=len(rows) == len(scored), scored_set="full36" if full_set else "leaderboard20")
     fam = {}
     for f in ("hea", "ihva", "qaoa"):
         fr = [r for r in rows if r["family"] == f]
@@ -283,6 +295,9 @@ def main(argv=None) -> int:
     ap.add_argument("compiler", help="path/to/compiler.py[:function] (default function: compile_circuit)")
     ap.add_argument("--mode", choices=["fast", "full", "strict"], default="fast")
     ap.add_argument("--set", dest="bset", choices=["metric", "sanity", "all"], default="metric")
+    ap.add_argument("--full-set", action="store_true",
+                    help="run and score all 36 metric circuits (pre-v5). Default: only the 20 circuits the "
+                         "v5 leaderboard scores (18 iHVA + 12q HEA p1/p3), docs/adr/0011")
     ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--filter", default=None, help="only benchmarks whose label or file contains this")
     ap.add_argument("--name", default=None, help="result label (default: the compiler's folder name)")
@@ -311,7 +326,7 @@ def main(argv=None) -> int:
     if args.bset in ("sanity", "all"):
         paths += sanity_benchmarks()
     if args.bset in ("metric", "all"):
-        paths += metric_benchmarks()
+        paths += metric_benchmarks(reduced=not args.full_set)
     if args.filter:
         paths = [p for p in paths if args.filter in (benchmark_label(p) or "") or args.filter in str(p)]
     if not paths:
@@ -336,25 +351,29 @@ def main(argv=None) -> int:
                 else:
                     print(f"FAIL {r['label']:<18} {r['file']:<44} {r['error'][:300]}", flush=True)
     records.sort(key=lambda r: r["label"])
-    summary = score(records)
+    summary = score(records, args.full_set)
     elapsed = round(time.perf_counter() - t0, 1)
 
     out = {"name": name, "compiler": str(cpath.relative_to(ROOT)) if cpath.is_relative_to(ROOT) else str(cpath),
-           "mode": args.mode, "physics_check": not args.no_physics, "zonespan_check": not args.no_zonespan, "set": args.bset, "filter": args.filter,
+           "mode": args.mode, "physics_check": not args.no_physics, "zonespan_check": not args.no_zonespan, "set": args.bset, "scored_set": "full36" if args.full_set else "leaderboard20", "filter": args.filter,
            "timestamp": dt.datetime.now().isoformat(timespec="seconds"), "elapsed_s": elapsed,
            "summary": summary, "failed": [r["label"] for r in records if not r["ok"]], "records": records}
     (ROOT / "results" / "runs").mkdir(parents=True, exist_ok=True)
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     (ROOT / "results" / "runs" / f"{name}-{args.mode}-{stamp}.json").write_text(json.dumps(out, indent=1))
     if args.bset in ("metric", "all") and not args.filter:
-        (ROOT / "results" / f"{name}.json").write_text(json.dumps(out, indent=1))
+        suffix = "-full36" if args.full_set else ""
+        (ROOT / "results" / f"{name}{suffix}.json").write_text(json.dumps(out, indent=1))
 
     print("-" * 80)
     print(f"{name}: {len(records) - len(out['failed'])}/{len(records)} passed in {elapsed}s ({args.mode})")
     if out["failed"]:
         print("FAILED:", ", ".join(out["failed"]))
     if summary.get("valid"):
-        tag = "OFFICIAL SCORE" if summary["official"] else f"partial score ({summary['n']} metric circuits)"
+        if summary["official"]:
+            tag = "SCORE (full 36-circuit set, pre-v5)" if args.full_set else "OFFICIAL SCORE (v5 leaderboard set, 20 circuits)"
+        else:
+            tag = f"partial score ({summary['n']} scored circuits)"
         print(f"{tag}: {summary['score']:+.2f}%  (distance {summary['distance']:.1f} vs {summary['naive_distance']:.1f}:"
               f" {summary['distance_improvement']:+.2f}%; depth {summary['depth']} vs {summary['naive_depth']}:"
               f" {summary['depth_improvement']:+.2f}%)")

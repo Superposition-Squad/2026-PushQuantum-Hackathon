@@ -4,6 +4,8 @@ Everything runs from the repo root with the repo's uv env (`uv sync` once; Pytho
 Worktrees have no `.venv`, so use the main repo's interpreter from inside a worktree:
 `/home/hackathon/challenge/.venv/bin/python bench/bench.py ...`.
 
+**Default scored set = the v5 leaderboard set (20 circuits); `--full-set` for all 36 (ADR 0011).**
+
 ## Commands
 
 ```sh

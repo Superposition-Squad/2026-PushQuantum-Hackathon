@@ -453,7 +453,7 @@ def _violation_list(errors) -> list[dict]:
     for error in list(errors)[:500]:
         out.append(
             {
-                "i": _regex_index(r"Instruction (\d+)", str(error)),
+                "i": _regex_index(r"Instructions? (\d+)", str(error)),
                 "kind": getattr(error, "kind", "move"),
                 "msg": str(error)[:1000],
             }
@@ -584,7 +584,7 @@ def build(compiler_path: str | Path, qasm_path: str | Path, name: str, mode: str
             data["error"] = {
                 "stage": "movement",
                 "msg": str(first)[:2000],
-                "i": _regex_index(r"Instruction (\d+)", str(first)),
+                "i": _regex_index(r"Instructions? (\d+)", str(first)),
             }
 
     if movement is not None:
@@ -598,6 +598,13 @@ def build(compiler_path: str | Path, qasm_path: str | Path, name: str, mode: str
     else:
         totals = _partial_totals(trace, depth, num_operations, cz_count)
     data["totals"] = totals
+
+    if movement is not None and data["error"] is None and hasattr(bench, "zonespan_check"):
+        try:
+            bench.zonespan_check(movement.trace)
+        except bench.ZoneSpanError as error:
+            message = str(error)
+            data["error"] = {"stage": "zonespan", "msg": message[:2000], "i": _regex_index(r"instruction (\d+)", message)}
 
     if movement is not None:
         try:
@@ -801,7 +808,7 @@ def collect_index(out: Path) -> list[dict]:
             continue
         groups.setdefault(str(name), []).append(sidecar)
 
-    metric_labels = {label for label in _naive_baseline() if label.startswith("metric_")}
+    metric_labels = _scored_labels()
     result = []
     for name in sorted(groups, key=lambda value: (value != "naive", value)):
         rows = groups[name]
@@ -857,11 +864,18 @@ def _circuit_info(label: str) -> dict:
     }
 
 
+def _scored_labels() -> set[str]:
+    """The circuits the leaderboard scores (v5: 20), as bench defines them."""
+    if hasattr(bench, "leaderboard_labels"):
+        return set(bench.leaderboard_labels())
+    return {label for label in _naive_baseline() if label.startswith("metric_")}
+
+
 def build_manifest(out: Path, groups: list[dict] | None = None) -> dict:
     """Every compiler x circuit page under `out` with its metrics (see docs/viz.md, "manifest")."""
     groups = collect_index(out) if groups is None else groups
     naive = _naive_baseline()
-    metric = [k for k in naive if k.startswith("metric_")]
+    metric = sorted(_scored_labels())
     circuits: dict[str, dict] = {}
     pages = []
     compilers = []
@@ -1168,7 +1182,7 @@ def cmd_all(args) -> int:
     if args.bset in ("sanity", "all"):
         paths += sanity_benchmarks()
     if args.bset in ("metric", "all"):
-        paths += metric_benchmarks()
+        paths += metric_benchmarks(reduced=not args.full_set)
     if args.filter:
         paths = [p for p in paths if args.filter in (benchmark_label(p) or "") or args.filter in str(p)]
     if not paths:
@@ -1217,7 +1231,7 @@ def cmd_all(args) -> int:
         }
         for item in summaries
     ]
-    result = bench.score(records)
+    result = bench.score(records, full_set=args.full_set) if hasattr(bench, "leaderboard_labels") else bench.score(records)
     elapsed = round(time.perf_counter() - t0, 1)
     failed = [item["label"] for item in summaries if not item["ok"]]
 
@@ -1323,6 +1337,7 @@ def main(argv: list[str] | None = None) -> int:
     every.add_argument("--timeout", type=float, default=300)
     every.add_argument("--out", default=None)
     every.add_argument("--force", action="store_true", help="build pages even for an excluded compiler")
+    every.add_argument("--full-set", action="store_true", help="all 36 metric circuits (default: the 20 the v5 leaderboard scores)")
     every.set_defaults(func=cmd_all)
 
     index = sub.add_parser("index", help="regenerate the index")

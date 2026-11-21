@@ -1,6 +1,8 @@
-"""Rank compilers by their latest full metric run in results/<name>.json.
+"""Rank compilers by their latest metric run in results/<name>.json.
 
-Usage: uv run python bench/compare.py [names...] [--per-circuit]
+Scores are RECOMPUTED from the per-circuit records over the v5 leaderboard set (20 circuits, default)
+or all 36 circuits (`--full-set`), so old 36-circuit result files and new 20-circuit ones compare
+fairly. Usage: uv run python bench/compare.py [names...] [--per-circuit] [--full-set]
 """
 
 from __future__ import annotations
@@ -12,17 +14,38 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def load(names: list[str]) -> list[dict]:
-    files = [ROOT / "results" / f"{n}.json" for n in names] if names else sorted((ROOT / "results").glob("*.json"))
-    return [json.loads(f.read_text()) for f in files if f.is_file()]
+def load(names: list[str], full_set: bool = False) -> list[dict]:
+    import sys
+
+    sys.path.insert(0, str(ROOT / "bench"))
+    from bench import leaderboard_labels, score
+
+    files = [ROOT / "results" / f"{n}.json" for n in names] if names else sorted(
+        f for f in (ROOT / "results").glob("*.json") if not f.stem.endswith("-full36"))
+    runs = []
+    for f in files:
+        if not f.is_file():
+            continue
+        r = json.loads(f.read_text())
+        scored = leaderboard_labels(full_set)
+        have = {x["label"] for x in r["records"]}
+        r["summary"] = score(r["records"], full_set) if scored <= have else {"valid": False, "n": 0}
+        if not scored <= have:
+            r["failed"] = [f"missing {len(scored - have)} scored circuits"]
+        runs.append(r)
+    return runs
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("names", nargs="*")
     ap.add_argument("--per-circuit", action="store_true", help="distance/depth per circuit, side by side")
+    ap.add_argument("--full-set", action="store_true", help="rank by all 36 metric circuits (pre-v5) instead of the v5 leaderboard set")
     args = ap.parse_args(argv)
-    runs = load(args.names)
+    runs = load(args.names, args.full_set)
+    print("* = result produced before validator v1.0.0 was vendored (~2026-11-21T19:40): NOT checked for the "
+          "`idle` rule, re-run before trusting it")
+    print("scored set:", "all 36 metric circuits (pre-v5)" if args.full_set else "v5 leaderboard set (18 iHVA + 12q HEA p1/p3)")
     if not runs:
         print("no results")
         return 1
@@ -40,7 +63,8 @@ def main(argv=None) -> int:
                 f"{s['families'].get(f, {}).get('distance_improvement', 0):>+8.1f}/{s['families'].get(f, {}).get('depth_improvement', 0):<+6.1f}"
                 for f in ("hea", "ihva", "qaoa")
             )
-            print(f"{i:<5}{r['name']:<28}{s['score']:>+8.2f}%{s['distance_improvement']:>+8.2f}%{s['depth_improvement']:>+8.2f}%  {fam}  {r['mode']:<8} {r['timestamp']}")
+            star = "*" if r["timestamp"] < "2026-11-21T19:40" else " "
+            print(f"{i:<5}{(r['name'] + star):<28}{s['score']:>+8.2f}%{s['distance_improvement']:>+8.2f}%{s['depth_improvement']:>+8.2f}%  {fam}  {r['mode']:<8} {r['timestamp']}")
         else:
             print(f"{i:<5}{r['name']:<28}{'INVALID':>9}  failed: {', '.join(r['failed'][:6])}  {r['mode']:<8} {r['timestamp']}")
 

@@ -422,7 +422,7 @@ def build(components: list[str], budget: float, sv_max_qubits: int) -> str:
         f"_BUDGET_S = {float(budget)!r}  # skip remaining components once this much wall/CPU time is spent",
         f"_SV_MAX_QUBITS = {int(sv_max_qubits)!r}",
         "_W_DISTANCE, _W_DEPTH = 0.8, 0.2",
-        "_NAIVE_DISTANCE, _NAIVE_DEPTH = 276726.91, 23676",
+        "_NAIVE_DISTANCE, _NAIVE_DEPTH = 163364.3, 13364  # v5 leaderboard set (docs/adr/0011)",
         "",
         f"_VALIDATOR_SOURCE = {_literal_lines(vsrc)}",
         "",
