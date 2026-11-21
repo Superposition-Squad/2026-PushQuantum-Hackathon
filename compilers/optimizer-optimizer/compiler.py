@@ -1,4 +1,4 @@
-"""pulsebeam: idle-rule pulse planner (atoms live in storage; each pulse = block drop + lifts) with beam search over pulses and drop/lift choices.
+"""optimizer-optimizer (pulse-beam planner): idle-rule pulse planner (atoms live in storage; each pulse = block drop + lifts) with beam search over pulses and drop/lift choices.
 
 (Historical notes below describe the earlier zone-resident planners kept in this file.)
 

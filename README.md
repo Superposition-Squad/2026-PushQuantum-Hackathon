@@ -17,9 +17,9 @@ Compilers for planqc's zoned neutral-atom machine: map a circuit to `rx`/`rz` (s
 |---|---|---|
 | `systolic_po` | **+86.30** | systolic + post-optimizer (below) |
 | `systolic` | +85.34 | storage homes, hub stays in the zone, row rotation, longest-path layout |
-| `pulsebeam` | +81.96 | beam search over pulses; atoms live in storage, block drops; wins most 12q iHVA |
+| `optimizer-optimizer` | +81.79 | pulse-beam planner: beam search over pulses; atoms live in storage, block drops; wins most 12q iHVA |
 | `portfolio` (official, `submission/portfolio.py`) | +85.50 | systolic, hubstream, rectbatch, gates |
-| `portfolio_po` | ~+86.6 (estimate, full run pending) | best of all `*_po` components per circuit |
+| `portfolio_po` | +86.63 (full 20/20; sanity 12 times out, fix pending) | best of all `*_po` components per circuit |
 
 History and per-round numbers: [docs/results-log.md](docs/results-log.md).
 
@@ -45,7 +45,7 @@ uv sync                                                        # once
 .venv/bin/python bench/bench.py compilers/<name>/compiler.py   # v5 set, fast mode
 .venv/bin/python bench/bench.py compilers/<name>/compiler.py --mode full        # + official equivalence
 .venv/bin/python bench/bench.py compilers/<name>/compiler.py --set all --mode strict   # merge gate
-bench/devbench.sh --filter 12q                                 # fast dev loop for pulsebeam
+bench/devbench.sh --filter 12q                                 # fast dev loop for optimizer-optimizer
 .venv/bin/python bench/package.py compilers/<name>/compiler.py -o submission/<name>.py --score
 ```
 

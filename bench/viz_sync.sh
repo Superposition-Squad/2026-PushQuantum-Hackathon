@@ -6,7 +6,7 @@
 #      JOBS (default 2), SET (metric|sanity|all, default metric).
 set -uo pipefail
 cd "$(dirname "$0")/.."
-COMPILERS="${COMPILERS:-systolic systolic_po pulsebeam pulsebeam_po hubstream rectbatch gates naive}"
+COMPILERS="${COMPILERS:-systolic systolic_po optimizer-optimizer optimizer-optimizer_po hubstream rectbatch gates naive}"
 INTERVAL="${INTERVAL:-300}"
 PYTHON="${PYTHON:-.venv/bin/python}"
 JOBS="${JOBS:-2}"
