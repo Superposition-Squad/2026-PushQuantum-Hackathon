@@ -2,7 +2,7 @@
 
 - Branch: idea/zonedwell · Worktree: /home/hackathon/challenge-wt/zonedwell
 - Base: main 0ea558b, compiler starts from `compilers/naive/compiler.py`
-- Status: done — ready for merge review (final `e0c88c4`, +80.79 %)
+- Status: round 2 done — final `38fff76`, +87.12 % (round 1: `e0c88c4`, +80.79 %)
 
 ## Hypothesis
 
@@ -248,7 +248,9 @@ Two things in the original spec turned out to be wrong:
 | partial (shallow) bulk dips | e0c88c4 | +80.79 | 81.68 | 77.25 | 36/36 metric; dip depth = 1 + deepest atom needing a 1q gate |
 | exact elision of zero-angle blocks | 7b1f7bd | +83.69 | 84.72 | 79.55 | `tree_warm` 441 blocks -> 49; 50q p3 distance 5428 -> 1137 |
 | compact lanes (L = ceil((P+1)/5)), place-before-flush, sum assignment cost | cf966d3 | +86.33 | 88.15 | 79.07 | zone switch costs L instead of 10 |
-| layout search 40*P -> 200*P iterations | (this commit) | +86.43 | 88.26 | 79.08 | max compile 9.0 s |
+| layout search 40*P -> 200*P iterations | af66dd9 | +86.43 | 88.26 | 79.08 | max compile 9.0 s; C1 (deferred visitor homes) measured worse (+85.93) and reverted |
+| conveyor flushes every pulsed qubit (bug fix) | e884bb5 | +86.43 | 88.26 | 79.08 | metric numbers unchanged; fixes a latent gate-order bug, see round 2 |
+| hub = max-degree qubit with degree >= (n-1)/4 | 38fff76 | **+87.12** | 88.80 | 80.39 | `tree_warm` gets the conveyor: 50q 974/180 -> 376/75, 20q 250/74 -> 127/35 |
 
 Per family at `e0d4431`: HEA distance +63.5 % / depth +16.1 %, iHVA +76.4 % / +74.9 %,
 QAOA +87.0 % / +80.7 %. Max per-circuit compile time 3.3 s.
@@ -327,3 +329,63 @@ Most promising next steps, in order: (1) iHVA: a cheaper way into storage before
 the number of groups rather than greedily taking hub-Z first; (2) super-rounds for the non-hub
 matchings (disjoint target sets, one dip for several matchings); (3) a placement search scored by
 running the real planner (compile time is ≤ 7 s of a 60 s budget).
+
+## Round 2 (15:20–18:15 UTC): verdict
+
+**Final `38fff76`: +87.12 % standalone (distance +88.80 %, depth +80.39 %)**, up from +80.79 %. Our
+compiler alone is now above the round-1 four-way portfolio (+86.24 %). Per family: QAOA distance
++90.1 % / depth +80.0 %, iHVA +88.4 % / +81.5 %, HEA +76.5 % / +25.8 %.
+
+**Against the round-1 per-circuit best** (weighted cost = distance + 2.92·depth), we now win 24 of
+36 circuits (round 1: 12). Substituting our results into the round-1 portfolio lowers its
+weighted total from 47 582 to 42 878:
+- all 12 QAOA (12q is new, from compact lanes);
+- 20q and 50q iHVA stagger/tree (the 20q ones are new);
+- 20q and 50q `tree_warm` (new): 50q 376/75 vs rectbatch 808/116, 20q 127/35 vs 208/53.
+
+Still behind on HEA (rectbatch, far ahead) and on 12q iHVA (hubstream, 10–17 % ahead; removing the
+conveyor at 12q makes us worse, not better). 12q `tree_warm` is a near tie (82/30 vs 89/26).
+
+What changed, in order of value:
+1. **Compact lanes:** lanes are `L = ceil((P+1)/5)` rows deep instead of 10, so a zone switch or
+   dip costs L. Huge at 12q/20q (12q iHVA stagger p3 1538 → 725), no change at 50q. Measured:
+   shallowest is monotonically best.
+2. **Exact θ=0 elision.** `tree_warm` has 392 of 441 zero angles at 50q.
+3. **Hub = max-degree qubit with degree ≥ (n−1)/4,** so the 49-block spanning tree left in
+   `tree_warm` (hub degree 31) gets the conveyor.
+4. Place before the pre-flush dip, summed assignment cost plus a row penalty, and a 200·P layout
+   search: ~2–5 % at 50q.
+
+**Correctness finding:** an exact Clifford-tableau check (all rotation angles set to π/2, which
+also breaks the iHVA `rx(±π/2)` pattern) exposed a latent bug present since round 1. The conveyor
+decided whether to flush pending 1q gates only from the qubits in its folded `before` operators, so
+the hub's pending `rx`, or a partner whose queued pre cancelled a pending post (target chaining),
+could be pulsed with a gate still pending. That gate was then emitted after the `cz`. It never fired
+on the 36 metric circuits (exact QCEC at 12q, statevector at 20q, Clifford checks at 50q). It could
+fire in real iHVA if every served partner chains. Fixed in `e884bb5` by flushing every pulsed qubit.
+Metric numbers are unchanged.
+
+**Validity evidence for `38fff76`:**
+- `--mode full` 36/36 metric, and 13/13 sanity on a frozen snapshot;
+- 12q exactly equivalent under QCEC;
+- `--mode strict --filter 20q`: 12/12 pass the statevector ×3 check;
+- 50q exact Clifford-tableau equality for `tree_warm` p1/p3, tree p3, stagger p1 and qaoa_warm p3,
+  both with the structure-preserving and with the pattern-breaking angle substitution.
+
+Max compile time 9 s (50q iHVA tree p3, `--jobs 2`). The code is deterministic (seeded layout
+search).
+
+**Tried and rejected (measured):**
+- deferring visitor homes inside a group (worse: stranded atoms deepen the dips);
+- a whole-lane shift with `cz·cz = I` cancellation for accidental pairs (each alignment covers only
+  ~1 block with this layout);
+- per-circuit lane depth (shallowest always wins);
+- multi-seed layout selection (≤ 2 % weighted at 50q for K× compile time, which a portfolio compiler
+  cannot afford).
+
+**Next levers:**
+- at 50q the non-hub positioning (≈1 visitor move per block, ~3 each) and the two dips per matching
+  round (~25 %);
+- a layout objective that also models dip depth;
+- pre-flush lookahead, i.e. flushing round k+1's pre-gates for atoms that are idle in round k
+  during round k's mid-dip.
