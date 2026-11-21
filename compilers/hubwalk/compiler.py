@@ -1674,12 +1674,14 @@ def _looks_like_hub(items, n):
         neigh.setdefault(blk.u, set()).add(blk.v)
         neigh.setdefault(blk.v, set()).add(blk.u)
         used.update(blk.qubits())
-    if len(used) != n:
-        return None
     hub = max(neigh, key=lambda q: (len(neigh[q]), q))
-    if len(neigh[hub]) != n - 1:
-        return None
-    return hub
+    degs = sorted((len(s) for s in neigh.values()), reverse=True)
+    second = degs[1] if len(degs) > 1 else 0
+    if len(neigh[hub]) == n - 1 and len(used) == n:
+        return hub
+    if len(neigh[hub]) >= 4 and len(neigh[hub]) >= 2 * second:
+        return hub
+    return None
 
 
 def _parked_qubit(items, n):
