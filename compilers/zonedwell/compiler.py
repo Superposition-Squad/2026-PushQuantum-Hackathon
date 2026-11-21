@@ -743,7 +743,10 @@ class _Machine:
         before, after = ops
         for q, u in before.items():
             st.queue_1q(q, u)
-        if not st.in_zone or self._needs_flush(before):
+        # every qubit the pass pulses must have no pending 1q gate: checking only `before` misses
+        # the hub (or a partner whose queued pre cancelled its pending post) -> wrong gate order
+        involved = {q for blk in group for q in blk.qubits()} | {self.hub}
+        if not st.in_zone or self._needs_flush(involved):
             self.storage_phase()
             self.to_zone()
         per_lane = {}
