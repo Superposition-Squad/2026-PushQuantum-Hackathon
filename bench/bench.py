@@ -47,6 +47,8 @@ from pushquantum_validator.verify import (  # noqa: E402
     verify_equivalence,
     verify_movement,
 )
+from pushquantum_validator._sandbox import run_compiler_process  # noqa: E402
+from pushquantum_validator.spec import load_trusted_spec  # noqa: E402
 from pushquantum_validator.errors import ArchitectureError, CompilerOutputError, NotEquivalentError  # noqa: E402
 
 STRICT_QCEC_TIMEOUT = 120
@@ -202,7 +204,7 @@ def run_one(path_str: str, compiler: str, mode: str, timeout: float) -> dict:
     try:
         reference = QuantumCircuit.from_qasm_file(str(path))
         record["qubits"] = reference.num_qubits
-        compiled, loading = run_compiler(reference, compiler, timeout=timeout, network=False)
+        compiled, loading = run_compiler_process(reference, load_trusted_spec(), compiler, timeout, 4096, network=False)
         record["compile_s"] = round(time.perf_counter() - t0, 2)
         movement = verify_movement(compiled, loading, log_file=os.devnull)
         gates = strip_moves(compiled)

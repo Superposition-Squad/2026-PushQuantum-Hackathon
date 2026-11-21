@@ -522,8 +522,11 @@ def build(compiler_path: str | Path, qasm_path: str | Path, name: str, mode: str
 
     t0 = time.perf_counter()
     try:
-        compiled, loading = run_compiler(
-            reference, f"{compiler_path}:compile_circuit", timeout=timeout, network=False
+        from pushquantum_validator._sandbox import run_compiler_process
+        from pushquantum_validator.spec import load_trusted_spec
+
+        compiled, loading = run_compiler_process(
+            reference, load_trusted_spec(), f"{compiler_path}:compile_circuit", timeout, 4096, network=False
         )
     except CompilerOutputError as error:
         data["meta"]["compile_s"] = round(time.perf_counter() - t0, 3)
