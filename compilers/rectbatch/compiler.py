@@ -117,6 +117,65 @@ def native_circuit(circuit: QuantumCircuit) -> QuantumCircuit:
     return out
 
 
+def zz_orient(circuit: QuantumCircuit) -> QuantumCircuit:
+    """Rewrite every `cx(a,b); rz(t) b; cx(a,b)` block into the same block with the other control.
+
+    `cx(a,b) rz(t) b cx(a,b)` equals `cx(b,a) rz(t) a cx(b,a)`. Orienting each block so that the
+    endpoint with the larger interaction degree is the control leaves the hub's wire almost free of
+    single-qubit gates within a `cz` layer, so the hub can stay parked in the entangling zone.
+    """
+    index = {bit: i for i, bit in enumerate(circuit.qubits)}
+    data = list(circuit.data)
+    degree: dict[int, int] = defaultdict(int)
+    seen = set()
+    for instruction in data:
+        if len(instruction.qubits) == 2:
+            a, b = sorted(index[q] for q in instruction.qubits)
+            if (a, b) not in seen:
+                seen.add((a, b))
+                degree[a] += 1
+                degree[b] += 1
+    nxt: dict[tuple[int, int], int] = {}
+    last: dict[int, int] = {}
+    for i in range(len(data) - 1, -1, -1):
+        for qubit in data[i].qubits:
+            q = index[qubit]
+            nxt[(i, q)] = last.get(q)
+            last[q] = i
+    out = circuit.copy_empty_like()
+    skip = set()
+    for i, instruction in enumerate(data):
+        if i in skip:
+            continue
+        if instruction.operation.name == "cx":
+            a, b = (index[q] for q in instruction.qubits)
+            j = nxt.get((i, b))
+            if j is not None and data[j].operation.name == "rz" and index[data[j].qubits[0]] == b:
+                k = nxt.get((j, b))
+                if (
+                    k is not None
+                    and k == nxt.get((i, a))
+                    and data[k].operation.name == "cx"
+                    and [index[q] for q in data[k].qubits] == [a, b]
+                ):
+                    angle = data[j].operation.params[0]
+                    skip |= {j, k}
+                    if degree[b] > degree[a]:
+                        a, b = b, a
+                    out.cx(a, b)
+                    out.rz(angle, b)
+                    out.cx(a, b)
+                    continue
+        out.append(instruction)
+    return out
+
+
+def _native_key(native: QuantumCircuit):
+    """Cheap structural signature, used to skip a candidate whose native circuit is identical."""
+    return tuple((instruction.operation.name, tuple(instruction.qubits), instruction.operation.params)
+                 for instruction in native.data)
+
+
 # ------------------------------------------------------------------ 2. round scheduling
 
 
@@ -782,7 +841,263 @@ def optimise_placement(rounds, pos: dict[int, Site], budget: int) -> dict[int, S
     return dict(pos)
 
 
-# ------------------------------------------------------------------ 7. orchestrator
+# ------------------------------------------------------------------ 7. parking emission
+
+
+PARK = False
+"""Keep an atom already in the entangling zone for its next `cz`. Measured 40 % worse: the partner
+is forced into the parked atom's slot, which is usually far, so this stays off."""
+
+
+def _are_paired(a: Site, b: Site) -> bool:
+    if a[1] != b[1] or a[1] < ENT_Y0:
+        return False
+    low, high = (a[0], b[0]) if a[0] < b[0] else (b[0], a[0])
+    return high == low + 1 and low % 2 == 0
+
+
+def _complement(site: Site) -> Site:
+    x, y = site
+    return (x + 1, y) if x % 2 == 0 else (x - 1, y)
+
+
+def _occupied_pairs(occ: dict[Site, int]):
+    return {frozenset((occ[s], occ[_complement(s)])) for s in occ if s[1] >= ENT_Y0 and s[0] % 2 == 0 and _complement(s) in occ}
+
+
+def _park_actions(pairs, current, home, occ, ops_qubits):
+    """Plan one round keeping the atoms that are already where their next `cz` needs them.
+
+    Returns `(before, after)`: `before` are move dicts emitted before the round's 1q ops, `after`
+    a list of `("move", atoms)` / `("cz", pair)` entries emitted afterwards, or `None` if the round
+    cannot be planned safely (the caller then falls back to the static plan).
+    """
+    cur = dict(current)
+    o = dict(occ)
+    before = []
+    after = []
+
+    def apply(atoms):
+        if move_params(atoms, o) is None:
+            return False
+        for q, (src, _) in atoms.items():
+            o.pop(src, None)
+        for q, (_, dst) in atoms.items():
+            o[dst] = q
+            cur[q] = dst
+        return True
+
+    pair_of = {}
+    for pair in pairs:
+        pair_of[pair[0]] = pair
+        pair_of[pair[1]] = pair
+
+    ready = []
+    for pair in pairs:
+        u, v = pair[0], pair[1]
+        if u in ops_qubits or v in ops_qubits:
+            continue
+        if cur[u][1] >= ENT_Y0 and cur[v][1] >= ENT_Y0 and _are_paired(cur[u], cur[v]):
+            ready.append(pair)
+    ready_keys = {id(pair) for pair in ready}
+
+    parked: dict[int, tuple[Any, Site]] = {}
+    for pair in pairs:
+        if id(pair) in ready_keys:
+            continue
+        for q in (pair[0], pair[1]):
+            if q in parked or q in ops_qubits or cur[q][1] < ENT_Y0:
+                continue
+            if o.get(_complement(cur[q])) is not None:
+                continue
+            parked[q] = (pair, _complement(cur[q]))
+
+    stay = set(parked)
+    for pair in ready:
+        stay.add(pair[0])
+        stay.add(pair[1])
+    dropping = {q: (cur[q], home[q]) for q in sorted(cur) if cur[q][1] >= ENT_Y0 and q not in stay}
+
+    # lower in two sub-phases: odd entangling columns first, then even ones (rectangles stay clean)
+    for parity in (1, 0):
+        selection = {q: v for q, v in dropping.items() if v[0][0] % 2 == parity}
+        if not selection:
+            continue
+        for atoms in _plan_group(selection, o):
+            if not apply(atoms):
+                return None
+            before.append(atoms)
+
+    static = [
+        pair
+        for pair in pairs
+        if id(pair) not in ready_keys and pair[0] not in parked and pair[1] not in parked
+    ]
+    targets: dict[int, Site] = {}
+    visitors: set[int] = set()
+    if static:
+        options = [assign_targets(static, cur, "compact"), assign_targets(static, cur, "flat")]
+        best = None
+        for option in options:
+            option_targets, option_visitors, _, overflow = option
+            if overflow:
+                return None
+            if any(q not in option_targets for pair in static for q in (pair[0], pair[1])):
+                continue
+            cost = sum(max(_trip(cur[q], option_targets[q]) for q in (pair[0], pair[1])) for pair in static)
+            if best is None or cost < best[0] - 1e-12:
+                best = (cost, option_targets, option_visitors)
+        if best is None:
+            return None
+        targets.update(best[1])
+        visitors.update(best[2])
+    for q, (pair, other_site) in parked.items():
+        targets[q] = cur[q]
+        partner = pair[1] if pair[0] == q else pair[0]
+        targets[partner] = other_site
+
+    lifting = {q: (cur[q], targets[q]) for q in targets if cur[q] != targets[q]}
+    for parity in (1, 0):
+        selection = {q: v for q, v in lifting.items() if v[0][0] % 2 == parity}
+        if not selection:
+            continue
+        for atoms in _plan_group(selection, o):
+            if not apply(atoms):
+                return None
+            after.append(("move", atoms))
+
+    for pair in pairs:
+        u, v = pair[0], pair[1]
+        if o.get(targets.get(u, cur[u])) != u or o.get(targets.get(v, cur[v])) != v:
+            return None
+        after.append(("cz", pair))
+    occupied = _occupied_pairs(o)
+    if not occupied <= {frozenset(pair[:2]) for pair in pairs}:
+        return None
+    # every interaction pair that holds two atoms gets exactly one pulse this segment
+    counts = {}
+    for entry in after:
+        if entry[0] == "cz":
+            counts[frozenset(entry[1][:2])] = counts.get(frozenset(entry[1][:2]), 0) + 1
+    if any(counts.get(pair, 0) != 1 for pair in occupied):
+        return None
+    return before, after
+
+
+def _trip(src: Site, dst: Site) -> float:
+    return math.dist(_physical(src), _physical(dst))
+
+
+def _static_actions(pairs, current, home, occ):
+    """Today's plan: lower everything that is up, then lift/cz/lower the round from `home`."""
+    cur = dict(current)
+    o = dict(occ)
+    before = []
+    dropping = {q: (cur[q], home[q]) for q in sorted(cur) if cur[q][1] >= ENT_Y0}
+    for parity in (1, 0):
+        selection = {q: v for q, v in dropping.items() if v[0][0] % 2 == parity}
+        if not selection:
+            continue
+        for atoms in _plan_group(selection, o):
+            if move_params(atoms, o) is None:
+                return None
+            for q, (src, _) in atoms.items():
+                o.pop(src, None)
+            for q, (_, dst) in atoms.items():
+                o[dst] = q
+                cur[q] = dst
+            before.append(atoms)
+    after = []
+    for up, czs, down in plan_segments(pairs, cur):
+        for atoms in up:
+            if move_params(atoms, o) is None:
+                return None
+            for q, (src, _) in atoms.items():
+                o.pop(src, None)
+            for q, (_, dst) in atoms.items():
+                o[dst] = q
+                cur[q] = dst
+            after.append(("move", atoms))
+        for pair in czs:
+            after.append(("cz", pair))
+        for atoms in down:
+            if move_params(atoms, o) is None:
+                return None
+            for q, (src, _) in atoms.items():
+                o.pop(src, None)
+            for q, (_, dst) in atoms.items():
+                o[dst] = q
+                cur[q] = dst
+            after.append(("move", atoms))
+    return before, after
+
+
+def _emit_parked(native: QuantumCircuit, rounds, home: dict[int, Site]):
+    """Emit the whole circuit keeping atoms in the zone across rounds where that pays."""
+    out = native.copy_empty_like()
+    qbits = out.qubits
+    cbits = out.clbits
+    current = dict(home)
+    occ = {site: q for q, site in current.items()}
+    distance = 0.0
+
+    def do_move(atoms):
+        nonlocal distance
+        params = move_params(atoms, occ)
+        if params is None:
+            raise AssertionError("parked emission planned an illegal move")
+        for q, (src, _) in atoms.items():
+            occ.pop(src, None)
+        for q, (_, dst) in atoms.items():
+            occ[dst] = q
+            current[q] = dst
+        _move(out, list(atoms), *params)
+        distance += move_cost(atoms)
+
+    moved = True
+    for index, phase in enumerate(rounds):
+        pairs = phase.pairs
+        ops_qubits = set()
+        for op, qargs, cargs in phase.ops:
+            if op.name != "measure":
+                ops_qubits.update(qargs)
+        plan = None
+        if PARK and pairs:
+            plan = _park_actions(pairs, current, home, occ, ops_qubits)
+        if plan is None:
+            plan = _static_actions(pairs, current, home, occ)
+            if plan is None:
+                break
+        before, after = plan
+        if pairs and not moved and not before and not any(entry[0] == "move" for entry in after):
+            # two cz segments with nothing in between: break the segment unless the pair set matches
+            if not _occupied_pairs(occ) <= {frozenset(pair[:2]) for pair in pairs}:
+                spare = [q for pair in pairs for q in (pair[0], pair[1]) if q not in ops_qubits and current[q][1] >= ENT_Y0]
+                if spare:
+                    q = spare[0]
+                    site = current[q]
+                    down = {q: (site, home[q])}
+                    if move_params(down, occ) is not None:
+                        do_move(down)
+                        up = {q: (home[q], site)}
+                        if move_params(up, occ) is not None:
+                            do_move(up)
+        for atoms in before:
+            do_move(atoms)
+        for op, qargs, cargs in phase.ops:
+            out.append(op, [qbits[q] for q in qargs], [cbits[c] for c in cargs])
+        for entry in after:
+            if entry[0] == "move":
+                do_move(entry[1])
+                moved = True
+            else:
+                u, v = entry[1][0], entry[1][1]
+                out.append(entry[1][2], [qbits[u], qbits[v]])
+                moved = False
+    return out, distance
+
+
+# ------------------------------------------------------------------ 8. orchestrator
 
 
 def _emit_move(out: QuantumCircuit, atoms: dict[int, tuple[Site, Site]]) -> None:
@@ -790,24 +1105,57 @@ def _emit_move(out: QuantumCircuit, atoms: dict[int, tuple[Site, Site]]) -> None
     _move(out, list(atoms), rows, cols, new_rows, new_cols)
 
 
-def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
-    n = circuit.num_qubits
-    native = native_circuit(circuit)
-    rounds = schedule_rounds(native)
-    pos = initial_placement(n, rounds)
-    pos = optimise_placement(rounds, pos, _budget(n, len(rounds)))
+DEPTH_WEIGHT = 2.922
+"""Score-neutral exchange rate between one unit of moved distance and one unit of depth."""
 
+
+def _emit_static(native: QuantumCircuit, rounds, pos):
+    """Emit today's plan: lift every round's atoms, one `cz` per pair, lower them again."""
     out = native.copy_empty_like()
     qbits = out.qubits
     cbits = out.clbits
+    distance = 0.0
     for phase in rounds:
         for op, qargs, cargs in phase.ops:
             out.append(op, [qbits[q] for q in qargs], [cbits[c] for c in cargs])
         for up, czs, down in plan_segments(phase.pairs, pos):
             for atoms in up:
                 _emit_move(out, atoms)
+                distance += move_cost(atoms)
             for u, v, op in czs:
                 out.append(op, [qbits[u], qbits[v]])
             for atoms in down:
                 _emit_move(out, atoms)
-    return out, Architecture(pos, spec=architecture_spec)
+                distance += move_cost(atoms)
+    return out, distance
+
+
+def _candidate(native: QuantumCircuit, n: int, division: int = 1):
+    """Plan and emit one candidate; returns the best `(objective, circuit, home placement)`."""
+    rounds = schedule_rounds(native)
+    pos = initial_placement(n, rounds)
+    pos = optimise_placement(rounds, pos, _budget(n, len(rounds)) // division)
+    depth = native.depth()
+    out, distance = _emit_static(native, rounds, pos)
+    best = (distance + DEPTH_WEIGHT * depth, out, pos)
+    if PARK and rounds:
+        try:
+            parked, parked_distance = _emit_parked(native, rounds, pos)
+        except AssertionError:
+            return best
+        objective = parked_distance + DEPTH_WEIGHT * depth
+        if objective < best[0] - 1e-9:
+            best = (objective, parked, pos)
+    return best
+
+
+def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
+    n = circuit.num_qubits
+    plain = native_circuit(circuit)
+    best = _candidate(plain, n)
+    oriented = native_circuit(zz_orient(circuit))
+    if _native_key(oriented) != _native_key(plain):
+        alternative = _candidate(oriented, n, 2)
+        if alternative[0] < best[0] - 1e-9:
+            best = alternative
+    return best[1], Architecture(best[2], spec=architecture_spec)
