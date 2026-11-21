@@ -1,0 +1,724 @@
+{
+ "name": "optimizer_dev",
+ "compiler": "/tmp/tmp.0Fs4PLTIse/optimizer_dev/compiler.py",
+ "mode": "fast",
+ "physics_check": true,
+ "zonespan_check": true,
+ "set": "metric",
+ "filter": null,
+ "timestamp": "2026-11-21T21:21:57",
+ "elapsed_s": 6.4,
+ "summary": {
+  "n": 36,
+  "valid": true,
+  "distance": 57516.484,
+  "naive_distance": 276726.913,
+  "distance_improvement": 79.215,
+  "depth": 5012,
+  "naive_depth": 23676,
+  "depth_improvement": 78.831,
+  "score": 79.1385,
+  "official": true,
+  "families": {
+   "hea": {
+    "distance_improvement": 73.15,
+    "depth_improvement": 35.48
+   },
+   "ihva": {
+    "distance_improvement": 81.27,
+    "depth_improvement": 79.91
+   },
+   "qaoa": {
+    "distance_improvement": 76.47,
+    "depth_improvement": 78.22
+   }
+  }
+ },
+ "failed": [],
+ "records": [
+  {
+   "label": "metric_circuit_01",
+   "file": "metric_benchmarks/hea/bus_stop_12q_hea_linear_p1.qasm",
+   "family": "hea",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 0.58,
+   "metrics": {
+    "num_moves": 10,
+    "move_steps": 10,
+    "move_distance": 24.117162,
+    "move_time": 29.751437,
+    "depth": 12,
+    "num_operations": 125,
+    "spacing_warnings": 5
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.58
+  },
+  {
+   "label": "metric_circuit_02",
+   "file": "metric_benchmarks/hea/bus_stop_12q_hea_linear_p3.qasm",
+   "family": "hea",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 0.83,
+   "metrics": {
+    "num_moves": 46,
+    "move_steps": 46,
+    "move_distance": 92.357231,
+    "move_time": 108.232959,
+    "depth": 28,
+    "num_operations": 279,
+    "spacing_warnings": 14
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.84
+  },
+  {
+   "label": "metric_circuit_03",
+   "file": "metric_benchmarks/hea/bus_stop_20q_hea_linear_p1.qasm",
+   "family": "hea",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 0.58,
+   "metrics": {
+    "num_moves": 11,
+    "move_steps": 11,
+    "move_distance": 29.557176,
+    "move_time": 42.957289,
+    "depth": 12,
+    "num_operations": 213,
+    "spacing_warnings": 7
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.58
+  },
+  {
+   "label": "metric_circuit_04",
+   "file": "metric_benchmarks/hea/bus_stop_20q_hea_linear_p3.qasm",
+   "family": "hea",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 0.83,
+   "metrics": {
+    "num_moves": 81,
+    "move_steps": 80,
+    "move_distance": 213.32015,
+    "move_time": 245.741315,
+    "depth": 28,
+    "num_operations": 479,
+    "spacing_warnings": 19
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.85
+  },
+  {
+   "label": "metric_circuit_05",
+   "file": "metric_benchmarks/hea/bus_stop_50q_hea_linear_p1.qasm",
+   "family": "hea",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 0.85,
+   "metrics": {
+    "num_moves": 30,
+    "move_steps": 30,
+    "move_distance": 160.976044,
+    "move_time": 222.371045,
+    "depth": 12,
+    "num_operations": 543,
+    "spacing_warnings": 11
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.86
+  },
+  {
+   "label": "metric_circuit_06",
+   "file": "metric_benchmarks/hea/bus_stop_50q_hea_linear_p3.qasm",
+   "family": "hea",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 0.95,
+   "metrics": {
+    "num_moves": 193,
+    "move_steps": 193,
+    "move_distance": 1111.817998,
+    "move_time": 1237.407021,
+    "depth": 28,
+    "num_operations": 1229,
+    "spacing_warnings": 27
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.99
+  },
+  {
+   "label": "metric_circuit_07",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_stagger_p1.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 0.77,
+   "metrics": {
+    "num_moves": 110,
+    "move_steps": 110,
+    "move_distance": 220.94918,
+    "move_time": 227.052457,
+    "depth": 47,
+    "num_operations": 183,
+    "spacing_warnings": 5
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.79
+  },
+  {
+   "label": "metric_circuit_08",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_stagger_p3.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 0.84,
+   "metrics": {
+    "num_moves": 361,
+    "move_steps": 361,
+    "move_distance": 753.063958,
+    "move_time": 771.153126,
+    "depth": 137,
+    "num_operations": 481,
+    "spacing_warnings": 14
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.88
+  },
+  {
+   "label": "metric_circuit_09",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_tree_p1.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 0.78,
+   "metrics": {
+    "num_moves": 124,
+    "move_steps": 124,
+    "move_distance": 248.440683,
+    "move_time": 249.661339,
+    "depth": 44,
+    "num_operations": 193,
+    "spacing_warnings": 1
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.79
+  },
+  {
+   "label": "metric_circuit_10",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_tree_p3.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 1.04,
+   "metrics": {
+    "num_moves": 399,
+    "move_steps": 399,
+    "move_distance": 815.697438,
+    "move_time": 826.232198,
+    "depth": 137,
+    "num_operations": 527,
+    "spacing_warnings": 7
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.06
+  },
+  {
+   "label": "metric_circuit_11",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_tree_warm_p1.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 0.77,
+   "metrics": {
+    "num_moves": 54,
+    "move_steps": 54,
+    "move_distance": 104.60933,
+    "move_time": 105.829986,
+    "depth": 32,
+    "num_operations": 97,
+    "spacing_warnings": 1
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.78
+  },
+  {
+   "label": "metric_circuit_12",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_tree_warm_p3.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 0.62,
+   "metrics": {
+    "num_moves": 54,
+    "move_steps": 54,
+    "move_distance": 104.60933,
+    "move_time": 105.829986,
+    "depth": 32,
+    "num_operations": 97,
+    "spacing_warnings": 1
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.62
+  },
+  {
+   "label": "metric_circuit_13",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_stagger_p1.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 0.93,
+   "metrics": {
+    "num_moves": 195,
+    "move_steps": 195,
+    "move_distance": 450.001211,
+    "move_time": 463.298922,
+    "depth": 67,
+    "num_operations": 332,
+    "spacing_warnings": 8
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.95
+  },
+  {
+   "label": "metric_circuit_14",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_stagger_p3.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 1.05,
+   "metrics": {
+    "num_moves": 664,
+    "move_steps": 664,
+    "move_distance": 1645.877389,
+    "move_time": 1662.172857,
+    "depth": 218,
+    "num_operations": 862,
+    "spacing_warnings": 10
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.12
+  },
+  {
+   "label": "metric_circuit_15",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_tree_p1.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 0.73,
+   "metrics": {
+    "num_moves": 221,
+    "move_steps": 221,
+    "move_distance": 498.507942,
+    "move_time": 507.117298,
+    "depth": 74,
+    "num_operations": 334,
+    "spacing_warnings": 6
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.75
+  },
+  {
+   "label": "metric_circuit_16",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_tree_p3.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 1.04,
+   "metrics": {
+    "num_moves": 715,
+    "move_steps": 715,
+    "move_distance": 1878.987127,
+    "move_time": 1888.817139,
+    "depth": 228,
+    "num_operations": 860,
+    "spacing_warnings": 7
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.12
+  },
+  {
+   "label": "metric_circuit_17",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_tree_warm_p1.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 0.87,
+   "metrics": {
+    "num_moves": 90,
+    "move_steps": 90,
+    "move_distance": 204.052414,
+    "move_time": 204.052414,
+    "depth": 50,
+    "num_operations": 153,
+    "spacing_warnings": 0
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.88
+  },
+  {
+   "label": "metric_circuit_18",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_tree_warm_p3.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 0.73,
+   "metrics": {
+    "num_moves": 90,
+    "move_steps": 90,
+    "move_distance": 204.052414,
+    "move_time": 204.052414,
+    "depth": 50,
+    "num_operations": 153,
+    "spacing_warnings": 0
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.74
+  },
+  {
+   "label": "metric_circuit_19",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_stagger_p1.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 0.85,
+   "metrics": {
+    "num_moves": 604,
+    "move_steps": 604,
+    "move_distance": 2320.442632,
+    "move_time": 2411.142728,
+    "depth": 161,
+    "num_operations": 929,
+    "spacing_warnings": 18
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.93
+  },
+  {
+   "label": "metric_circuit_20",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_stagger_p3.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 1.78,
+   "metrics": {
+    "num_moves": 2029,
+    "move_steps": 2029,
+    "move_distance": 7930.993715,
+    "move_time": 8067.308304,
+    "depth": 524,
+    "num_operations": 2459,
+    "spacing_warnings": 33
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.94
+  },
+  {
+   "label": "metric_circuit_21",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_tree_p1.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 1.01,
+   "metrics": {
+    "num_moves": 729,
+    "move_steps": 729,
+    "move_distance": 2907.970224,
+    "move_time": 2935.876782,
+    "depth": 170,
+    "num_operations": 955,
+    "spacing_warnings": 8
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.1
+  },
+  {
+   "label": "metric_circuit_22",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_tree_p3.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 1.63,
+   "metrics": {
+    "num_moves": 2191,
+    "move_steps": 2191,
+    "move_distance": 8548.334622,
+    "move_time": 8590.477991,
+    "depth": 514,
+    "num_operations": 2439,
+    "spacing_warnings": 16
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.87
+  },
+  {
+   "label": "metric_circuit_23",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_tree_warm_p1.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 0.88,
+   "metrics": {
+    "num_moves": 231,
+    "move_steps": 231,
+    "move_distance": 787.263049,
+    "move_time": 792.395918,
+    "depth": 94,
+    "num_operations": 383,
+    "spacing_warnings": 4
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.9
+  },
+  {
+   "label": "metric_circuit_24",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_tree_warm_p3.qasm",
+   "family": "ihva",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 1.2,
+   "metrics": {
+    "num_moves": 231,
+    "move_steps": 231,
+    "move_distance": 787.263049,
+    "move_time": 792.395918,
+    "depth": 94,
+    "num_operations": 383,
+    "spacing_warnings": 4
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.22
+  },
+  {
+   "label": "metric_circuit_25",
+   "file": "metric_benchmarks/qaoa/bus_stop_12q_qaoa_p1.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 0.73,
+   "metrics": {
+    "num_moves": 123,
+    "move_steps": 122,
+    "move_distance": 232.128038,
+    "move_time": 236.120228,
+    "depth": 51,
+    "num_operations": 204,
+    "spacing_warnings": 4
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.75
+  },
+  {
+   "label": "metric_circuit_26",
+   "file": "metric_benchmarks/qaoa/bus_stop_12q_qaoa_p3.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 1.14,
+   "metrics": {
+    "num_moves": 380,
+    "move_steps": 380,
+    "move_distance": 734.015502,
+    "move_time": 742.717086,
+    "depth": 137,
+    "num_operations": 492,
+    "spacing_warnings": 7
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.18
+  },
+  {
+   "label": "metric_circuit_27",
+   "file": "metric_benchmarks/qaoa/bus_stop_12q_qaoa_warm_p1.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 0.78,
+   "metrics": {
+    "num_moves": 123,
+    "move_steps": 122,
+    "move_distance": 232.128038,
+    "move_time": 236.120228,
+    "depth": 51,
+    "num_operations": 231,
+    "spacing_warnings": 4
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.79
+  },
+  {
+   "label": "metric_circuit_28",
+   "file": "metric_benchmarks/qaoa/bus_stop_12q_qaoa_warm_p3.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 12,
+   "compile_s": 0.94,
+   "metrics": {
+    "num_moves": 398,
+    "move_steps": 397,
+    "move_distance": 833.436164,
+    "move_time": 846.119857,
+    "depth": 142,
+    "num_operations": 567,
+    "spacing_warnings": 11
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.99
+  },
+  {
+   "label": "metric_circuit_29",
+   "file": "metric_benchmarks/qaoa/bus_stop_20q_qaoa_p1.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 0.93,
+   "metrics": {
+    "num_moves": 195,
+    "move_steps": 193,
+    "move_distance": 466.138886,
+    "move_time": 473.880436,
+    "depth": 65,
+    "num_operations": 317,
+    "spacing_warnings": 9
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.96
+  },
+  {
+   "label": "metric_circuit_30",
+   "file": "metric_benchmarks/qaoa/bus_stop_20q_qaoa_p3.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 0.78,
+   "metrics": {
+    "num_moves": 678,
+    "move_steps": 676,
+    "move_distance": 1531.93509,
+    "move_time": 1541.878674,
+    "depth": 208,
+    "num_operations": 850,
+    "spacing_warnings": 7
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.82
+  },
+  {
+   "label": "metric_circuit_31",
+   "file": "metric_benchmarks/qaoa/bus_stop_20q_qaoa_warm_p1.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 0.73,
+   "metrics": {
+    "num_moves": 195,
+    "move_steps": 193,
+    "move_distance": 466.138886,
+    "move_time": 473.880436,
+    "depth": 65,
+    "num_operations": 353,
+    "spacing_warnings": 9
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.74
+  },
+  {
+   "label": "metric_circuit_32",
+   "file": "metric_benchmarks/qaoa/bus_stop_20q_qaoa_warm_p3.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 20,
+   "compile_s": 0.96,
+   "metrics": {
+    "num_moves": 678,
+    "move_steps": 676,
+    "move_distance": 1531.93509,
+    "move_time": 1541.878674,
+    "depth": 210,
+    "num_operations": 911,
+    "spacing_warnings": 7
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.04
+  },
+  {
+   "label": "metric_circuit_33",
+   "file": "metric_benchmarks/qaoa/bus_stop_50q_qaoa_p1.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 0.9,
+   "metrics": {
+    "num_moves": 623,
+    "move_steps": 621,
+    "move_distance": 2426.920865,
+    "move_time": 2471.683004,
+    "depth": 172,
+    "num_operations": 997,
+    "spacing_warnings": 13
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.95
+  },
+  {
+   "label": "metric_circuit_34",
+   "file": "metric_benchmarks/qaoa/bus_stop_50q_qaoa_p3.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 1.22,
+   "metrics": {
+    "num_moves": 2014,
+    "move_steps": 2012,
+    "move_distance": 7295.762482,
+    "move_time": 7373.854713,
+    "depth": 471,
+    "num_operations": 2401,
+    "spacing_warnings": 28
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.33
+  },
+  {
+   "label": "metric_circuit_35",
+   "file": "metric_benchmarks/qaoa/bus_stop_50q_qaoa_warm_p1.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 0.89,
+   "metrics": {
+    "num_moves": 623,
+    "move_steps": 621,
+    "move_distance": 2426.920865,
+    "move_time": 2471.683004,
+    "depth": 172,
+    "num_operations": 1073,
+    "spacing_warnings": 13
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 0.93
+  },
+  {
+   "label": "metric_circuit_36",
+   "file": "metric_benchmarks/qaoa/bus_stop_50q_qaoa_warm_p3.qasm",
+   "family": "qaoa",
+   "ok": true,
+   "qubits": 50,
+   "compile_s": 1.17,
+   "metrics": {
+    "num_moves": 2014,
+    "move_steps": 2012,
+    "move_distance": 7295.762482,
+    "move_time": 7373.854713,
+    "depth": 475,
+    "num_operations": 2540,
+    "spacing_warnings": 28
+   },
+   "equivalence": "skipped (fast)",
+   "wall_s": 1.28
+  }
+ ]
+}

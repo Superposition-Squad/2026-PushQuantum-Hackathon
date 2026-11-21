@@ -78,14 +78,16 @@ def is_excluded(name_or_path) -> bool:
     """Whether a page name (`portfolio`, `<worktree>-portfolio`) or a compiler file is excluded."""
     text = str(name_or_path)
     if text.endswith(".py"):
-        return Path(text).resolve().parent.name in EXCLUDED
-    return text in EXCLUDED or text.rsplit("-", 1)[-1] in EXCLUDED
+        text = Path(text).resolve().parent.name
+    # portfolios (portfolio, portfolio_po, portfolio_pb, ...) are only the best of the other compilers
+    tail = text.rsplit("-", 1)[-1]
+    return text in EXCLUDED or tail in EXCLUDED or tail.startswith("portfolio")
 
 
-CHALLENGE_COMPILERS = Path("/home/hackathon/challenge/compilers")
+CHALLENGE_COMPILERS = Path(__file__).resolve().parents[1] / "compilers"
 """Compiler root of the canonical checkout."""
 
-WT_ROOT = Path("/home/hackathon/challenge-wt")
+WT_ROOT = Path(__file__).resolve().parents[2] / "challenge-wt"
 """Root of the worktree checkouts; `<wt>/compilers/<idea>/...` is allowed too."""
 
 VIZ_VERSION = 1

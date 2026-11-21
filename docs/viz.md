@@ -163,7 +163,7 @@ data is fetched from its page over http; under `file://` the browser blocks that
 view shows a message with a link to its page instead.
 
 **URL hash** (kept when switching pages, updated as you go): `p` progress 0–1, `play=1`,
-`gran=frame`, `sp` speed, `cmp=<name>` split view, `side=0` sidebar hidden, `ov=1` only valid,
+`gran=inst` (instruction steps; default: frame), `sp` speed, `cmp=<name>` split view, `side=0` sidebar hidden, `ov=1` only valid,
 `lbl=0` atom labels off. Example: `gates/metric_circuit_36.html#cmp=zonedwell&p=0.25`.
 
 ## Invalid compilations
@@ -313,3 +313,17 @@ label) in `<script id="viz-manifest" type="application/json">`.
 ```
 `d`/`p` are the sidecar's official metrics (partial totals with `"partial": true` when the replay
 failed); `score` is `bench.score()` when all 36 metric pages exist.
+
+## Keeping a hosted viz in sync with `main`
+
+The pages are not in git (`viz/` is ignored): every machine generates its own. To keep a server
+current, run next to `bench/viz.py serve` (e.g. in tmux):
+
+```sh
+COMPILERS="systolic systolic_po optimizer-optimizer optimizer-optimizer_po hubstream rectbatch gates naive" \
+INTERVAL=300 PYTHON=/home/hackathon/challenge/.venv/bin/python bench/viz_sync.sh
+```
+
+Every `INTERVAL` seconds it runs `git pull --ff-only` and regenerates the metric pages of each
+listed compiler whose `compiler.py` changed since its last generation (stamp `viz/.stamp-<name>`,
+log `viz/.log-<name>`). The running server picks up new pages and the manifest without a restart.
