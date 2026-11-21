@@ -320,7 +320,7 @@ The pages are not in git (`viz/` is ignored): every machine generates its own. T
 current, run next to `bench/viz.py serve` (e.g. in tmux):
 
 ```sh
-COMPILERS="systolic systolic_po pulsebeam pulsebeam_po hubstream rectbatch gates naive" \
+COMPILERS="systolic systolic_po optimizer-optimizer optimizer-optimizer_po hubstream rectbatch gates naive" \
 INTERVAL=300 PYTHON=/home/hackathon/challenge/.venv/bin/python bench/viz_sync.sh
 ```
 
