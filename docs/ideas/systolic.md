@@ -328,3 +328,19 @@ fast 36/36, score +76.27 (distance 67 879.7, depth 4858).
 
 `v107`: +82.54 (distance 46 987.0, depth 4593), all 36 bench-valid; the row-lift cuts the first
 matching round of each layer from ~350 to ~126.
+
+### Final (validator v1.0.0 vendored, `main` merged)
+
+With the vendored v1.0.0 the bench itself checks `idle`; the merged tree passes 36/36 metric
+`--mode full` at **+82.54 %** (distance 46 987.0 = +83.02 %, depth 4593 = +80.60 %) and 13/13
+sanity `--mode full`. Also: `/tmp/sy/idlecheck.py` (the new validator directly) reports 0 idle /
+zone / pair / loading violations on all 49 circuits; exact Clifford tableaux equal on 19–22 and
+33–36 (two angle draws each); compile-twice bit-identical on 50q QAOA p3 and 50q iHVA tree p3;
+max compile ~20–24 s CPU (50q QAOA p3, four candidates), 20q p3 6.6 s.
+
+Per-circuit D/P (`metric_circuit_nn`, v1.0.0): 01 26.0/15, 02 83.7/35, 03 55.3/15, 04 171.5/35,
+05 113.2/15, 06 339.5/35, 07 206.1/58, 08 598.0/173, 09 257.6/60, 10 750.4/172, 11 67.9/29,
+12 67.9/29, 13 434.6/76, 14 1329.7/213, 15 389.3/76, 16 1175.6/219, 17/18 152.6/35,
+19 1963.9/138, 20 6169.7/408, 21 2373.8/146, 22 7202.1/460, 23/24 665.7/73, 25 175.8/51,
+26 527.5/147, 27 175.8/53, 28 527.5/149, 29/31 412.3/67, 30/32 1236.8/189–191,
+33/35 2108.7/135, 34/36 6326.2/393.
