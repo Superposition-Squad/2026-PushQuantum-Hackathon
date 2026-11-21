@@ -801,7 +801,8 @@ def _lookahead_groups(blocks, hub, w):
                     if j not in done and j not in inside:
                         counts[j] = counts.get(j, 0) + 1
             freed = sum(1 for j, k in counts.items() if unsat[j] - k <= 0)
-            return (len(members) + w * freed, -members[0])
+            # w * (every block ready after this step) = w * (len(ready) - len(members) + freed)
+            return (len(members) + w * (len(ready) - len(members) + freed), -members[0])
 
         cat = max([c for c in _CANON if buckets[c]], key=gain)
         chosen = buckets[cat]
