@@ -568,128 +568,336 @@ def _single_moves(assignment, pos) -> list[_MoveRecord]:
     return out
 
 
-def merge_move_records(records: list[_MoveRecord], occupancy: dict[Site, int]) -> list[_MoveRecord]:
-    """Greedily merge single-row moves that share (source row -> target row) into one rectangle.
+def _rec_cost(rec, ent) -> float:
+    return max(_dist(rec.src[q], rec.dst[q], ent) for q in rec.qubits)
 
-    Legal iff the picked-up column span contains no atom that is not part of the merged move and the
-    target columns are strictly ascending in source-column order.  A merged move costs the *max*
-    displacement of its atoms instead of the sum, which is where distance is saved.
+
+def _ent_shape(ent):
+    """(first x, first y, last y, interaction pairs per row)."""
+    (ex0, ex1), (ey0, ey1) = ent
+    return ex0, ey0, ey1, (ex1 - ex0 + 1) // 2
+
+
+def _in_zone(site, storage, ent) -> bool:
+    (sx0, sx1), (sy0, sy1) = storage
+    (ex0, ex1), (ey0, ey1) = ent
+    x, y = site
+    return (sx0 <= x <= sx1 and sy0 <= y <= sy1) or (ex0 <= x <= ex1 and ey0 <= y <= ey1)
+
+
+def _has_ghost(row, lo, hi, occupancy, allowed) -> bool:
+    """True if an atom that is not part of the move sits on `row` between columns `lo` and `hi`."""
+    for c in range(lo, hi + 1):
+        q = occupancy.get((c, row))
+        if q is not None and q not in allowed:
+            return True
+    return False
+
+
+def _partition_group(row, atoms, occupancy):
+    """Split `[(qubit, src_col, dst_col)]` (sorted by src_col) into legal single-row runs.
+
+    A run is one rectangle move: its picked columns span [first, last], no atom outside the run sits
+    in that span (no ghost), and its target columns ascend with the source columns.
     """
-    groups: dict[tuple[int, int], list[_MoveRecord]] = {}
-    order: list[tuple[int, int]] = []
-    for rec in records:
-        if len(rec.rows) != 1 or len(rec.new_rows) != 1:
-            key = ("raw", id(rec))
-            groups[key] = [rec]
-            order.append(key)
+    runs: list[list[tuple[int, int, int]]] = []
+    cur: list[tuple[int, int, int]] = []
+    for atom in atoms:
+        if cur:
+            _q, src, dst = atom
+            _pq, psrc, pdst = cur[-1]
+            if dst <= pdst or _has_ghost(row, psrc + 1, src, occupancy, {a[0] for a in cur}):
+                runs.append(cur)
+                cur = []
+        cur.append(atom)
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def _group_cost(row, dst_row, atoms, occupancy) -> float:
+    """Cost of covering one (source row, target row) group with legal runs: max distance per move."""
+    dy = abs(dst_row - row)
+    return sum(
+        math.hypot(max(abs(a[2] - a[1]) for a in run), dy)
+        for run in _partition_group(row, atoms, occupancy)
+    )
+
+
+def _pair_order(pairs, pos):
+    """Order the round's pairs so that greedy slot assignment packs one storage row at a time."""
+    def key(pair):
+        u, v = pair
+        su, sv = pos[u], pos[v]
+        return (0 if su[1] == sv[1] else 1, -max(su[1], sv[1]), min(su[0], sv[0]), max(su[0], sv[0]))
+
+    return sorted((tuple(pair) for pair in pairs), key=key)
+
+
+def _assign_round_targets(pairs, pos, occupancy, ent):
+    """Choose a target interaction site for every atom of the round.
+
+    Each pair gets an exclusive slot `(row, 2k)`, and slots are filled nearest-to-storage first, so a
+    pair costs one hop and the atoms of one storage row stay in one entangling row (one merged move).
+    """
+    ex0, ey0, ey1, per_row = _ent_shape(ent)
+    if per_row < 1:
+        raise RuntimeError("no interaction pairs in the entangling zone")
+    need = max(1, -(-len(pairs) // per_row))
+    rows = [ey0 + i for i in range(min(need + 1, ey1 - ey0 + 1))]
+    slots = [(t, k) for t in rows for k in range(per_row)]
+    groups: dict[tuple[int, int], list] = {}
+    used: set = set()
+    assign: dict[int, Site] = {}
+    for u, v in _pair_order(pairs, pos):
+        best = None
+        for t, k in slots:
+            if (t, k) in used:
+                continue
+            c0 = ex0 + 2 * k
+            for a, b in ((u, v), (v, u)):
+                trial = {a: (c0, t), b: (c0 + 1, t)}
+                delta = 0.0
+                touched: dict[tuple[int, int], dict] = {}
+                for q, target in trial.items():
+                    touched.setdefault((pos[q][1], t), {})[q] = target
+                for (row, dst_row), added in touched.items():
+                    old = groups.get((row, dst_row), [])
+                    new = sorted(old + [(q, pos[q][0], added[q][0]) for q in added], key=lambda z: z[1])
+                    delta += (_group_cost(row, dst_row, new, occupancy)
+                              - _group_cost(row, dst_row, old, occupancy))
+                if best is None or delta < best[0] - 1e-12:
+                    best = (delta, t, k, dict(trial))
+        _delta, t, k, trial = best
+        used.add((t, k))
+        assign.update(trial)
+        for q, target in trial.items():
+            key = (pos[q][1], t)
+            groups.setdefault(key, []).append((q, pos[q][0], target[0]))
+            groups[key].sort(key=lambda z: z[1])
+    return assign
+
+
+def _trip_records(assignment, pos, occupancy):
+    """Cover an assignment with single-row rectangle moves: one per (source row, target row) run."""
+    groups: dict[tuple[int, int], list] = {}
+    for q, target in assignment.items():
+        groups.setdefault((pos[q][1], target[1]), []).append((q, pos[q][0], target[0]))
+    records: list[_MoveRecord] = []
+    for (row, dst_row), atoms in sorted(groups.items()):
+        atoms.sort(key=lambda z: z[1])
+        for run in _partition_group(row, atoms, occupancy):
+            cols = tuple(range(run[0][1], run[-1][1] + 1))
+            new_cols = tuple(a[2] for a in run)
+            src = {q: (s, row) for q, s, _ in run}
+            dst = {q: (d, dst_row) for q, _, d in run}
+            records.append(_MoveRecord([a[0] for a in run], (row,), cols, (dst_row,), new_cols, src, dst))
+    return records
+
+
+def _rec_sig(rec):
+    """The column map of a single-row record: (occupied source columns, target columns)."""
+    return (tuple(sorted(rec.src[q][0] for q in rec.qubits)), rec.new_cols)
+
+
+def _block_record(records, occupancy, storage, ent, upward):
+    """Merge consecutive single-row records that share one column map into a rigid block move.
+
+    `upward` trips choose their target rows (nearest to storage first); the way home must land on the
+    rows the atoms actually live on.
+    """
+    first = records[0]
+    a, b = first.rows[0], records[-1].rows[0]
+    if b - a + 1 != len(records):
+        return None
+    sig = _rec_sig(first)
+    if any(_rec_sig(rec) != sig for rec in records):
+        return None
+    src_cols, new_cols = sig
+    lo, hi = src_cols[0], src_cols[-1]
+    moving = {q for rec in records for q in rec.qubits}
+    for row in range(a, b + 1):
+        if _has_ghost(row, lo, hi, occupancy, moving):
+            return None
+    dst_row_of = {rec.rows[0]: rec.new_rows[0] for rec in records}
+    ex0, ey0, ey1, _per_row = _ent_shape(ent)
+    (sx0, sx1), (sy0, sy1) = storage
+    if upward:
+        candidates = [dy for dy in range(ey0 - a, ey1 - b + 1)]
+    else:
+        dy = dst_row_of[a] - a
+        if any(dst_row_of[row] != a + dy + (row - a) for row in range(a, b + 1)):
+            return None
+        candidates = [dy]
+    shift = max(abs(nc - c) for c, nc in zip(src_cols, new_cols))
+    for dy in candidates:
+        rows_used = tuple(range(a + dy, b + dy + 1))
+        lo_row, hi_row = (sy0, sy1) if not upward else (ey0, ey1)
+        if min(rows_used) < lo_row or max(rows_used) > hi_row:
             continue
-        key = (rec.rows[0], rec.new_rows[0])
+        src = {}
+        dst = {}
+        ok = True
+        for rec in records:
+            row = rec.rows[0]
+            target_row = row + dy
+            for q in rec.qubits:
+                source = rec.src[q]
+                target = (new_cols[src_cols.index(source[0])], target_row)
+                occupant = occupancy.get(target)
+                if occupant is not None and occupant not in moving:
+                    ok = False
+                    break
+                if not _in_zone(target, storage, ent):
+                    ok = False
+                    break
+                src[q] = source
+                dst[q] = target
+            if not ok:
+                break
+        if ok:
+            return _MoveRecord(sorted(src), tuple(range(a, b + 1)), tuple(range(lo, hi + 1)),
+                               rows_used, new_cols, src, dst)
+    return None
+
+
+def _best_partition(block, occupancy, storage, ent, upward):
+    """DP over contiguous sub-blocks: cheapest mix of single rows and rigid block moves."""
+    m = len(block)
+    best = [math.inf] * (m + 1)
+    best[0] = 0.0
+    pick: list = [None] * (m + 1)
+    for e in range(1, m + 1):
+        cost = _rec_cost(block[e - 1], ent)
+        if best[e - 1] + cost < best[e] - 1e-12:
+            best[e] = best[e - 1] + cost
+            pick[e] = (e - 1, block[e - 1])
+        for s in range(e - 1):
+            rec = _block_record(block[s:e], occupancy, storage, ent, upward)
+            if rec is None:
+                continue
+            cost = _rec_cost(rec, ent)
+            if best[s] + cost < best[e] - 1e-12:
+                best[e] = best[s] + cost
+                pick[e] = (s, rec)
+    out = []
+    e = m
+    while e > 0:
+        s, rec = pick[e]
+        out.append(rec)
+        e = s
+    return list(reversed(out))
+
+
+def _plan_trip(assignment, pos, occupancy, storage, ent, upward):
+    """Plan one trip: single-row moves, then cheaper rigid blocks where the geometry allows."""
+    base = _trip_records(assignment, pos, occupancy)
+    groups: dict[tuple, list[_MoveRecord]] = {}
+    order: list[tuple] = []
+    for rec in base:
+        key = _rec_sig(rec)
         if key not in groups:
             groups[key] = []
             order.append(key)
         groups[key].append(rec)
-
-    merged: list[_MoveRecord] = []
+    plan: list[tuple[_MoveRecord, list[_MoveRecord]]] = []
     for key in order:
         bucket = groups[key]
-        if len(bucket) == 1 or not isinstance(key[0], int):
-            merged.extend(bucket)
-            continue
-        row, new_row = key
-        bucket.sort(key=lambda r: r.cols[0])
+        bucket.sort(key=lambda r: r.rows[0])
         i = 0
         while i < len(bucket):
-            run = [bucket[i]]
             j = i + 1
-            while j < len(bucket):
-                trial = run + [bucket[j]]
-                if _mergeable(trial, row, occupancy):
-                    run = trial
-                    j += 1
-                else:
-                    break
+            while j < len(bucket) and bucket[j].rows[0] == bucket[j - 1].rows[0] + 1:
+                j += 1
+            run = bucket[i:j]
             if len(run) == 1:
-                merged.append(run[0])
+                plan.append((run[0], run))
             else:
-                cols = tuple(range(run[0].cols[0], run[-1].cols[-1] + 1))
-                new_cols = tuple(r.new_cols[0] for r in run)
-                qubits = [q for r in run for q in r.qubits]
-                src = {}
-                dst = {}
-                for r in run:
-                    src.update(r.src)
-                    dst.update(r.dst)
-                merged.append(_MoveRecord(qubits, (row,), cols, (new_row,), new_cols, src, dst))
+                for rec in _best_partition(run, occupancy, storage, ent, upward):
+                    if len(rec.rows) == 1 and rec in run:
+                        plan.append((rec, [rec]))
+                    else:
+                        plan.append((rec, [r for r in run if r.qubits[0] in set(rec.qubits)]))
             i = j
-    return merged
+    return plan
 
 
-def _mergeable(run: list[_MoveRecord], row: int, occupancy: dict[Site, int]) -> bool:
-    if any(len(r.qubits) != 1 for r in run):
-        return False
-    cols = [r.cols[0] for r in run]
-    new_cols = [r.new_cols[0] for r in run]
-    if any(b <= a for a, b in itertools.pairwise(cols)):
-        return False
-    if any(b <= a for a, b in itertools.pairwise(new_cols)):
-        return False
-    moving = {r.qubits[0] for r in run}
-    for c in range(cols[0], cols[-1] + 1):
-        q = occupancy.get((c, row))
-        if q is not None and q not in moving:
-            return False
-    return True
-
-
-def _apply(circuit: QuantumCircuit, records, pos, occupancy, ent) -> float:
-    """Emit the moves, update positions/occupancy, return the summed distance (for diagnostics)."""
+def _emit_step(circuit, rec, step, pos, occupancy, ent):
+    """Commit a move that the replay accepted, using the replay's own site mapping."""
+    new_pos, new_occ = step
     total = 0.0
-    for rec in records:
-        for q in rec.qubits:
-            del occupancy[rec.src[q]]
-        for q in rec.qubits:
-            occupancy[rec.dst[q]] = q
-            pos[q] = rec.dst[q]
-        total += max(_dist(rec.src[q], rec.dst[q], ent) for q in rec.qubits)
-        _move(circuit, rec.qubits, rec.rows, rec.cols, rec.new_rows, rec.new_cols)
+    for q in rec.qubits:
+        total = max(total, _dist(pos[q], new_pos[q], ent))
+        pos[q] = new_pos[q]
+    occupancy.clear()
+    occupancy.update(new_occ)
+    _move(circuit, rec.qubits, rec.rows, rec.cols, rec.new_rows, rec.new_cols)
     return total
 
 
-def plan_round_moves(pairs, pos, ent, storage):
-    """Assign the round's pairs to interaction sites and return (assignment, sites_used).
-
-    `assignment` is a list of (qubit, target site). Pairs are handled in storage-column order and
-    each one takes the free site whose left slot is closest to the pair, preferring the zone row
-    nearest storage, which keeps the trips short and the column maps monotone.
-    """
-    (ex0, ex1), (ey0, ey1) = ent
-    (_sx0, _sx1), (_sy0, sy1) = storage
-    sites = []
-    for row in range(ey0, ey1 + 1):
-        for c in range(ex0, ex1, 2):
-            sites.append((row, c))
-    free = [True] * len(sites)
-    ordered = sorted(pairs, key=lambda p: (pos[p[0]][0] + pos[p[1]][0]) / 2)
-    assignment = []
-    used = []
-    for u, v in ordered:
-        best = None
-        for k, (row, c) in enumerate(sites):
-            if not free[k]:
+def _emit_trip(circuit, plan, pos, occupancy, storage, ent):
+    """Emit a planned trip; any move that the replay rejects is replaced by single-atom moves."""
+    total = 0.0
+    for rec, fallback in plan:
+        step = _sim_move(rec, pos, occupancy, storage, ent)
+        if step is not None:
+            total += _emit_step(circuit, rec, step, pos, occupancy, ent)
+            continue
+        for sub in fallback:
+            step = _sim_move(sub, pos, occupancy, storage, ent)
+            if step is not None:
+                total += _emit_step(circuit, sub, step, pos, occupancy, ent)
                 continue
-            for a, b in ((u, v), (v, u)):
-                cost = max(_dist(pos[a], (c, row), ent), _dist(pos[b], (c + 1, row), ent))
-                if best is None or cost < best[0] - 1e-12:
-                    best = (cost, k, a, b)
-        if best is None:
-            raise RuntimeError("no free interaction site")
-        _cost, k, a, b = best
-        row, c = sites[k]
-        free[k] = False
-        assignment.append((a, (c, row)))
-        assignment.append((b, (c + 1, row)))
-        used.append((a, b, (c, row)))
-    return assignment, used
+            for single in _single_moves([(q, sub.dst[q]) for q in sub.qubits], pos):
+                step = _sim_move(single, pos, occupancy, storage, ent)
+                if step is None:
+                    raise RuntimeError("compiler produced an illegal single-atom move")
+                total += _emit_step(circuit, single, step, pos, occupancy, ent)
+    return total
+
+
+def _move_sites(rows, cols, new_rows, new_cols, occupied):
+    """Mirror the validator's site mapping, so a candidate move can be checked before it is emitted."""
+    if len(new_rows) < len(rows) or len(new_cols) < len(cols):
+        selected = [(x, y) for (x, y) in occupied if x in cols and y in rows]
+        used_rows = {y for _, y in selected}
+        used_cols = {x for x, _ in selected}
+        rows = tuple(y for y in rows if y in used_rows)
+        cols = tuple(x for x in cols if x in used_cols)
+        if len(rows) != len(new_rows) or len(cols) != len(new_cols):
+            return None
+    row_map = dict(zip(rows, new_rows, strict=True))
+    col_map = dict(zip(cols, new_cols, strict=True))
+    return {(x, y): (col_map[x], row_map[y]) for y in rows for x in cols}
+
+
+def _sim_move(rec, pos, occupancy, storage, ent):
+    """Return the (positions, occupancy) after `rec`, or None when the move would be illegal."""
+    if len(rec.qubits) != len(set(rec.qubits)):
+        return None
+    mapping = _move_sites(rec.rows, rec.cols, rec.new_rows, rec.new_cols, occupancy)
+    if mapping is None:
+        return None
+    picked = {occupancy[s]: s for s in mapping if s in occupancy}
+    listed = set(rec.qubits)
+    if picked.keys() - listed or listed - picked.keys():
+        return None
+    if any(pos[q] != picked[q] for q in listed):
+        return None
+    new_pos = dict(pos)
+    new_occ = dict(occupancy)
+    for q, source in picked.items():
+        target = mapping[source]
+        if not _in_zone(target, storage, ent):
+            return None
+        occupant = occupancy.get(target)
+        if occupant is not None and occupant not in picked:
+            return None
+        del new_occ[source]
+    for q, source in picked.items():
+        new_occ[mapping[source]] = q
+        new_pos[q] = mapping[source]
+    return new_pos, new_occ
 
 
 # ---------------------------------------------------------------- top level
@@ -735,14 +943,15 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
             continue
 
         pairs = [items[idx].qubits for idx in idxs]
-        assignment, used = plan_round_moves(pairs, pos, ent, storage)
-        up = merge_move_records(_single_moves(assignment, pos), occupancy)
-        _apply(out, up, pos, occupancy, ent)
-        for a, b, _site in used:
+        start = {q: pos[q] for pair in pairs for q in pair}
+        assignment = _assign_round_targets(pairs, pos, occupancy, ent)
+        _emit_trip(out, _plan_trip(assignment, pos, occupancy, storage, ent, True),
+                   pos, occupancy, storage, ent)
+        for a, b in pairs:
             out.cz(qubits[a], qubits[b])
-        home = [(q, r.src[q]) for r in up for q in r.qubits]
-        down = merge_move_records(_single_moves(home, pos), occupancy)
-        _apply(out, down, pos, occupancy, ent)
+        home = {q: start[q] for q in assignment}
+        _emit_trip(out, _plan_trip(home, pos, occupancy, storage, ent, False),
+                   pos, occupancy, storage, ent)
 
     out.global_phase = float(out.global_phase) + float(phase)
     return out, Architecture(loading, spec=architecture_spec)

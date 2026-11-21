@@ -695,41 +695,126 @@ def _apply(circuit: QuantumCircuit, records, pos, occupancy, ent) -> float:
     return total
 
 
-def plan_round_moves(pairs, pos, ent, storage):
-    """Assign the round's pairs to interaction sites and return (assignment, sites_used).
-
-    `assignment` is a list of (qubit, target site). Pairs are handled in storage-column order and
-    each one takes the free site whose left slot is closest to the pair, preferring the zone row
-    nearest storage, which keeps the trips short and the column maps monotone.
-    """
+def _interaction_sites(ent):
     (ex0, ex1), (ey0, ey1) = ent
-    (_sx0, _sx1), (_sy0, sy1) = storage
-    sites = []
-    for row in range(ey0, ey1 + 1):
-        for c in range(ex0, ex1, 2):
-            sites.append((row, c))
-    free = [True] * len(sites)
-    ordered = sorted(pairs, key=lambda p: (pos[p[0]][0] + pos[p[1]][0]) / 2)
-    assignment = []
-    used = []
-    for u, v in ordered:
+    return [(row, c) for row in range(ey0, ey1 + 1) for c in range(ex0, ex1, 2)]
+
+
+def _slots(site, ent):
+    """The two atom sites of the interaction pair whose left slot is at column `site[1]`."""
+    row, c = site
+    return (c, row), (c + 1, row)
+
+
+def _pair_of_site(site, ent):
+    """The interaction pair (row, left column) that the atom site `site` belongs to."""
+    (ex0, _ex1), (_ey0, _ey1) = ent
+    x, y = site
+    return (y, ex0 + 2 * ((x - ex0) // 2))
+
+
+def plan_round_sites(pairs, pos, parked, ent):
+    """Assign this round's pairs to interaction sites.
+
+    Returns `(targets, ordered)` with `targets[q]` the atom site qubit q must occupy and `ordered` a
+    list of `(a, b, site)` in emission order.  An atom that stayed in the entangling zone since the
+    previous round *pins* its pair to the site it already occupies (it costs nothing to leave it
+    there); every other pair takes the free site minimising the larger of the two trips, trying both
+    slot orientations.
+    """
+    sites = _interaction_sites(ent)
+    free = dict.fromkeys(sites, True)
+    targets: dict[int, Site] = {}
+    ordered = []
+    pending = []
+    for u, v in pairs:
+        held = [q for q in (u, v) if q in parked]
+        if held:
+            q = held[0]
+            site = _pair_of_site(pos[q], ent)
+            left, right = _slots(site, ent)
+            other = v if q == u else u
+            free[site] = False
+            targets[q] = pos[q]
+            targets[other] = right if pos[q] == left else left
+            ordered.append((q, other, site))
+        else:
+            pending.append((u, v))
+    pending.sort(key=lambda p: (pos[p[0]][0] + pos[p[1]][0]) / 2)
+    for u, v in pending:
         best = None
-        for k, (row, c) in enumerate(sites):
-            if not free[k]:
+        for site in sites:
+            if not free[site]:
                 continue
+            left, right = _slots(site, ent)
             for a, b in ((u, v), (v, u)):
-                cost = max(_dist(pos[a], (c, row), ent), _dist(pos[b], (c + 1, row), ent))
+                cost = max(_dist(pos[a], left, ent), _dist(pos[b], right, ent))
                 if best is None or cost < best[0] - 1e-12:
-                    best = (cost, k, a, b)
+                    best = (cost, site, a, b)
         if best is None:
             raise RuntimeError("no free interaction site")
-        _cost, k, a, b = best
-        row, c = sites[k]
-        free[k] = False
-        assignment.append((a, (c, row)))
-        assignment.append((b, (c + 1, row)))
-        used.append((a, b, (c, row)))
-    return assignment, used
+        _cost, site, a, b = best
+        left, right = _slots(site, ent)
+        free[site] = False
+        targets[a] = left
+        targets[b] = right
+        ordered.append((a, b, site))
+    return targets, ordered
+
+
+def choose_keeps(ordered, next_pairs, blocked, home, targets, ent):
+    """Which atoms stay in the entangling zone until the next round (ZAC-style idle reuse).
+
+    An atom may stay only if it takes part in the next round and has **no** 1q gate in between (1q
+    gates need storage), which is exactly the information `schedule_rounds` produces.  At most one
+    atom per interaction pair stays, so a staying atom always has its partner slot free, and at most
+    one atom of each *next* pair stays, so the next round can pin that pair to its site without a
+    conflict.  A stay is only taken when it is actually cheaper: staying saves the atom's two trips
+    but forces its next partner to travel to this site instead of to the best meeting point.
+    """
+    if not next_pairs:
+        return set()
+    next_pair_of: dict[int, Any] = {}
+    for p in next_pairs:
+        for q in p:
+            next_pair_of[q] = p
+    sites = _interaction_sites(ent)
+
+    def gain(q):
+        """Distance saved by leaving q where it is, minus what its next partner pays extra."""
+        pair = next_pair_of[q]
+        w = pair[0] if pair[1] == q else pair[1]
+        site = _pair_of_site(targets[q], ent)
+        left, right = _slots(site, ent)
+        partner_slot = right if targets[q] == left else left
+        stay = 2 * _dist(home[w], partner_slot, ent)
+        apart = None
+        for s in sites:
+            l2, r2 = _slots(s, ent)
+            for a, b in ((q, w), (w, q)):
+                hb = home[b]
+                cost = 2 * (_dist(home[a], l2, ent) + _dist(hb, r2, ent))
+                if apart is None or cost < apart:
+                    apart = cost
+        return (apart or 0.0) - stay
+
+    candidates = []
+    for a, b, _site in ordered:
+        options = [q for q in (a, b) if q in next_pair_of and q not in blocked]
+        options = [(gain(q), q) for q in options]
+        options = [o for o in options if o[0] > 1e-9]
+        if not options:
+            continue
+        candidates.append(max(options))
+    keeps: set[int] = set()
+    taken: set[Any] = set()
+    for _g, q in sorted(candidates, reverse=True):
+        pair = frozenset(next_pair_of[q])
+        if pair in taken:
+            continue
+        taken.add(pair)
+        keeps.add(q)
+    return keeps
 
 
 # ---------------------------------------------------------------- top level
@@ -756,6 +841,26 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
     qubits = list(out.qubits)
     clbits = list(out.clbits)
 
+    # for every round: the pairs of the next round and which qubits get a 1q gate in between
+    round_at = [i for i, (kind, _) in enumerate(phases) if kind == "cz"]
+    next_pairs: list[list] = []
+    blocked_between: list[set[int]] = []
+    for k, i in enumerate(round_at):
+        if k + 1 < len(round_at):
+            j = round_at[k + 1]
+            next_pairs.append([items[x].qubits for x in phases[j][1]])
+            touched: set[int] = set()
+            for mid in range(i + 1, j):
+                if phases[mid][0] == "1q":
+                    for x in phases[mid][1]:
+                        touched.update(items[x].qubits)
+            blocked_between.append(touched)
+        else:
+            next_pairs.append([])
+            blocked_between.append(set())
+    round_no = 0
+    parked: dict[int, Site] = {}
+
     for kind, idxs in phases:
         if kind == "1q":
             # per qubit: merge the phase's gates into <= 3 rz/rx, split at measurements
@@ -775,14 +880,20 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
             continue
 
         pairs = [items[idx].qubits for idx in idxs]
-        assignment, used = plan_round_moves(pairs, pos, ent, storage)
-        up = merge_move_records(_single_moves(assignment, pos), occupancy)
+        targets, ordered = plan_round_sites(pairs, pos, parked, ent)
+        trips = [(q, t) for q, t in targets.items() if pos[q] != t]
+        up = merge_move_records(_single_moves(trips, pos), occupancy)
         _apply(out, up, pos, occupancy, ent)
-        for a, b, _site in used:
+        for a, b, _site in ordered:
             out.cz(qubits[a], qubits[b])
-        home = [(q, r.src[q]) for r in up for q in r.qubits]
-        down = merge_move_records(_single_moves(home, pos), occupancy)
+        keeps = choose_keeps(ordered, next_pairs[round_no], blocked_between[round_no],
+                             loading, targets, ent)
+        leaving = [(q, loading[q]) for q in targets if q not in keeps]
+        leaving.sort()
+        down = merge_move_records(_single_moves(leaving, pos), occupancy)
         _apply(out, down, pos, occupancy, ent)
+        parked = {q: pos[q] for q in keeps}
+        round_no += 1
 
     out.global_phase = float(out.global_phase) + float(phase)
     return out, Architecture(loading, spec=architecture_spec)
