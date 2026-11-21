@@ -1101,3 +1101,37 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
     if st is None:
         st = _compile_generic(circuit, architecture_spec)
     return st.out, Architecture(st.loading, spec=architecture_spec)
+
+
+# ---------------------------------------------------------------- manual check
+
+
+def _main(argv=None):  # pragma: no cover - developer helper
+    """`python compiler.py circuit.qasm` prints the movement metrics and the equivalence verdict."""
+    import sys
+    from pathlib import Path
+
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv:
+        print("usage: python compiler.py <circuit.qasm> [...]")
+        return 1
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "vendor"))
+    from qiskit import QuantumCircuit
+
+    from pushquantum_validator.verify import compute_metrics, verify_equivalence, verify_movement
+
+    for path in argv:
+        ref = QuantumCircuit.from_qasm_file(path)
+        out, arch = compile_circuit(ref, None)
+        movement = verify_movement(out, arch.initial_loading, log_file="/dev/null")
+        print(f"{Path(path).name}: {compute_metrics(out, movement)}")
+        try:
+            result = verify_equivalence(out, ref)
+            print("   equivalence:", "skipped" if result is None else result.equivalence)
+        except Exception as error:  # noqa: BLE001 - the helper only reports
+            print("   equivalence: FAIL", type(error).__name__, error)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(_main())

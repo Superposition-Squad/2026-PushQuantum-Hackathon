@@ -2,7 +2,7 @@
 
 - Branch: idea/zonedwell · Worktree: /home/hackathon/challenge-wt/zonedwell
 - Base: main 0ea558b, compiler starts from `compilers/naive/compiler.py`
-- Status: in progress
+- Status: implemented (stage 0-2; see Results)
 
 ## Hypothesis
 
@@ -205,10 +205,58 @@ value:
 
 Together these should take 50q QAOA p=3 from ~3 700 to roughly ~1 300–1 800 (−93 to −95 % vs naive).
 
+## What was implemented
+
+All of the below lives in `compilers/zonedwell/compiler.py` (one file, stdlib + numpy + qiskit):
+
+* `parse_blocks` / `_absorb_ihva_pre` — linear scan of the ORIGINAL circuit into 1q items, ZZ
+  blocks (`cx; rz; cx`, with the immediately adjacent 1q gates on the target absorbed as pre/post,
+  which is what makes an iHVA block `exp(-i th/2 Z_u Y_v)`), bare `cx`, bare `cz` and `measure`.
+* `_block_generator` / `_commute` / `plan_groups` — the commutation DAG and ready-set scheduling
+  (`hubZ`, then `hubY`, then `non`). Every ready set is an antichain, so all its members commute.
+* `plan_layout` + `_LayoutCost` — partners packed block-wise into five even "lanes" of 10 slots,
+  then improved by a seeded local search (swap two partners, keep the improvement) on the objective
+  `sum over non-hub blocks of the two atoms' grid distance + conveyor slides`. This was worth ~4
+  score points and is what makes the non-hub matching cheap.
+* `_Machine` — one bulk move (`rows 10..19 <-> 0..9`) switches zones; `conveyor_lane` slides a
+  column down/up one row at a time (a *partial* pass is fine: a segment whose row-10 atom is not in
+  the group simply emits no `cz`, which ADR-0007 permits); `_conveyor_ops` folds the per-qubit 1q
+  gates of a whole pass into one operator before and one after, using `post_j pre_{j+1} = I`
+  (`H H = I`, `rx(-pi/2) rx(pi/2) = I`), and refuses the pass if a pair does not cancel.
+  `matching_round` + `_assign` + `_place`/`_unplace` place a matching on free pairs (greedy
+  min-max displacement), pulse once, take one bulk dip for the `rx` gates, pulse again, and move
+  only the atoms that moved back.
+* Every 1q gate is buffered as a 2x2 matrix per qubit and emitted as `rz rx rz` only while the atom
+  is in storage (`_State.flush`); the buffering is what makes the `H`/`rx(+-pi/2)` cancellations
+  automatic, so no gate is ever hand-placed.
+* Falls back to `_compile_generic` (transpile to `rx/rz/cz`, then one `cz` at a time) for anything
+  outside the family set or above 50 qubits — that is what the 40- and 70-qubit sanity circuits use.
+
+Two things in the original spec turned out to be wrong:
+* a "bulk dip" per non-hub matching is not needed for the conveyor, and the conveyor needs no
+  dedicated park site if the hub is parked lazily (only before a matching round);
+* `Architecture(st.pos)` must be the *initial* loading, not the final positions — most circuits hide
+  this because everything returns home, but the hub does not when the last group is a conveyor.
+
 ## Results
 
 | iteration | commit | score | dist % | depth % | notes |
 |---|---|---|---|---|---|
+| stage 1 conveyor + matching | 1e2e764 | +74.73 | 74.14 | 77.09 | 36/36 metric `--mode full` |
+| optimised lane packing, hub-less circuits on the lane machine | a8a75ab | +78.80 | 79.26 | 76.95 | HEA 439 -> 151 on 12q p1 |
+| initial-loading fix, `cz` needs no `H`, lazy hub parking | e0d4431 | +79.59 | 80.25 | 76.95 | 36/36 metric + 13/13 sanity `--mode full` |
+
+Per family at `e0d4431`: HEA distance +63.5 % / depth +16.1 %, iHVA +76.4 % / +74.9 %,
+QAOA +87.0 % / +80.7 %. Max per-circuit compile time 3.3 s.
+
+## Where the remaining distance is
+
+At `e0d4431`, `D = 54 643`. iHVA is 38 315 of it (70 %), QAOA 14 117, HEA 2 216. On a 50-qubit
+iHVA p3 circuit (naive 24 907): ~2 700 is bulk zone moves (~135 of them, i.e. about two per
+scheduling group, which is the structural minimum), ~900 the conveyor slides, ~2 200 the non-hub
+positioning. The next lever is therefore **fewer scheduling groups** (the iHVA tree ordering needs
+57, the stagger 29) or a cheaper way to reach storage before a group's first `cz`; merging groups is
+blocked because Z-side and Y-side hub blocks anticommute on the hub, so their order is fixed.
 
 ## Verdict
 
