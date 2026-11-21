@@ -157,3 +157,16 @@ portfolio_po rebuilt after the optimizer-optimizer size cutoff: **+86.63, full 3
 per-layer configurations with free pair and storage sites) did not beat the gap-wise re-plan: the
 remaining waste is systolic's fixed, scattered storage homes (single-atom drops/lifts), which a
 per-gap optimizer cannot remove without re-planning the storage choreography over many layers.
+
+## systolic2 (fork of systolic, matching-round movement), ~00:10 CET
+
+Phase breakdown of systolic on 50q stagger p3 (5385): matching rounds 79 % (lift 1471, home 1384,
+mid trip 794 + 610; 55 rounds of ~5.3 pairs, ~77 per round in ~22 moves), hub groups 21 % (1126).
+A round would cost ~5 if its pairs sat side by side in row 9 (lift, drop, lift, drop at ~1.2), so the
+headroom is in sorting atoms into the working row, not in the hub stream.
+
+| change | v5 set |
+|---|---|
+| systolic2 = + order-preserving (DP) placement candidate, block mid-drop when the working row is free | +85.41 (systolic 85.34) |
+| systolic2_po | +86.35 (systolic_po 86.30) |
+| TOP_HOME = 8 (row 9 kept free as working row) | worse (50q stagger p3 5366 -> 6740: deeper lifts, block mid rarely fits) |
