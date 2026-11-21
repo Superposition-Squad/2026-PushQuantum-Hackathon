@@ -19,6 +19,7 @@ The file is self-contained: stdlib, numpy and qiskit only.
 
 from __future__ import annotations
 
+import bisect
 import itertools
 import math
 from collections import Counter, defaultdict
@@ -30,6 +31,7 @@ import numpy as np
 from qiskit import QuantumCircuit, transpile
 from qiskit.circuit import Instruction
 from qiskit.circuit.library import CZGate, Measure, RXGate, RZGate
+from qiskit.quantum_info import Operator
 
 Site = tuple[int, int]
 
@@ -97,6 +99,8 @@ MAX_PAIRS = 4
 PARK_WINDOW = 1
 """A non-hub atom stays in the zone only if its next task is at most this many rounds away."""
 
+DAG_MAX_PAIRS = 3
+"""Cap on the CZs per round of the commutation-DAG scheduler."""
 HUB_END_PAIR = True
 HUB_END_MIN_QUBITS = 20
 """The end pair only pays off above this size (12q/20q measured worse with it)."""
@@ -791,6 +795,506 @@ def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: di
     return out
 
 
+# ================================================================ gates front end (copied)
+# ---------------------------------------------------------------- 1q algebra
+
+_I2 = np.eye(2, dtype=complex)
+_X = np.array([[0, 1], [1, 0]], dtype=complex)
+_Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+_Z = np.array([[1, 0], [0, -1]], dtype=complex)
+_H = np.array([[1, 1], [1, -1]], dtype=complex) / math.sqrt(2)
+_PAULI = {"X": _X, "Y": _Y, "Z": _Z}
+
+
+def _rx_mat(t: float) -> np.ndarray:
+    c, s = math.cos(t / 2), math.sin(t / 2)
+    return np.array([[c, -1j * s], [-1j * s, c]], dtype=complex)
+
+
+def _rz_mat(t: float) -> np.ndarray:
+    return np.array([[np.exp(-0.5j * t), 0], [0, np.exp(0.5j * t)]], dtype=complex)
+
+
+# C with C Z C^dagger = P, so that exp(-i t/2 P) = C exp(-i t/2 Z) C^dagger.
+_BASIS_CHANGE = {"Z": _I2, "X": _H, "Y": _rx_mat(-math.pi / 2)}
+
+
+def _is_phase_identity(u: np.ndarray) -> bool:
+    """True if u is a global phase times the identity."""
+    if abs(u[0, 0]) < 1e-9:
+        return False
+    v = u / u[0, 0]
+    return bool(np.allclose(v, _I2, atol=1e-9))
+
+
+def _commuting_pauli(u: np.ndarray):
+    """Which Pauli u commutes with ('Z' first, so diagonal gates are classified as Z), else None."""
+    for name in ("Z", "X", "Y"):
+        p = _PAULI[name]
+        if np.allclose(u @ p, p @ u, atol=1e-9):
+            return name
+    return None
+
+# ---------------------------------------------------------------- items (the gate-level IR)
+
+
+class Item:
+    """One scheduling unit.
+
+    kind: "1q" (matrix `mat` on qubits[0]), "cz" (qubits[0], qubits[1]),
+          "rot2" (exp(-i theta/2 P0 (x) P1), `paulis`), "meas" (qubits[0] -> `clbit`).
+    `basis[q]` is the Pauli whose rotations commute with this item on qubit q (None = nothing does).
+    """
+
+    __slots__ = ("kind", "qubits", "mat", "theta", "paulis", "clbit", "basis")
+
+    def __init__(self, kind, qubits, mat=None, theta=0.0, paulis=None, clbit=None):
+        self.kind = kind
+        self.qubits = tuple(qubits)
+        self.mat = mat
+        self.theta = theta
+        self.paulis = paulis
+        self.clbit = clbit
+        if kind == "1q":
+            self.basis = {self.qubits[0]: _commuting_pauli(mat)}
+        elif kind == "cz":
+            self.basis = {self.qubits[0]: "Z", self.qubits[1]: "Z"}
+        elif kind == "rot2":
+            self.basis = {self.qubits[0]: paulis[0], self.qubits[1]: paulis[1]}
+        else:
+            self.basis = {q: None for q in self.qubits}
+
+    def __repr__(self):  # pragma: no cover - debugging aid
+        return f"Item({self.kind}, {self.qubits})"
+
+
+_PAULI_ROT_GATES = {"rzz": ("Z", "Z"), "rxx": ("X", "X"), "ryy": ("Y", "Y")}
+_CX_NAMES = ("cx", "cnot")
+
+def _native_plan(op, width: int):
+    """Transpile one k-qubit gate into rx/rz/cz and *verify* the result against its unitary.
+
+    `optimization_level >= 2` runs `ElidePermutations`, which replaces a `swap` by a relabelling
+    recorded in the layout: taking its `data` at face value silently drops the swap.  So we try the
+    low levels in order and keep the first synthesis whose operator matches the gate (up to global
+    phase).  Nothing here may be relaxed — ADR 0003 requires true equivalence at every size.
+    """
+    target = None
+    if width <= 5:
+        target = np.asarray(Operator(op).data, dtype=complex)
+    last_error = None
+    for level in (1, 0):
+        scratch = QuantumCircuit(width)
+        scratch.append(op, range(width))
+        native = transpile(scratch, basis_gates=["rx", "rz", "cz"], optimization_level=level)
+        nidx = {b: k for k, b in enumerate(native.qubits)}
+        steps = [(ins.operation.name,
+                  tuple(nidx[b] for b in ins.qubits),
+                  tuple(float(p) for p in ins.operation.params))
+                 for ins in native.data if ins.operation.name != "barrier"]
+        plan = (steps, float(native.global_phase))
+        if target is None:
+            return plan
+        check = QuantumCircuit(width)
+        check.global_phase = plan[1]
+        for sname, sqs, sparams in steps:
+            if sname == "cz":
+                check.cz(sqs[0], sqs[1])
+            elif sname == "rx":
+                check.rx(sparams[0], sqs[0])
+            elif sname == "rz":
+                check.rz(sparams[0], sqs[0])
+            else:
+                check = None
+                break
+        if check is None:
+            last_error = f"unexpected gate in synthesis of {op.name}"
+            continue
+        got = np.asarray(Operator(check).data, dtype=complex)
+        overlap = abs(np.trace(got.conj().T @ target)) / target.shape[0]
+        if overlap > 1 - 1e-9:
+            return plan
+        last_error = f"synthesis of {op.name} at level {level} is not equivalent (overlap {overlap:.6f})"
+    raise ValueError(f"cannot synthesise {op.name} exactly: {last_error}")
+
+
+def _next_on(positions, q, i):
+    lst = positions[q]
+    k = bisect.bisect_right(lst, i)
+    return lst[k] if k < len(lst) else None
+
+
+def lower_to_items(circuit: QuantumCircuit) -> tuple[list[Item], float]:
+    """Lower an arbitrary circuit to a flat list of items, exactly. Returns (items, global phase).
+
+    Recognised patterns:
+      * `cx(c,t); rz(theta) t; cx(c,t)`  ->  rot2(c, t, theta, Z, Z)        (QAOA / iHVA cores)
+      * `rzz/rxx/ryy(theta)`             ->  rot2(..., P, P)
+      * `cx`, `cz`                       ->  native
+      * any 1q gate                      ->  its exact 2x2 matrix
+      * anything else                    ->  per-gate `transpile` to rx/rz/cz (cached)
+    """
+    index = {bit: i for i, bit in enumerate(circuit.qubits)}
+    cindex = {bit: i for i, bit in enumerate(circuit.clbits)}
+    ops = []
+    positions: dict[int, list[int]] = {q: [] for q in range(circuit.num_qubits)}
+    for ins in circuit.data:
+        qs = tuple(index[b] for b in ins.qubits)
+        ops.append((ins.operation.name, qs, ins))
+        for q in qs:
+            positions[q].append(len(ops) - 1)
+
+    phase = float(circuit.global_phase)
+    items: list[Item] = []
+    consumed: set[int] = set()
+    cache: dict[Any, Any] = {}
+
+    for i, (name, qs, ins) in enumerate(ops):
+        if i in consumed:
+            continue
+        op = ins.operation
+        if name == "barrier":
+            continue
+        if name == "measure":
+            items.append(Item("meas", qs, clbit=cindex[ins.clbits[0]]))
+            continue
+        if name in _CX_NAMES and len(qs) == 2:
+            c, t = qs
+            j = _next_on(positions, t, i)
+            if j is not None and ops[j][0] == "rz" and ops[j][1] == (t,):
+                k1 = _next_on(positions, t, j)
+                k2 = _next_on(positions, c, i)
+                if k1 is not None and k1 == k2 and ops[k1][0] in _CX_NAMES and ops[k1][1] == (c, t):
+                    theta = float(ops[j][2].operation.params[0])
+                    items.append(Item("rot2", (c, t), theta=theta, paulis=("Z", "Z")))
+                    consumed.add(j)
+                    consumed.add(k1)
+                    continue
+            items.append(Item("1q", (t,), mat=_H))
+            items.append(Item("cz", (c, t)))
+            items.append(Item("1q", (t,), mat=_H))
+            continue
+        if name in _PAULI_ROT_GATES and len(qs) == 2:
+            theta = float(op.params[0])
+            items.append(Item("rot2", qs, theta=theta, paulis=_PAULI_ROT_GATES[name]))
+            continue
+        if name == "cz" and len(qs) == 2:
+            items.append(Item("cz", qs))
+            continue
+        if len(qs) == 1:
+            items.append(Item("1q", qs, mat=np.asarray(Operator(op).data, dtype=complex)))
+            continue
+        # generic fallback: transpile this one gate into the native basis.
+        key = (name, tuple(float(p) for p in op.params) if op.params else (), len(qs))
+        plan = cache.get(key)
+        if plan is None:
+            plan = _native_plan(op, len(qs))
+            cache[key] = plan
+        steps, gphase = plan
+        phase += gphase
+        for sname, sqs, sparams in steps:
+            if sname == "cz":
+                items.append(Item("cz", (qs[sqs[0]], qs[sqs[1]])))
+            elif sname == "rx":
+                items.append(Item("1q", (qs[sqs[0]],), mat=_rx_mat(sparams[0])))
+            elif sname == "rz":
+                items.append(Item("1q", (qs[sqs[0]],), mat=_rz_mat(sparams[0])))
+            elif sname == "barrier":
+                continue
+            else:  # pragma: no cover - transpile is asked for rx/rz/cz only
+                raise ValueError(f"unexpected gate {sname} from fallback transpilation")
+    return items, phase
+
+
+def two_qubit_degree(items: list[Item], num_qubits: int) -> list[int]:
+    deg = [0] * num_qubits
+    for it in items:
+        if it.kind in ("cz", "rot2"):
+            for q in it.qubits:
+                deg[q] += 1
+    return deg
+
+
+def expand_rot2(items: list[Item], deg: list[int]) -> list[Item]:
+    """Expand every `rot2` into 1q gates + 2 CZ, putting the inter-CZ rotation on the LOW-degree side.
+
+    exp(-i t/2 Pu (x) Pv) = (Cu (x) Cv) exp(-i t/2 Z (x) Z) (Cu (x) Cv)^dagger   with C Z C^d = P
+    exp(-i t/2 Z (x) Z)   = H_m . CZ . rx(t)_m . CZ . H_m     for either m in {u, v}
+
+    Choosing m = the qubit with fewer two-qubit gates means the hub / reference qubit sees only CZs,
+    which lets all its CZs commute (ADR 0003-safe: this is exact algebra).
+    """
+    out: list[Item] = []
+    for it in items:
+        if it.kind != "rot2":
+            out.append(it)
+            continue
+        u, v = it.qubits
+        pu, pv = it.paulis
+        cu, cv = _BASIS_CHANGE[pu], _BASIS_CHANGE[pv]
+        mid_on_v = deg[v] <= deg[u]
+        if mid_on_v:
+            pre_u, post_u = cu.conj().T, cu
+            pre_v, post_v = _H @ cv.conj().T, cv @ _H
+            mid_q = v
+        else:
+            pre_u, post_u = _H @ cu.conj().T, cu @ _H
+            pre_v, post_v = cv.conj().T, cv
+            mid_q = u
+        for q, m in ((u, pre_u), (v, pre_v)):
+            if not _is_phase_identity(m):
+                out.append(Item("1q", (q,), mat=m))
+        out.append(Item("cz", (u, v)))
+        out.append(Item("1q", (mid_q,), mat=_rx_mat(it.theta)))
+        out.append(Item("cz", (u, v)))
+        for q, m in ((u, post_u), (v, post_v)):
+            if not _is_phase_identity(m):
+                out.append(Item("1q", (q,), mat=m))
+    return out
+
+
+def merge_1q_runs(items: list[Item], num_qubits: int) -> tuple[list[Item], float]:
+    """Merge maximal runs of consecutive 1q items on the same wire; drop identities.
+
+    Two 1q items adjacent in a qubit's wire order can be merged even if unrelated items on other
+    qubits sit between them, so this is exact. It is what cancels the iHVA `rx(pi/2) rx(-pi/2)`
+    pairs and the `H H` of back-to-back `cx`s, freeing the hub's CZ chain to commute.
+    """
+    wire: dict[int, list[int]] = {q: [] for q in range(num_qubits)}
+    for idx, it in enumerate(items):
+        for q in it.qubits:
+            wire[q].append(idx)
+    dead = [False] * len(items)
+    phase = 0.0
+    for q in range(num_qubits):
+        run: list[int] = []
+        for idx in wire[q] + [None]:
+            if idx is not None and items[idx].kind == "1q":
+                run.append(idx)
+                continue
+            if len(run) >= 1:
+                mat = _I2
+                for r in run:
+                    mat = items[r].mat @ mat
+                keep = run[-1]
+                for r in run[:-1]:
+                    dead[r] = True
+                if _is_phase_identity(mat):
+                    dead[keep] = True
+                    if abs(mat[0, 0]) > 1e-9:
+                        phase += float(np.angle(mat[0, 0]))
+                else:
+                    items[keep] = Item("1q", (q,), mat=mat)
+            run = []
+    return [it for it, d in zip(items, dead, strict=True) if not d], phase
+
+
+def build_commutation_dag(items: list[Item], num_qubits: int):
+    """Commutation-set construction. Returns (successors, indegree).
+
+    Soundness: every item's generator is a sum of Pauli strings S with S(q) in {I, basis(q)}.  If two
+    items agree on the basis of every shared qubit they anticommute on zero qubits, hence commute.
+    """
+    n = len(items)
+    succ: list[list[int]] = [[] for _ in range(n)]
+    indeg = [0] * n
+    cur: dict[int, list[int]] = {q: [] for q in range(num_qubits)}
+    prev: dict[int, list[int]] = {q: [] for q in range(num_qubits)}
+    cur_basis: dict[int, Any] = {q: object() for q in range(num_qubits)}
+    for idx, it in enumerate(items):
+        for q in it.qubits:
+            b = it.basis[q]
+            if cur[q] and b is not None and cur_basis[q] == b:
+                for p in prev[q]:
+                    succ[p].append(idx)
+                    indeg[idx] += 1
+                cur[q].append(idx)
+            else:
+                for p in cur[q]:
+                    succ[p].append(idx)
+                    indeg[idx] += 1
+                prev[q] = cur[q]
+                cur[q] = [idx]
+                cur_basis[q] = b
+    return succ, indeg
+
+
+# ================================================================ DAG scheduler + front end
+
+
+def choose_hub_dag(items, n: int):
+    """Highest-degree qubit of the interaction graph, if it really is a hub; else None."""
+    if n < 6:
+        return None
+    neighbours: dict[int, set[int]] = defaultdict(set)
+    for item in items:
+        if item.kind == "cz":
+            u, v = item.qubits
+            neighbours[u].add(v)
+            neighbours[v].add(u)
+    if not neighbours:
+        return None
+    hub = max(neighbours, key=lambda q: (len(neighbours[q]), -q))
+    return hub if len(neighbours[hub]) >= 0.4 * (n - 1) else None
+
+
+def schedule_rounds_dag(items, num_qubits: int, hub, max_pairs: int, key_mode: int = 0):
+    """Commutation-aware list schedule: drain all ready 1q work, then one capped CZ round.
+
+    Same commutation DAG and criticality as `gates`, but a CZ round is (a) capped at `max_pairs` and
+    (b) selected with a hub / parked-atom preference so the hub keeps its interaction pair:
+    key = (hub first, -criticality, warm first, index) for `key_mode` 0 and
+    (hub first, warm first, -criticality, index) for 1.
+    """
+    succ, indeg = build_commutation_dag(items, num_qubits)
+    n = len(items)
+    crit = [0] * n
+    for idx in range(n - 1, -1, -1):
+        best = 0
+        for other in succ[idx]:
+            if crit[other] > best:
+                best = crit[other]
+        crit[idx] = best + (1 if items[idx].kind == "cz" else 0)
+
+    remaining = list(indeg)
+    ready = [idx for idx in range(n) if remaining[idx] == 0]
+    phases: list[tuple[str, list[int]]] = []
+    done = 0
+    prev_round: set[int] = set()
+    touched: set[int] = set()  # qubits with a 1q item emitted since the last CZ round
+
+    def release(idx, bucket_1q, bucket_cz):
+        for other in succ[idx]:
+            remaining[other] -= 1
+            if remaining[other] == 0:
+                (bucket_cz if items[other].kind == "cz" else bucket_1q).append(other)
+
+    ready_1q = [idx for idx in ready if items[idx].kind != "cz"]
+    ready_cz = [idx for idx in ready if items[idx].kind == "cz"]
+
+    def warm(idx) -> bool:
+        """Could stay parked: it was in the previous round and has had no 1q gate since."""
+        u, v = items[idx].qubits
+        return (u in prev_round and u not in touched) or (v in prev_round and v not in touched)
+
+    def key(idx):
+        hub_first = 0 if (hub is not None and hub in items[idx].qubits) else 1
+        is_warm = 0 if warm(idx) else 1
+        if key_mode == 0:
+            return (hub_first, -crit[idx], is_warm, idx)
+        return (hub_first, is_warm, -crit[idx], idx)
+
+    while done < n:
+        emitted: list[int] = []
+        queue = ready_1q
+        ready_1q = []
+        while queue:
+            idx = queue.pop()
+            emitted.append(idx)
+            done += 1
+            touched.update(items[idx].qubits)
+            release(idx, queue, ready_cz)
+        if emitted:
+            emitted.sort()
+            phases.append(("1q", emitted))
+        if done >= n:
+            break
+        ready_cz.sort(key=key)
+        used: set[int] = set()
+        chosen: list[int] = []
+        rest: list[int] = []
+        for idx in ready_cz:
+            if len(chosen) >= max_pairs:
+                rest.append(idx)
+                continue
+            u, v = items[idx].qubits
+            if u in used or v in used:
+                rest.append(idx)
+                continue
+            used.add(u)
+            used.add(v)
+            chosen.append(idx)
+        if not chosen:
+            raise RuntimeError("hubstream: DAG scheduler deadlock")
+        ready_cz = rest
+        phases.append(("cz", chosen))
+        prev_round = set(used)
+        touched = set()
+        for idx in chosen:
+            done += 1
+            release(idx, ready_1q, ready_cz)
+    return phases
+
+
+def _dag_frontend(circuit: QuantumCircuit, n: int, max_pairs: int, key_mode: int):
+    """gates' front end -> (wires, tasks, rounds, hub) in the layout `emit` consumes."""
+    items, _phase = lower_to_items(circuit)
+    # theta == 0 modulo 2*pi is the identity: drop it (exact up to global phase)
+    items = [it for it in items
+             if not (it.kind == "rot2" and abs(math.remainder(it.theta, 2.0 * math.pi)) < 1e-12)]
+    degree = two_qubit_degree(items, n)
+    items = expand_rot2(items, degree)
+    items, _extra = merge_1q_runs(items, n)
+    hub = choose_hub_dag(items, n)
+    phases = schedule_rounds_dag(items, n, hub, max_pairs, key_mode)
+
+    wires: list[list] = [[] for _ in range(n)]
+    tasks: list[tuple[int, int]] = []
+    task_of_item: dict[int, int] = {}
+    for kind, indices in phases:
+        for idx in sorted(indices):  # DAG edges go low -> high index: this is a topological order
+            item = items[idx]
+            if item.kind == "1q":
+                wires[item.qubits[0]].append(("g", item.mat))
+            elif item.kind == "meas":
+                wires[item.qubits[0]].append(("meas", item.clbit))
+            elif item.kind == "cz":
+                task = len(tasks)
+                tasks.append(item.qubits)
+                wires[item.qubits[0]].append(("cz", task))
+                wires[item.qubits[1]].append(("cz", task))
+                task_of_item[idx] = task
+            else:  # pragma: no cover - expand_rot2 removed every rot2
+                raise ValueError(f"hubstream: unexpected item {item.kind}")
+    rounds = [[task_of_item[idx] for idx in sorted(indices)]
+              for kind, indices in phases if kind == "cz"]
+    return wires, tasks, rounds, hub
+
+
+def _move_distance(circuit: QuantumCircuit, loading: dict[int, Site]) -> float:
+    """Sum over the circuit's `move`s of the longest physical displacement (the scored distance)."""
+    index = {bit: i for i, bit in enumerate(circuit.qubits)}
+    pos = dict(loading)
+    occ = {site: q for q, site in pos.items()}
+    total = 0.0
+    for instruction in circuit.data:
+        if instruction.operation.name != "move":
+            continue
+        qubits = [index[q] for q in instruction.qubits]
+        rows, cols, new_rows, new_cols = instruction.operation.params
+        mapping = _sim_move(occ, qubits, rows, cols, new_rows, new_cols)
+        sources = {occ[site]: site for site in mapping if site in occ}
+        best = 0.0
+        for qubit in qubits:
+            best = max(best, _dist(sources[qubit], mapping[sources[qubit]]))
+        total += best
+        for qubit in qubits:
+            del occ[sources[qubit]]
+        for qubit in qubits:
+            site = mapping[sources[qubit]]
+            occ[site] = qubit
+            pos[qubit] = site
+    return total
+
+
+def _gates_depth(circuit: QuantumCircuit) -> int:
+    """Depth of the circuit with moves and barriers removed (the scored depth)."""
+    stripped = circuit.copy_empty_like()
+    for instruction in circuit.data:
+        if instruction.operation.name not in ("move", "barrier"):
+            stripped._append(instruction)
+    return stripped.depth()
+
 # ---------------------------------------------------------------- entry point
 
 
@@ -820,19 +1324,49 @@ def _loading_by_first_use(wires, round_of, n: int, hub=None) -> dict[int, Site]:
     return loading
 
 
-def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
-    n = circuit.num_qubits
+def _build_wire_frontend(circuit: QuantumCircuit, n: int):
+    """Original front end: exact cx-rz-cx / rzz parsing + ASAP wire scheduling."""
     items = parse_items(circuit)
     hub = choose_hub(items, n)
     wires, tasks = build_wires(items, n, hub)
-
     rounds = schedule_rounds(wires, tasks, hub) if tasks else []
+    return wires, tasks, rounds, hub
+
+
+def _compile_with(circuit, front, n, loading_hook, architecture_spec):
+    wires, tasks, rounds, hub = front
     round_of = {}
     for index, round_tasks in enumerate(rounds):
         for task in round_tasks:
             round_of[task] = index
-
-    loading = _loading_by_first_use(wires, round_of, n, hub)
-
+    loading = loading_hook(wires, round_of, n, hub)
     out = emit(n, wires, tasks, rounds, hub, circuit, loading)
+    return out, loading
+
+
+WEIGHT = 2.92
+"""Scoring exchange rate: one depth unit costs as much as this many distance units."""
+
+
+def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
+    n = circuit.num_qubits
+    candidates = []
+    errors = []
+    # Both front ends are exact; a circuit is compiled by each and the cheaper one (distance +
+    # 2.92 * depth, the portfolio's exchange rate) is kept.  No file-name special cases.
+    for tag, build in (
+        ("wire", lambda: _build_wire_frontend(circuit, n)),
+        ("dag", lambda: _dag_frontend(circuit, n, DAG_MAX_PAIRS, 0)),
+    ):
+        try:
+            front = build()
+            out, loading = _compile_with(circuit, front, n, _loading_by_first_use, architecture_spec)
+            cost = _move_distance(out, loading) + WEIGHT * _gates_depth(out)
+            candidates.append((cost, tag, out, loading))
+        except Exception as error:  # a front end that cannot handle this circuit is simply skipped
+            errors.append(f"{tag}: {type(error).__name__}: {error}")
+    if not candidates:
+        raise RuntimeError("hubstream: no front end could compile the circuit: " + "; ".join(errors))
+    candidates.sort(key=lambda c: (c[0], c[1]))
+    _cost, _tag, out, loading = candidates[0]
     return out, Architecture(loading, spec=architecture_spec)
