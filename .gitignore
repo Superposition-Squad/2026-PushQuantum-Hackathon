@@ -5,3 +5,4 @@ planqc-pushquantum-2026/references/*.pdf
 results/runs/
 *.log
 __marimo__/
+viz/
