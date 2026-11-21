@@ -344,3 +344,28 @@ Per-circuit D/P (`metric_circuit_nn`, v1.0.0): 01 26.0/15, 02 83.7/35, 03 55.3/1
 19 1963.9/138, 20 6169.7/408, 21 2373.8/146, 22 7202.1/460, 23/24 665.7/73, 25 175.8/51,
 26 527.5/147, 27 175.8/53, 28 527.5/149, 29/31 412.3/67, 30/32 1236.8/189–191,
 33/35 2108.7/135, 34/36 6326.2/393.
+
+### Round 5: hub-stream row rotation (validator v5.0.0 reduced set)
+
+Scoring now counts only the 18 iHVA circuits plus 12q HEA (`01-02`), so every change is judged on
+iHVA.
+
+* **Row rotation for the hub stream.** Partners launch from row 9: serve the partners whose home is
+  row 9, then rotate the storage rows (`row 9 -> 9-R`, then rows `9-R..8 -> 10-R..9`, cost
+  `R + 1`, columns preserved), so the next home row is at row 9; after `R` batches the arrangement
+  is exactly restored (all atoms home, hub home last). A partner then costs ~4·1.1 instead of
+  ~4·(10−y) (≈12 at 50q). Decided per group deterministically:
+  `R(R+1) + Σ 4·lift(p, 9) < Σ 4·lift(p, home row)` (hub groups of size ≳ 8–10 at 50q, ≳ 10 at 20q).
+* **Per-batch `cz`/`rx`/`cz`**: within a batch, cz #1 for every partner, then every `rx` in ONE
+  layer (all partners are in storage), then cz #2 in reverse (`_State.pulse` still asserts the zone
+  holds exactly the pulse pair). This halves the hub hops and keeps the `rx` layer count at the
+  number of batches instead of the number of partners (the earlier per-partner variant cost +905
+  depth for −4922 distance; this one +405/−5324).
+* **Boustrophedon longest-path storage layout** (`_path_layout`): the non-hub block graph's longest
+  simple path is laid along rows snaking left/right, so path edges are adjacent same-row pairs and
+  sparse families lift whole rows; added as a layout candidate, with the layout stream rotated by
+  the schedule index so a 4-candidate budget still tries different layouts per policy.
+
+Reduced-set score (`/tmp/sy/rport.py`): **84.11 → 85.34**. Full metric +84.00 (distance 40 980.2,
+depth 4911). Validity: full 36/36, sanity 13/13, v1.0.0 replay 0 violations on all 49, Clifford
+tableaux equal on 19–22/33–36, deterministic, max compile 21.6 s CPU (50q QAOA p3).
