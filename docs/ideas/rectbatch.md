@@ -133,7 +133,15 @@ n−1 partners is lifted exactly twice per layer, so the partner cost is
 `Σ_v 4·(10 − y_v)` = a constant over the multiset of occupied rows {5,…,9}. No static placement can
 improve it — which is exactly why the local search only buys a few percent at 50 qubits.
 
-**Next step (quantified, not implemented): storage row staging.** In every QAOA/iHVA benchmark the
+Cost by role, 50q QAOA p1 (total 3 242 in the model, hub = q49): the hub's own pairs account for
+1 307 (98 pair-instances, 13.3 each) and the non-hub pairs for 1 973 (196 instances, 10.1 each).
+Per layer every atom is lifted about **10 times** (2 hub lifts + ~8 non-hub lifts) at ≈ 6 distance
+per lift. So the number of zone round trips, not their cost, is now the dominant term — and halving
+it is the `zonedwell` / `gates` lane (keep the control in the zone between the two CZs of a ZZ
+block: −25 %; chain several CZs of one atom in the zone: up to −50 %). Those gains **compose** with
+this planner, they do not overlap it.
+
+**Measured, not implemented: storage row staging.** In every QAOA/iHVA benchmark the
 hub's partners appear in strict index order (`cx q[0],q[49] … cx q[48],q[49]`, verified in the QASM),
 so with a row-major placement 10 consecutive partners sit in one storage row and are used in 20
 consecutive rounds. Rotating the occupied block by one row costs **7.0 total for all 50 atoms**
@@ -142,7 +150,14 @@ which the next batch of 10 partners is in row 9. Five rotations per layer cost 3
 in that layer then costs ≈ 2.4 instead of ≈ 2·(10 − y) ≈ 6–10. Hand estimate for 50q QAOA p3:
 ≈ 850 instead of our 9 900 — a factor 3–6 on the circuits that carry 60 % of the metric. It needs
 `pos` to become time-dependent (a per-round position state plus a lookahead rule for when to
-rotate), which is a real refactor of `plan_moves`/`plan_cost`, so it did not fit the time box.
+rotate), which is a real refactor of `plan_moves`/`plan_cost`.
+
+I simulated it (`/tmp/rb-analysis/stage.py`: lookahead of 24 rounds, rotate while it pays): on
+50q QAOA p1 it gives 3 574 → 2 916 with only 4 rotations, i.e. **−18 %, not the factor 3** the hand
+estimate suggested. The reason is in the role breakdown above: staging only helps the hub's partner
+(and the hub), which is 40 % of the cost, while the non-hub pairs touch all rows all the time. So it
+is worth about +2–3 score points, not +10, and I left it out rather than risk the working compiler
+inside the time box.
 
 ## Verdict
 
