@@ -784,6 +784,7 @@ class _Machine:
         self.home = lay["home"]
         self.zone_home = lay["zone_home"]
         self.hub = lay["hub"]
+        self.lazy = lay.get("lazy", True)
 
     # -- zone helpers
     def to_storage(self):
@@ -1401,6 +1402,10 @@ class _Machine:
 
         self.dip(depth, mid)
         st.pulse(st.occupied_pairs())  # second cz; idle leftovers get cz*cz = I
+        if not self.lazy:
+            self._relocate(
+                [(q, self.zone_home[q]) for q in ({it[1] for it in plan} | {it[2] for it in plan})]
+            )
 
 
     def _star_round(self, rnd):
@@ -1737,10 +1742,11 @@ def _runs(items):
     return runs
 
 
-def _compile_lanes(circuit, items, lay, plans):
+def _compile_lanes(circuit, items, lay, plans, lazy=True):
     n = circuit.num_qubits
     st = _State(n, circuit.num_clbits)
     st.load(lay["home"])
+    lay = dict(lay, lazy=lazy)
     mach = _Machine(st, lay)
     hub = lay["hub"]
     use_conveyor = lay.get("conveyor", True)
@@ -1838,6 +1844,21 @@ def _parked_qubit(items, n):
 # ---------------------------------------------------------------- entry point
 
 
+def _gate_depth(qc):
+    """Depth of `qc` with `move` and `barrier` removed (measurements kept)."""
+    tmp = QuantumCircuit(qc.num_qubits, qc.num_clbits)
+    for inst in qc.data:
+        if inst.operation.name in ("move", "barrier"):
+            continue
+        tmp.append(inst.operation, inst.qubits, inst.clbits)
+    return tmp.depth()
+
+
+def _official_cost(st):
+    """`0.8 D / D_naive + 0.2 P / P_naive` (lower is better)."""
+    return 0.8 * st.distance / 276726.913 + 0.2 * _gate_depth(st.out) / 23676
+
+
 def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
     n = circuit.num_qubits
     items = parse_blocks(circuit)
@@ -1860,12 +1881,29 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
             phase_groups = [g for run_plan in plans for _kind, g in run_plan]
             lay = plan_layout(n, hub, blocks, phase_groups, use_conveyor)
             if lay is not None:
-                try:
-                    st = _compile_lanes(circuit, items, lay, plans)
-                except AssertionError:
-                    if _DEBUG:
-                        raise
-                    st = None
+                if use_conveyor:
+                    best = None
+                    best_lazy = True
+                    for lazy in (True, False):
+                        try:
+                            cand = _compile_lanes(circuit, items, lay, plans, lazy=lazy)
+                        except AssertionError:
+                            if _DEBUG:
+                                raise
+                            continue
+                        cost = _official_cost(cand)
+                        if best is None or cost < best[0] - 1e-12:
+                            best, best_lazy = (cost, cand), lazy
+                    st = best[1] if best is not None else None
+                    if st is not None:
+                        st.variant_lazy = best_lazy
+                else:
+                    try:
+                        st = _compile_lanes(circuit, items, lay, plans)
+                    except AssertionError:
+                        if _DEBUG:
+                            raise
+                        st = None
     if st is None:
         st = _compile_generic(circuit, architecture_spec)
     if os.environ.get("HUBWALK_STATS") == "1":
@@ -1878,7 +1916,8 @@ def _print_stats(st):
 
     cats = sorted(set(st.dist_by_cat) | set(st.moves_by_cat))
     total = sum(st.dist_by_cat.values())
-    print(f"hubwalk stats: n={st.n} moves={st.nmoves} distance={st.distance:.2f}", file=sys.stderr)
+    variant = getattr(st, "variant_lazy", None)
+    print(f"hubwalk stats: n={st.n} moves={st.nmoves} distance={st.distance:.2f} lazy={variant}", file=sys.stderr)
     for cat in cats:
         print(
             f"  {cat:10s} distance={st.dist_by_cat.get(cat, 0.0):9.2f} "
