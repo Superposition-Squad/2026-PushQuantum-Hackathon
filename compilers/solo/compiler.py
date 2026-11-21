@@ -647,6 +647,9 @@ class Executor:
     LOOK = 0.35
     EVICT = 1.5
     SHIFTS = (0, 1, 2)
+    PARS = (0, 1)
+    SEED = None
+    NOISE = 0.6
     DUMMY_OFF = False
 
     def _lookpos(self, q):
@@ -661,24 +664,24 @@ class Executor:
         lam = self.LOOK
         members = {q for b in blks for q in b.qubits()}
         look = {q: self._lookpos(q) for q in members}
-        # candidate rectangles: rows a..9, pair columns j1..j2
+        # candidate rectangles: rows a..bb, zone pair columns j1..j2, parity par (storage col = zone col - par)
         rects = []
-        for j1 in range(5):
-            for j2 in range(j1, 5):
-                w = j2 - j1 + 1
-                hmin = math.ceil(P / w)
-                for h in (hmin, hmin + 1):
-                    for sh in self.SHIFTS:
-                        if 1 <= h and h + sh <= 9:
-                            rects.append((10 - h - sh, 9 - sh, j1, j2))
-        occ_free = None
+        for par in self.PARS:
+            for j1 in range(par, 5):
+                for j2 in range(j1, 5):
+                    w = j2 - j1 + 1
+                    hmin = math.ceil(P / w)
+                    for h in (hmin, hmin + 1):
+                        for sh in self.SHIFTS:
+                            if 1 <= h and h + sh <= 9:
+                                rects.append((10 - h - sh, 9 - sh, j1, j2, par))
         best = None
         occ = m.occ
         EV = self.EVICT
         nonmem = lambda site: site in occ and occ[site] not in members
-        # all 50 storage pair slots: index y*5 + j
-        Lx = np.array([2 * j for y in range(10) for j in range(5)], dtype=float)
-        Ly = np.array([y for y in range(10) for j in range(5)], dtype=float)
+        # slot universe: left storage column xl in 0..8, row y: index y*9 + xl
+        Lx = np.array([xl for y in range(10) for xl in range(9)], dtype=float)
+        Ly = np.array([y for y in range(10) for xl in range(9)], dtype=float)
         Rx = Lx + 1
         PA = np.array([m.pos[b.c] for b in blks], dtype=float)
         PB = np.array([m.pos[b.t] for b in blks], dtype=float)
@@ -689,60 +692,55 @@ class Executor:
         C1 = dd(PA, Lx, Ly) + dd(PB, Rx, Ly)
         C2 = dd(PA, Rx, Ly) + dd(PB, Lx, Ly)
         if lam:
-            for qs, sideA in ((PA, True), (PB, False)):
-                pass
             LA = np.array([look[b.c] if look[b.c] is not None else (np.nan, np.nan) for b in blks], dtype=float)
             LB = np.array([look[b.t] if look[b.t] is not None else (np.nan, np.nan) for b in blks], dtype=float)
-            aL = np.nan_to_num(dd(LA, Lx, Ly))
-            aR = np.nan_to_num(dd(LA, Rx, Ly))
-            bL = np.nan_to_num(dd(LB, Lx, Ly))
-            bR = np.nan_to_num(dd(LB, Rx, Ly))
-            C1 = C1 + lam * (aL + bR)
-            C2 = C2 + lam * (aR + bL)
-        PEN = np.array([EV * (nonmem((2 * j, y)) + nonmem((2 * j + 1, y))) for y in range(10) for j in range(5)])
+            C1 = C1 + lam * (np.nan_to_num(dd(LA, Lx, Ly)) + np.nan_to_num(dd(LB, Rx, Ly)))
+            C2 = C2 + lam * (np.nan_to_num(dd(LA, Rx, Ly)) + np.nan_to_num(dd(LB, Lx, Ly)))
+        PEN = np.array([EV * (nonmem((xl, y)) + nonmem((xl + 1, y))) for y in range(10) for xl in range(9)])
         CM = np.minimum(C1, C2) + PEN[None, :]
+        if self.SEED is not None:
+            CM = CM + self.NOISE * self.rng.random(CM.shape)
         OR = C2 < C1
-        for a, bb, j1, j2 in rects:
-            slots = [(j, y) for y in range(a, bb + 1) for j in range(j1, j2 + 1)]
-            idx = [y * 5 + j for j, y in slots]
+        for a, bb, j1, j2, par in rects:
+            slots = [(2 * j - par, y) for y in range(a, bb + 1) for j in range(j1, j2 + 1)]
+            idx = [y * 9 + xl for xl, y in slots]
             cost = CM[:, idx]
             orient = OR[:, idx]
             ri, ci = linear_sum_assignment(cost)
             tot = float(cost[ri, ci].sum())
             used = set(ci.tolist())
-            for k, (j, y) in enumerate(slots):
+            for k, (xl, y) in enumerate(slots):
                 if k in used:
                     continue
-                nl, nr = nonmem((2 * j, y)), nonmem((2 * j + 1, y))
+                nl, nr = nonmem((xl, y)), nonmem((xl + 1, y))
                 if nl != nr and not self.DUMMY_OFF:
                     tot += EV
                 elif nl and nr and self.DUMMY_OFF:
                     tot += 2 * EV
-            
             h = 10 - a
-            tot += 4 * math.hypot(h, 0.7)
+            tot += 4 * math.hypot(h, 1.0 if par else 0.7)
             if best is None or tot < best[0] - 1e-9:
-                best = (tot, a, bb, j1, j2, slots, ri, ci, orient)
-        _, a, bb, j1, j2, slots, ri, ci, orient = best
+                best = (tot, a, bb, j1, j2, par, slots, ri, ci, orient)
+        _, a, bb, j1, j2, par, slots, ri, ci, orient = best
         h = 10 - a
         targets = {}
         for i, k in zip(ri, ci):
             b = blks[i]
-            j, y = slots[k]
-            L, R = (2 * j, y), (2 * j + 1, y)
+            xl, y = slots[k]
+            L, R = (xl, y), (xl + 1, y)
             if orient[i, k]:
                 targets[b.c], targets[b.t] = R, L
             else:
                 targets[b.c], targets[b.t] = L, R
         reserved = set(targets.values())
-        x1, x2 = 2 * j1, 2 * j2 + 1
+        x1, x2 = 2 * j1 - par, 2 * j2 + 1 - par
         inside = lambda s: a <= s[1] <= bb and x1 <= s[0] <= x2
         dummies = []
         used_slots = {slots[k] for k in ci.tolist()}
-        for j, y in slots:
-            if (j, y) in used_slots or self.DUMMY_OFF:
+        for xl, y in slots:
+            if (xl, y) in used_slots or self.DUMMY_OFF:
                 continue
-            ql, qr = occ.get((2 * j, y)), occ.get((2 * j + 1, y))
+            ql, qr = occ.get((xl, y)), occ.get((xl + 1, y))
             if ql is not None and qr is not None and ql not in members and qr not in members:
                 dummies.append((ql, qr))
         keep = {q for pr in dummies for q in pr}
@@ -761,7 +759,7 @@ class Executor:
                 self.prep(b.c, _H)
                 self.prep(b.t, _PRE_TS)
         riders = members | keep
-        up = {q: (m.pos[q][0], m.pos[q][1] + h) for q in riders}
+        up = {q: (m.pos[q][0] + par, m.pos[q][1] + h) for q in riders}
         down = {q: m.pos[q] for q in riders}
         pairs = [(b.c, b.t) if m.pos[b.c][0] < m.pos[b.t][0] else (b.t, b.c) for b in blks]
         pairs += dummies
@@ -847,8 +845,7 @@ class Executor:
 
     def clone(self):
         e = Executor.__new__(Executor)
-        e.n, e.hub, e.home = self.n, self.hub, self.home
-        e.nxt = self.nxt
+        e.__dict__.update({k: v for k, v in self.__dict__.items() if k != "m"})
         m = Machine.__new__(Machine)
         src = self.m
         m.n, m.emit, m.qc = src.n, False, None
@@ -861,7 +858,7 @@ class Executor:
 
     def run_hub(self, blks):
         best = None
-        for strat in ("rotate", "direct"):
+        for strat in self.HUB_STRATS:
             e = self.clone()
             try:
                 e._hub(blks, strat)
@@ -873,6 +870,29 @@ class Executor:
         if best is None:
             raise Illegal("no hub strategy")
         self._hub(blks, best[1])
+
+    HUB_STRATS = ("rotate", "direct", "compact")
+
+    def _compact(self, pset):
+        """Relocate the batch partners densely into the bottom storage rows (row 9-r stays free)."""
+        from scipy.optimize import linear_sum_assignment
+
+        m = self.m
+        r = max(1, math.ceil(len(pset) / 10))
+        sites = [(x, y) for y in range(10 - r, 10) for x in range(10)]
+        ps = sorted(pset)
+        cost = np.array([[_dist(m.pos[p], st) for st in sites] for p in ps])
+        ri, ci = linear_sum_assignment(cost)
+        targets = {ps[i]: sites[k] for i, k in zip(ri, ci)}
+        reserved = set(targets.values())
+        band = set(sites) | {(x, 9 - r) for x in range(10)}
+        for q in sorted(q for q, st in m.pos.items() if st[1] >= 9 - r and st[1] <= 9 and q not in pset):
+            if q == self.hub and False:
+                continue
+            t = self.nearest_free(m.pos[q], avoid=reserved | band, rows=range(0, 9 - r))
+            reserved.add(t)
+            targets[q] = t
+        self.relocate(targets)
 
     def _hub_site(self, px):
         """(hub site, partner site) in zone row 10 for a partner lifted from storage column px."""
@@ -919,6 +939,9 @@ class Executor:
         post_p = _POST_T if role == "Z" else _H
         for p, _ in partners:
             self.prep(p, pre_p)
+        if strat == "compact":
+            self._compact({p for p, _ in partners})
+            strat = "rotate"
         hub_home = m.pos[hub]
         if strat == "direct":
             base = {q: m.pos[q] for q in range(self.n)}
@@ -946,8 +969,9 @@ class Executor:
             visits = []  # list of partner lists per rotation state
             for step in range(k + 1):
                 row = [p for p in pset if m.pos[p][1] == 9]
-                d = 1 if step % 2 == 0 else -1
-                row.sort(key=lambda p: d * m.pos[p][0])
+                row.sort(key=lambda p: (m.pos[p][0] // 2, -(m.pos[p][0] % 2)))
+                if step % 2:
+                    row.reverse()
                 for p in row:
                     self._serve(p)
                 visits.append(row)
@@ -995,10 +1019,14 @@ POLICIES = [("look", 2.0), ("look", 0.0), ("look", 1.0), ("look", 4.0), ("thresh
 DEPTH_W = 0.2 / 13364 / (0.8 / 163364.298)  # distance units per depth unit (~3.06)
 
 
-def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, emit):
+def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=False):
     hub = n - 1
     ex = Executor(n, hub, home, emit=emit)
     ex.LOOK = lam
+    for k, v in opts:
+        setattr(ex, k, v)
+    if ex.SEED is not None:
+        ex.rng = np.random.default_rng(ex.SEED)
     byq = {}
     for b in blocks:
         for q in b.qubits():
@@ -1027,31 +1055,51 @@ def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, emit):
     return ex
 
 
-CANDS = [(pol, lam, mu) for mu in (None, 1.0) for lam in (0.0, 0.35) for pol in (
-    ("look", 2.0, True, 8), ("look", 2.0, True, 20), ("thresh", 20, True), ("rounds",), ("thresh", 45))]
+BASE_POLS = (("look", 2.0, True, 8), ("look", 2.0, True, 20), ("thresh", 20, True), ("rounds",), ("thresh", 45))
+CANDS = [(pol, lam, mu, (("PARS", pars),)) for pars in ((0, 1), (0,)) for mu in (None, 1.0) for lam in (0.0, 0.35)
+         for pol in BASE_POLS]
 
 
-def compile_ihva(n, blocks, cands=None, emit=True):
+def _budget(n, nblocks):
+    """(top configs, seeds per config) for the seeded second phase: a fixed work budget by size."""
+    if nblocks <= 120:
+        return 3, 10
+    if nblocks <= 400:
+        return 2, 6
+    return 1, 4
+
+
+def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
     blocks = [b for b in blocks if b.th != 0.0]
     for i, b in enumerate(blocks):
         b.idx = i
     hub = n - 1
     preds, succs = build_dag(blocks)
     home = default_layout(n, hub)
-    best = None
-    for cand in cands or CANDS:
+    res = []
+
+    def run(cand):
         try:
-            ex = run_candidate(n, blocks, preds, succs, home, *cand, emit=False)
+            ex = run_candidate(n, blocks, preds, succs, home, *cand)
         except Illegal:
-            continue
+            return
         c = ex.m.dist + DEPTH_W * (max(ex.m.depth) + 1)
-        if best is None or c < best[0] - 1e-9:
-            best = (c, cand)
-    if best is None:
+        res.append((c, len(res), cand))
+
+    for cand in cands or CANDS:
+        run(cand)
+    if not res:
         raise Illegal("no candidate")
+    top, nseed = _budget(n, len(blocks)) if seeds is None else seeds
+    base = sorted(res)[:top]
+    for _, _, cand in base:
+        for sd in range(1, nseed + 1):
+            pol, lam, mu, opts = cand
+            run((pol, lam, mu, tuple(opts) + (("SEED", sd),)))
+    best = min(res)
     if not emit:
-        return best
-    ex = run_candidate(n, blocks, preds, succs, home, *best[1], emit=True)
+        return best[0], best[2]
+    ex = run_candidate(n, blocks, preds, succs, home, *best[2], emit=True)
     return ex.m.qc, home
 
 
