@@ -582,9 +582,9 @@ def _remaining_cz(wire, start: int) -> int:
     return sum(1 for entry in wire[start:] if entry[0] == "cz")
 
 
-def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: dict[int, Site]) -> QuantumCircuit:
+def emit(n: int, wires, tasks, rounds, hub, circuit: QuantumCircuit, loading: dict[int, Site],
+         hub_end: bool = False) -> QuantumCircuit:
     out = circuit.copy_empty_like()
-    hub_end = HUB_END_PAIR and n > HUB_END_MIN_QUBITS
     pos: dict[int, Site] = dict(loading)
     occ: dict[Site, int] = {site: qubit for qubit, site in pos.items()}
     pointer = [0] * n
@@ -1228,8 +1228,8 @@ def schedule_rounds_dag(items, num_qubits: int, hub, max_pairs: int, key_mode: i
     return phases
 
 
-def _dag_frontend(circuit: QuantumCircuit, n: int, max_pairs: int, key_mode: int):
-    """gates' front end -> (wires, tasks, rounds, hub) in the layout `emit` consumes."""
+def _dag_items(circuit: QuantumCircuit, n: int):
+    """gates' item list for a circuit: parse, drop theta == 0, expand rot2, merge 1q runs."""
     items, _phase = lower_to_items(circuit)
     # theta == 0 modulo 2*pi is the identity: drop it (exact up to global phase)
     items = [it for it in items
@@ -1237,6 +1237,11 @@ def _dag_frontend(circuit: QuantumCircuit, n: int, max_pairs: int, key_mode: int
     degree = two_qubit_degree(items, n)
     items = expand_rot2(items, degree)
     items, _extra = merge_1q_runs(items, n)
+    return items
+
+
+def _dag_frontend(items, n: int, max_pairs: int, key_mode: int):
+    """gates' scheduled items -> (wires, tasks, rounds, hub) in the layout `emit` consumes."""
     hub = choose_hub_dag(items, n)
     phases = schedule_rounds_dag(items, n, hub, max_pairs, key_mode)
 
@@ -1312,11 +1317,14 @@ def _first_use_order(wires, round_of, n: int) -> list[int]:
     return sorted(range(n), key=lambda q: (first_use(q), q))
 
 
-def _loading_by_first_use(wires, round_of, n: int, hub=None) -> dict[int, Site]:
+def _loading_by_first_use(wires, tasks, round_of, n: int, hub=None, hub_end: bool = False,
+                          variant: str = "first") -> dict[int, Site]:
+    if variant == "hub" and hub is not None:
+        return _loading_hub(wires, tasks, round_of, n, hub)
     order = _first_use_order(wires, round_of, n)
     sites = sorted(_STORAGE, key=lambda site: (9 - site[1], site[0]))
     loading = {q: sites[i] for i, q in enumerate(order)}
-    if HUB_END_PAIR and n > HUB_END_MIN_QUBITS and hub is not None:
+    if hub_end and hub is not None:
         # the hub's home goes right under its parked slot (9, 10): swap it with whoever is at (9, 9)
         target = (9, 9)
         other = next((q for q, site in loading.items() if site == target), None)
@@ -1326,49 +1334,109 @@ def _loading_by_first_use(wires, round_of, n: int, hub=None) -> dict[int, Site]:
     return loading
 
 
-def _build_wire_frontend(circuit: QuantumCircuit, n: int):
-    """Original front end: exact cx-rz-cx / rzz parsing + ASAP wire scheduling."""
-    items = parse_items(circuit)
+def _loading_hub(wires, tasks, round_of, n: int, hub) -> dict[int, Site]:
+    """Round-1 STEP-2 placement: hub at storage (1,9), its partners queued nearest to entangling
+    slot (0,10) in the order the hub meets them, everything else by first use."""
+    loading = {hub: (1, 9)}
+    placed = {(1, 9)}
+    partners: list[int] = []
+    seen = {hub}
+    for u, v in tasks:
+        other = v if u == hub else (u if v == hub else None)
+        if other is not None and other not in seen:
+            seen.add(other)
+            partners.append(other)
+    queue = sorted((site for site in _STORAGE if site not in placed),
+                   key=lambda site: (math.hypot(site[0], site[1] - 10.0), site[1], site[0]))
+    for qubit in partners:
+        site = queue.pop(0)
+        loading[qubit] = site
+        placed.add(site)
+    pool = sorted((site for site in _STORAGE if site not in placed), key=lambda site: (9 - site[1], site[0]))
+    for qubit in _first_use_order(wires, round_of, n):
+        if qubit in loading:
+            continue
+        loading[qubit] = pool.pop(0)
+    return loading
+
+
+def _build_wire_frontend(circuit: QuantumCircuit, n: int, items, max_pairs: int):
+    """Wire front end: exact cx-rz-cx / rzz parsing + ASAP wire scheduling."""
     hub = choose_hub(items, n)
     wires, tasks = build_wires(items, n, hub)
-    rounds = schedule_rounds(wires, tasks, hub) if tasks else []
+    rounds = schedule_rounds(wires, tasks, hub, max_pairs) if tasks else []
     return wires, tasks, rounds, hub
 
 
-def _compile_with(circuit, front, n, loading_hook):
+def _compile_with(circuit, front, n, loading_kind: str, hub_end: bool):
     wires, tasks, rounds, hub = front
     round_of = {}
     for index, round_tasks in enumerate(rounds):
         for task in round_tasks:
             round_of[task] = index
-    loading = loading_hook(wires, round_of, n, hub)
-    out = emit(n, wires, tasks, rounds, hub, circuit, loading)
+    loading = _loading_by_first_use(wires, tasks, round_of, n, hub, hub_end, loading_kind)
+    out = emit(n, wires, tasks, rounds, hub, circuit, loading, hub_end)
     return out, loading
 
 
 WEIGHT = 2.92
 """Scoring exchange rate: one depth unit costs as much as this many distance units."""
 
+SMALL_CIRCUIT = 20
+LARGER_CIRCUIT = 50
+
+
+def _candidate_specs(n: int, has_hub: bool):
+    """Deterministic candidate grid, ordered by how often each variant won in the measurements.
+
+    Each entry is (front, cap, hub_end, loading kind).  The number evaluated is capped by circuit
+    size (count-based, never wall-clock).
+    """
+    if n > LARGER_CIRCUIT:  # only the two that carried the previous state
+        end = n > HUB_END_MIN_QUBITS
+        return [("wire", 4, end, "first"), ("dag", 2, end, "first")]
+    specs = []
+    ends = (True, False) if has_hub else (False,)
+    for cap in (4, 3, 5):
+        for end in ends:
+            specs.append(("wire", cap, end, "first"))
+    if has_hub:
+        specs.append(("wire", 4, False, "hub"))
+    dag_caps = (4, 3, 2) if n <= LARGE_CIRCUIT else (2,)
+    for cap in dag_caps:
+        specs.append(("dag", cap, n > HUB_END_MIN_QUBITS, "first"))
+    if n <= SMALL_CIRCUIT:
+        return specs
+    return specs[:8]
+
 
 def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
     n = circuit.num_qubits
-    candidates = []
-    errors = []
-    # Both front ends are exact; a circuit is compiled by each and the cheaper one (distance +
-    # 2.92 * depth, the portfolio's exchange rate) is kept.  No file-name special cases.
-    candidates_spec = [("wire", lambda: _build_wire_frontend(circuit, n))]
-    for cap in (DAG_MAX_PAIRS if n <= LARGE_CIRCUIT else DAG_MAX_PAIRS_LARGE):
-        candidates_spec.append((f"dag{cap}", lambda cap=cap: _dag_frontend(circuit, n, cap, 0)))
-    for tag, build in candidates_spec:
+    items = parse_items(circuit)
+    wire_hub = choose_hub(items, n)
+    dag_items = None
+    candidates: list[tuple] = []
+    errors: list[str] = []
+    for kind, cap, hub_end, loading_kind in _candidate_specs(n, wire_hub is not None):
+        tag = f"{kind}{cap}{'T' if hub_end else 'F'}{'' if loading_kind == 'first' else 'H'}"
         try:
-            front = build()
-            out, loading = _compile_with(circuit, front, n, _loading_by_first_use)
+            if kind == "wire":
+                if wire_hub is None and loading_kind == "hub":
+                    continue
+                front = _build_wire_frontend(circuit, n, items, cap)
+            else:
+                if dag_items is None:
+                    dag_items = _dag_items(circuit, n)
+                front = _dag_frontend(dag_items, n, cap, 0)
+            out, loading = _compile_with(circuit, front, n, loading_kind, hub_end)
             cost = _move_distance(out, loading) + WEIGHT * _gates_depth(out)
             candidates.append((cost, tag, out, loading))
-        except Exception as error:  # a front end that cannot handle this circuit is simply skipped
+        except Exception as error:  # a variant that cannot handle this circuit is simply skipped
             errors.append(f"{tag}: {type(error).__name__}: {error}")
     if not candidates:
-        raise RuntimeError("hubstream: no front end could compile the circuit: " + "; ".join(errors))
+        raise RuntimeError("hubstream: no candidate could compile the circuit: " + "; ".join(errors))
     candidates.sort(key=lambda c: (c[0], c[1]))
     _cost, _tag, out, loading = candidates[0]
     return out, Architecture(loading, spec=architecture_spec)
+
+
