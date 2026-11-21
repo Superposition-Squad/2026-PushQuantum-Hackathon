@@ -135,6 +135,18 @@ _PRE_T = _H @ _rx(math.pi / 2)  # target, normal form: rx(pi/2) then h
 _POST_T = _rx(-math.pi / 2) @ _H
 _PRE_TS = _rx(math.pi / 2)  # target, swapped form
 _POST_TS = _rx(-math.pi / 2)
+_S = np.array([[1, 0], [0, 1j]], dtype=complex)
+_SD = _S.conj().T
+# Frame tables. "R": blocks as written (rotor t: rx(pi/2) h | cz rx cz | h rx(-pi/2)).
+# "S": every qubit conjugated by S (initial S^dag h, final S): a block Z_c Y_t becomes Z_c X_t =
+# cz . rx_t(th) . cz exactly, with no per-block basis change; swapped form: h on both, rx on c.
+FRAMES = {
+    "R": {"init": _H, "final": _I2, "Nt": (_PRE_T, _POST_T), "Sc": (_H, _H), "St": (_PRE_TS, _POST_TS)},
+    "S": {"init": _SD @ _H, "final": _S, "Nt": (_I2, _I2),
+          "Sc": (_rz(math.pi / 2) @ _rx(math.pi / 2), _rx(-math.pi / 2) @ _rz(-math.pi / 2)),
+          "St": (_rx(math.pi / 2) @ _rz(math.pi / 2), _rz(-math.pi / 2) @ _rx(-math.pi / 2))},
+    "SH": {"init": _SD @ _H, "final": _S, "Nt": (_I2, _I2), "Sc": (_H, _H), "St": (_H, _H)},
+}
 
 
 def _is_diag(u, eps=1e-9):
@@ -312,7 +324,9 @@ def _zone(y):
 
 
 class Machine:
-    def __init__(self, n, loading, emit=True):
+    LAZY = False
+
+    def __init__(self, n, loading, emit=True, frame="S"):
         self.n = n
         self.pos = dict(loading)
         self.occ = {s: q for q, s in loading.items()}
@@ -320,7 +334,8 @@ class Machine:
         self.qc = QuantumCircuit(n, n) if emit else None
         self.dist = 0.0
         self.nmoves = 0
-        self.pend = [_H.copy() for _ in range(n)]
+        self.frame = FRAMES[frame]
+        self.pend = [self.frame["init"].copy() for _ in range(n)]
         self.depth = [0] * n  # rough per-qubit depth estimate (for cost models)
 
     # -- moves
@@ -397,6 +412,14 @@ class Machine:
         if self.pos[q][1] >= 10:
             raise Illegal(f"1q gate on {q} in zone")
         seq = _zxz(u)
+        rest = _I2.copy()
+        if self.LAZY and not force and len(seq) >= 2 and seq[-1][0] == "rz":
+            # keep the trailing z rotation pending: it commutes with cz
+            seq = seq[:-1]
+            rest = u @ np.linalg.inv(_gate_matrix(seq))
+            if not _is_diag(rest, 1e-7):
+                seq = _zxz(u)
+                rest = _I2.copy()
         if self.emit:
             for g, t in seq:
                 if g == "rz":
@@ -404,7 +427,7 @@ class Machine:
                 else:
                     self.qc.rx(t, q)
         self.depth[q] += len(seq)
-        self.pend[q] = _I2.copy()
+        self.pend[q] = rest
 
     def pulse(self, pairs, dummy=()):
         inzone = {q for q, s in self.pos.items() if s[1] >= 10}
@@ -430,6 +453,7 @@ class Machine:
         for q in range(self.n):
             if self.pos[q][1] >= 10:
                 raise Illegal("atom left in zone")
+            self.apply1(q, self.frame["final"])
             self.flush(q, force=True)
         if self.emit:
             for q in range(self.n):
@@ -553,9 +577,9 @@ def schedule_gen(blocks, preds, succs, hub, policy=("look", 2.0), posfn=None, mu
 
 
 class Executor:
-    def __init__(self, n, hub, home, emit=True):
+    def __init__(self, n, hub, home, emit=True, frame="S"):
         self.n, self.hub, self.home = n, hub, dict(home)
-        self.m = Machine(n, home, emit)
+        self.m = Machine(n, home, emit, frame)
         self.nxt = None
 
     # helpers
@@ -816,12 +840,13 @@ class Executor:
         forms = {}
         for b in blks:
             forms[b.idx] = f = self.choose_form(b)
+            F = m.frame
             if f == "N":
                 m.flush(b.c)
-                self.prep(b.t, _PRE_T)
+                self.prep(b.t, F["Nt"][0])
             else:
-                self.prep(b.c, _H)
-                self.prep(b.t, _PRE_TS)
+                self.prep(b.c, F["Sc"][0])
+                self.prep(b.t, F["St"][0])
         riders = members | keep
         up = {q: (m.pos[q][0] + par, m.pos[q][1] + h) for q in riders}
         down = {q: m.pos[q] for q in riders}
@@ -839,10 +864,10 @@ class Executor:
         m.move(down)
         for b in blks:
             if forms[b.idx] == "N":
-                m.apply1(b.t, _POST_T)
+                m.apply1(b.t, m.frame["Nt"][1])
             else:
-                m.apply1(b.c, _H)
-                m.apply1(b.t, _POST_TS)
+                m.apply1(b.c, m.frame["Sc"][1])
+                m.apply1(b.t, m.frame["St"][1])
 
     FORMS = "auto"
 
@@ -865,11 +890,11 @@ class Executor:
         for f in ("N", "S"):
             if f == "N":
                 gc, pc = self._ng(b.c, _I2)
-                gt, pt = self._ng(b.t, _PRE_T)
+                gt, pt = self._ng(b.t, self.m.frame["Nt"][0])
                 rot, pr = b.t, pt
             else:
-                gc, pc = self._ng(b.c, _H)
-                gt, pt = self._ng(b.t, _PRE_TS)
+                gc, pc = self._ng(b.c, self.m.frame["Sc"][0])
+                gt, pt = self._ng(b.t, self.m.frame["St"][0])
                 rot, pr = b.c, pc
             mid = 0 if _is_id(pr) else (1 if _is_diag(pr) else 0)
             dc, dt = dep[b.c] + gc, dep[b.t] + gt
@@ -913,6 +938,7 @@ class Executor:
         m = Machine.__new__(Machine)
         src = self.m
         m.n, m.emit, m.qc = src.n, False, None
+        m.frame = src.frame
         m.pos, m.occ = dict(src.pos), dict(src.occ)
         m.dist, m.nmoves = src.dist, src.nmoves
         m.pend = [u.copy() for u in src.pend]
@@ -1011,11 +1037,11 @@ class Executor:
             p = b.t if role == "Z" else b.c
             partners.append((p, b.th))
         if role == "Y":
-            self.prep(hub, _PRE_TS)
+            self.prep(hub, m.frame["St"][0])
         else:
             m.flush(hub)
-        pre_p = _PRE_T if role == "Z" else _H
-        post_p = _POST_T if role == "Z" else _H
+        pre_p = m.frame["Nt"][0] if role == "Z" else m.frame["Sc"][0]
+        post_p = m.frame["Nt"][1] if role == "Z" else m.frame["Sc"][1]
         for p, _ in partners:
             self.prep(p, pre_p)
         if strat == "compact":
@@ -1092,7 +1118,7 @@ class Executor:
         for p, _ in partners:
             m.apply1(p, post_p)
         if role == "Y":
-            m.apply1(hub, _POST_TS)
+            m.apply1(hub, m.frame["St"][1])
 
 
 def default_layout(n, hub):
@@ -1145,7 +1171,8 @@ DEPTH_W = 0.2 / 13364 / (0.8 / 163364.298)  # distance units per depth unit (~3.
 
 def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=False, allowed=None):
     hub = n - 1
-    ex = Executor(n, hub, home, emit=emit)
+    frame = dict(opts).get("FRAME", "S")
+    ex = Executor(n, hub, home, emit=emit, frame=frame)
     ex.allowed = allowed if allowed is not None else frozenset(frozenset(b.qubits()) for b in blocks)
     ex.LOOK = lam
     for k, v in opts:
@@ -1248,6 +1275,8 @@ def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
         pol, lam, mu, opts = cand
         run((pol, lam, mu, tuple(opts) + (("EVAL", True),)), lay)
         run((pol, lam, mu, tuple(opts) + (("RECT_SIM", 1),)), lay)
+        run((pol, lam, mu, tuple(opts) + (("FRAME", "R"),)), lay)
+        run((pol, lam, mu, tuple(opts) + (("FRAME", "SH"),)), lay)
     # first-use layouts derived from the best configurations' own step sequences
     for _, k, cand, lay in sorted(res)[:top]:
         ex = run_candidate(n, blocks, preds, succs, layouts[lay], *cand, allowed=allowed)
