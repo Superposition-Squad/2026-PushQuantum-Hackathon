@@ -259,11 +259,14 @@ _KNOWN_2Q = {"cx", "cz", "rzz"}
 
 
 class Op:
-    __slots__ = ("kind", "qubits", "mat", "paulis", "theta", "basis", "clbit", "idx")
+    __slots__ = ("kind", "qubits", "mat", "paulis", "theta", "basis", "clbit", "idx", "comm")
 
     def __init__(self, kind, qubits, mat=None, paulis=None, theta=0.0, basis=None, clbit=None):
         self.kind, self.qubits, self.mat, self.paulis = kind, tuple(qubits), mat, paulis
         self.theta, self.basis, self.clbit, self.idx = theta, basis, clbit, -1
+        self.comm = None
+        if kind == U1:
+            self.comm = frozenset(p for p, m in PAULI.items() if np.allclose(mat @ m, m @ mat, atol=1e-9))
 
 
 def _raw_gates(circuit: QuantumCircuit):
@@ -396,8 +399,7 @@ def _commute(a: Op, b: Op) -> bool:
         return False
     if a.kind == U1 or b.kind == U1:
         u, o = (a, b) if a.kind == U1 else (b, a)
-        p = PAULI[_pauli_on(o, u.qubits[0])]
-        return np.allclose(u.mat @ p, p @ u.mat, atol=1e-9)
+        return _pauli_on(o, u.qubits[0]) in u.comm
     if a.kind == ROT and b.kind == ROT:
         anti = sum(_pauli_on(a, q) != _pauli_on(b, q) for q in shared)
         return anti % 2 == 0
@@ -584,6 +586,8 @@ class Compiler:
         if self.n > len(self.geo.storage_sites):
             raise Unsupported("too many qubits")
         self.succ, self.indeg = build_dag(self.ops, self.n)
+        if len(self.ops) > 150 and not (options and "cands" in options):
+            self.opt["cands"] = 1  # keep large irregular circuits fast
 
     # ------------------------------------------------------------ setup
     def initial_loading(self) -> dict[int, Site]:
@@ -1096,9 +1100,11 @@ class CyclePlanner:
     dropped back (rotations happen in storage), and the next lift re-forms those pairs for CZ2."""
 
     def __init__(self, geo: Geo, ops, succ, indeg, n, hub, order=None, match="index", hub_min=0.0,
-                 slack=None, hub_max=1.0):
+                 slack=None, hub_max=1.0, trips=False):
         self.geo, self.ops, self.succ, self.indeg, self.n, self.hub = geo, ops, succ, indeg, n, hub
         self.match, self.hub_min, self.slack, self.hub_max = match, hub_min, slack, hub_max
+        self.trips = trips
+        self.work = 0  # deterministic effort counter (routing evaluations)
         # block level in the DAG (1q ops pass levels through): QAOA layer l -> level l
         lvl = [0] * len(ops)
         for i, o in enumerate(ops):  # edges always point forward in op order
@@ -1211,6 +1217,7 @@ class CyclePlanner:
         pairs re-formed by the lift, then one hub event per pulse along the walk, and on the last
         pulse a matching of non-hub CZ1s (chosen on the state before that pulse)."""
         h = self.hub
+        self.cycle_trips = None
         ex = self.ex.clone()
         touched: set[int] = set()
         pulses: list[list] = []
@@ -1241,21 +1248,65 @@ class CyclePlanner:
             cands = cands[:cap]
             sign = 1 if self.direction_of(cands) else -1
             cands.sort(key=lambda p: self.widx[p] * sign)
-        for p in cands:
-            ev = self._hub_event(ex, p)
-            if ev is None or not self._clean_ok(ex, ev, touched):
-                continue
-            snap = (ex.clone(), set(touched), len(pulses))
-            self._commit(ex, [ev], touched)
-            pulses.append([ev])
-            n_hub += 1
+        trips: list[set] = [set() for _ in pulses]
+        if not self.trips:
+            for p in cands:
+                ev = self._hub_event(ex, p)
+                if ev is None or not self._clean_ok(ex, ev, touched):
+                    continue
+                snap = (ex.clone(), set(touched), len(pulses))
+                self._commit(ex, [ev], touched)
+                pulses.append([ev])
+                trips.append(set())
+                n_hub += 1
+        else:
+            # dynamic walk: nearest feasible hub event next; a dirty hub may take a storage trip
+            g = self.geo
+            hpos = self.st.pos[h]
+            done_p: set[int] = set()
+            while n_hub < cap:
+                best = None
+                for p in self.walk:
+                    if p in done_p:
+                        continue
+                    ev = self._hub_event(ex, p)
+                    if ev is None:
+                        continue
+                    trip = False
+                    if not self._clean_ok(ex, ev, touched):
+                        # only the hub may be dirty, and only if it holds no open block
+                        ws = ex.pre_ws(ev)
+                        if not _is_identity(ws.get(p, I2) @ ex.U[p]) and p in touched:
+                            continue
+                        if ex.mode[h] == "open" and ev[0] == "start":
+                            continue
+                        trip = True
+                    d = g.dist(hpos, g.sibling[self.home[p]]) + (2.5 if trip else 0.0)
+                    if best is None or d < best[0]:
+                        best = (d, p, ev, trip)
+                if best is None:
+                    break
+                _, p, ev, trip = best
+                snap = (ex.clone(), set(touched), len(pulses))
+                if trip:
+                    touched.discard(h)  # flushed during the trip
+                self._commit(ex, [ev], touched)
+                pulses.append([ev])
+                trips.append({h} if trip else set())
+                done_p.add(p)
+                hpos = g.sibling[self.home[p]]
+                n_hub += 1
         # matching on the state before the last pulse
         if snap is not None:
             ex, touched, k = snap[0], snap[1], snap[2]
             last = pulses[k]
+            last_trip = trips[k]
             del pulses[k:]
+            del trips[k:]
+            if last_trip:
+                touched.discard(h)
         else:
-            last = []
+            last, last_trip = [], set()
         used = {q for ev in last for q in self._qs(ev)}
         M = []
         # remaining non-hub work per atom: busiest atoms first (greedy edge colouring)
@@ -1282,6 +1333,8 @@ class CyclePlanner:
         if last or M:
             self._commit(ex, last + M, touched)
             pulses.append(last + M)
+            trips.append(last_trip)
+        self.cycle_trips = trips
         return pulses
 
     # ---------------------------------------------------------- execution
@@ -1335,10 +1388,23 @@ class CyclePlanner:
                     self.flush(q)
             # lift everything that is in storage
             self.emit_moves([(q, s, (s[0], s[1] + self.shift)) for q, s in self.st.pos.items() if g.in_storage(s)])
-            for pl in pulses:
+            trips = getattr(self, "cycle_trips", None) or [set() for _ in pulses]
+            for k, pl in enumerate(pulses):
+                tripped = set()
+                for q in trips[k] if k < len(trips) else ():
+                    ev = next(e for e in pl if q in self.ops[e[1]].qubits)
+                    x, _ = self.st.pos[q]
+                    xs = min(max(x, g.sx0), g.sx1)
+                    free = [(xs, y) for y in range(g.sy1, g.sy0 - 1, -1) if (xs, y) not in self.st.occ]
+                    self.emit_moves([(q, self.st.pos[q], free[0])])
+                    w = ex.pre_ws(ev).get(q)
+                    if w is not None:
+                        ex.U[q] = w @ ex.U[q]
+                    self.flush(q)
+                    tripped.add(q)
                 self.route(pl)
                 for ev in pl:
-                    skip = [q for q in self.ops[ev[1]].qubits if first[q] is ev]
+                    skip = [q for q in self.ops[ev[1]].qubits if first[q] is ev or q in tripped]
                     ex.apply_pre(ev, skip=skip)
                     for q in self.ops[ev[1]].qubits:
                         if not _is_identity(ex.U[q]):
@@ -1439,6 +1505,7 @@ class CyclePlanner:
 
     def _realize(self, decisions, choice, pairs, in_pulse):
         """(cost, transfers) for one choice per decision; cost inf if illegal."""
+        self.work += 1
         g, st, h = self.geo, self.st, self.hub
         tg: dict[int, Site] = {}
         for opts, c in zip(decisions, choice):
@@ -1538,6 +1605,8 @@ def sa_order(geo: Geo, ops: list[Op], n: int, hub: int, seed: int, iters: int = 
     def local(p):
         return sum(D[pos[p], pos[q]] for q in nb[p])
 
+    avg_deg = max(1.0, 2 * len(edges) / max(1, len(parts)))
+    iters = int(min(iters, 160000 / avg_deg, 1000 * len(parts)))
     T = 3.0
     for _ in range(iters):
         a = rng.choice(parts)
@@ -1688,6 +1757,7 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
             "hub_max": [1.0, 0.75, 0.5, 0.25],
             "slack": [None, 0, 1],
             "hub_min": [0.0, 0.6],
+            "trips": [False, True],
         }
         cur = {k: v[0] for k, v in space.items()}
         cur["order"] = 2 if len(orders) > 2 else 0
@@ -1702,8 +1772,11 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
             res = None
             try:
                 cp = CyclePlanner(comp.geo, comp.ops, comp.succ, comp.indeg, comp.n, hub, orders[cfg["order"]],
-                                  cfg["match"], cfg["hub_min"], cfg["slack"], cfg["hub_max"])
-                prog = cp.run()
+                                  cfg["match"], cfg["hub_min"], cfg["slack"], cfg["hub_max"], cfg["trips"])
+                try:
+                    prog = cp.run()
+                finally:
+                    spent[0] += cp.work
                 self_check(comp.geo, cp.loading, prog)
                 out = _emit(circuit, prog)
                 res = (cp.dist_total + DEPTH_WEIGHT * _depth(out), out, cp)
@@ -1712,13 +1785,15 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
             seen[key] = res
             return res
 
+        spent = [0]
+        budget = options.get("budget", 20000)
         best = evaluate(cur)
         for _ in range(options.get("sweeps", 1)):
             for k, vals in space.items():
                 if k in fixed:
                     continue
                 for v in vals:
-                    if v == cur[k]:
+                    if v == cur[k] or spent[0] > budget:
                         continue
                     trial = dict(cur)
                     trial[k] = v
