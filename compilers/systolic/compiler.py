@@ -1005,6 +1005,10 @@ class _LayoutCost:
 # ---------------------------------------------------------------- scheduling machinery
 
 
+DIAG = True
+DIAG_MIN = 30
+
+
 class _Machine:
     """Movement on a lane layout: one bulk move switches zones, lanes slide, matchings pulse."""
 
@@ -1198,8 +1202,35 @@ class _Machine:
         for sub in ([b for b in group if b.mid is not None], [b for b in group if b.mid is None]):
             if not sub:
                 continue
-            for M in _greedy_matchings(sub):
+            for M in _greedy_matchings(self._diag_order(sub) if DIAG and len(sub) >= DIAG_MIN else sub):
                 self.matching_round(M)
+
+    def _diag_order(self, sub):
+        """Order blocks so that edges on one lane-pair diagonal (same lane pair, same row offset)
+        are consecutive, biggest class first: greedy matching then keeps whole lane runs together,
+        which the run-merge placement turns into one rectangle move."""
+        zh = self.zone_home
+        key = {}
+        for b in sub:
+            pu, pv = zh.get(b.u), zh.get(b.v)
+            if pu is None or pv is None or pu[0] // 2 == pv[0] // 2:
+                key[b] = None
+                continue
+            (la, ra), (lb, rb) = sorted(((pu[0] // 2, pu[1]), (pv[0] // 2, pv[1])))
+            key[b] = (la, lb, rb - ra)
+        size = {}
+        for k in key.values():
+            if k is not None:
+                size[k] = size.get(k, 0) + 1
+        idx = {b: i for i, b in enumerate(sub)}
+
+        def sk(b):
+            k = key[b]
+            if k is None or size[k] < 2:
+                return (1, 0, (0, 0, 0), idx[b])
+            return (0, -size[k], k, idx[b])
+
+        return sorted(sub, key=sk)
 
     def _needs_flush(self, qubits):
         for q in qubits:
