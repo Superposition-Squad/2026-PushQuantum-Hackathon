@@ -37,8 +37,11 @@ main { flex: 1 1 auto; display: flex; gap: 8px; padding: 8px 12px 4px; min-heigh
 #stage { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
 .view { display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 0; flex: 1 1 auto; }
 .vbody { display: flex; gap: 8px; flex: 1 1 auto; min-height: 0; min-width: 0; }
-.atomPane { flex: 0 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; position: relative; min-width: 150px; }
-.atomPane canvas { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.atomPane { flex: 0 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; position: relative; min-width: 150px; display: flex; flex-direction: column; }
+.acap { flex: 0 0 34px; padding: 3px 7px 0; font-size: 11.5px; line-height: 15px; color: #3a2a5c; overflow: hidden; }
+.acap div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acv { flex: 1 1 auto; position: relative; min-height: 0; }
+.acv canvas { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .rightPane { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
 .circWrap { flex: 1 1 auto; position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; min-height: 90px; overflow: hidden; }
 .circWrap canvas { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; cursor: crosshair; }
@@ -219,7 +222,8 @@ footer summary { cursor: pointer; }
     rzStroke: "#7aa63a", rzFill: "#d6e6b5", czFill: "rgba(240,164,108,0.6)", czStroke: "#9aa9c9",
     band: "rgba(157,195,107,0.35)", bandEdge: "#8bb33a", storageFill: "#e8f1f9", storageEdge: "#9cc3e6",
     entEdge: "#e8762d", entInner: "#f8decf", gRx: "#3b7dd8", gRz: "#7aa63a", gCz: "#e8762d",
-    gMove: "#8e5bd0", gMeas: "#7d8794", gOther: "#9aa3ad", cur: "#ffd84d", red: "#c62828"
+    gMove: "#8e5bd0", gMeas: "#7d8794", gOther: "#9aa3ad", cur: "#ffd84d", red: "#c62828",
+    pick: "rgba(140,190,80,0.26)", pickEdge: "#7da832", active: "#3f6f0e", tgt: "#b0399a", tgtFill: "rgba(176,57,154,0.10)", map: "#4a5562"
   };
   var K_OTHER = 0, K_RX = 1, K_RZ = 2, K_CZ = 3, K_MOVE = 4, K_MEAS = 5, K_BAR = 6;
   var KIND_OF = { rx: K_RX, rz: K_RZ, cz: K_CZ, move: K_MOVE, measure: K_MEAS, barrier: K_BAR };
@@ -312,6 +316,9 @@ footer summary { cursor: pointer; }
     m.zoneCols = m.GEO.zones.map(function () { return []; });
     m.zoneRows = m.GEO.zones.map(function () { return []; });
     var seenC = m.GEO.zones.map(function () { return {}; }), seenR = m.GEO.zones.map(function () { return {}; });
+    m.lineX = m.GEO.zones.map(function () { return {}; });
+    m.lineY = m.GEO.zones.map(function () { return {}; });
+    (m.GEO.traps || []).forEach(function (t) { m.lineX[t[2]][t[3]] = t[0]; m.lineY[t[2]][t[4]] = t[1]; });
     (m.GEO.traps || []).forEach(function (t) {
       var z = t[2];
       if (!seenC[z][t[3]]) { seenC[z][t[3]] = 1; m.zoneCols[z].push([t[3], t[0]]); }
@@ -330,6 +337,36 @@ footer summary { cursor: pointer; }
     for (var j = c * this.CP; j < mm; j++) this.applyMove(this.curPos, j);
     this.curM = mm;
     return this.curPos;
+  };
+  // zone index containing grid row `row` (zones are stacked along y), -1 if none
+  Model.prototype.zoneOfRow = function (row) {
+    var zs = this.GEO.zones;
+    for (var i = 0; i < zs.length; i++) if (row >= zs[i].y0 && row <= zs[i].y1) return i;
+    return -1;
+  };
+  Model.prototype.rowPhys = function (row) {
+    var z = this.zoneOfRow(row);
+    return z >= 0 && this.lineY[z][row] !== undefined ? this.lineY[z][row] : row;
+  };
+  Model.prototype.colPhys = function (zi, col) {
+    return zi >= 0 && this.lineX[zi] && this.lineX[zi][col] !== undefined ? this.lineX[zi][col] : col;
+  };
+  // the line selection of a replayed move: picked intervals, targets and the validator's line map
+  // (`rm`/`cm` = [picked line, target line] after dropping empty lines when there are fewer targets)
+  Model.prototype.selection = function (mi) {
+    var r = this.MV[mi];
+    if (r._sel) return r._sel;
+    var rm = r.rm, cm = r.cm;
+    if (!rm) rm = (r.br || []).map(function (b) { return [Math.round(b[0]), Math.round(b[1])]; });
+    var keptR = {}, keptC = {};
+    rm.forEach(function (x) { keptR[x[0]] = 1; });
+    if (cm) cm.forEach(function (x) { keptC[x[0]] = 1; });
+    r._sel = {
+      rows: r.rows, cols: r.cols, nrows: r.nrows, ncols: r.ncols, rm: rm, cm: cm,
+      droppedR: r.rows.filter(function (x) { return !keptR[x]; }),
+      droppedC: cm ? r.cols.filter(function (x) { return !keptC[x]; }) : []
+    };
+    return r._sel;
   };
   Model.prototype.movesAt = function (k) { return k < 0 ? 0 : this.movesUpTo[k]; };
   Model.prototype.progressOf = function (k) { return this.N ? (k + 1) / this.N : 0; };
@@ -362,7 +399,7 @@ footer summary { cursor: pointer; }
   Model.prototype.valid = function () { return !this.ERR; };
 
   // ================================================================== View: atom view + circuit view of one model
-  var ML = 1.9, MR = 0.7, MT = 1.7, MB = 1.0;   // world-unit margins around the traps
+  var ML = 1.9, MR = 1.9, MT = 2.6, MB = 1.0;   // world-unit margins around the traps (right/top: move line maps)
   var GUT = 46, PADT = 4;
 
   function View(model, cls, onJump) {
@@ -372,13 +409,14 @@ footer summary { cursor: pointer; }
     v.S = 1; v.OX = 0; v.OY = 0; v.atomW = v.atomH = v.circW = v.circH = v.ovW = v.ovH = 0;
     v.el = document.createElement("div");
     v.el.className = "view " + (cls || "");
-    v.el.innerHTML = '<div class="vhead" hidden></div><div class="vbody"><section class="atomPane"><canvas></canvas></section>' +
+    v.el.innerHTML = '<div class="vhead" hidden></div><div class="vbody"><section class="atomPane"><div class="acap mono"></div><div class="acv"><canvas></canvas></div></section>' +
       '<section class="rightPane"><div class="circWrap"><canvas></canvas><div class="tip" hidden></div></div>' +
       '<canvas class="ov" title="Whole instruction stream: purple = moves, orange = CZ, red = violations. Click or drag to jump."></canvas></section></div>' +
       '<div class="vstats" hidden></div>';
     v.head = v.el.querySelector(".vhead"); v.body = v.el.querySelector(".vbody");
     v.atomPane = v.el.querySelector(".atomPane"); v.right = v.el.querySelector(".rightPane");
     v.circWrap = v.el.querySelector(".circWrap"); v.tip = v.el.querySelector(".tip");
+    v.acap = v.atomPane.querySelector(".acap"); v.acv = v.atomPane.querySelector(".acv"); v.capText = "";
     v.atomCv = v.atomPane.querySelector("canvas"); v.circCv = v.circWrap.querySelector("canvas"); v.ovCv = v.el.querySelector("canvas.ov");
     v.vstats = v.el.querySelector(".vstats");
     v.actx = v.atomCv.getContext("2d"); v.cctx = v.circCv.getContext("2d"); v.octx = v.ovCv.getContext("2d");
@@ -402,10 +440,10 @@ footer summary { cursor: pointer; }
     var bh = v.body.clientHeight;
     var aspect = (B[2] - B[0] + ML + MR) / (B[3] - B[1] + MT + MB);
     var maxW = G.split ? v.body.clientWidth * 0.5 : Math.min(window.innerWidth * 0.42, v.body.clientWidth * 0.5);
-    var w = Math.max(G.split ? 150 : 240, Math.min(Math.round(bh * aspect), Math.round(maxW)));
+    var w = Math.max(G.split ? 150 : 240, Math.min(Math.round((bh - 36) * aspect), Math.round(maxW)));
     v.atomPane.style.width = w + "px";
     DPR = window.devicePixelRatio || 1;
-    v.atomW = v.atomPane.clientWidth; v.atomH = v.atomPane.clientHeight;
+    v.atomW = v.acv.clientWidth; v.atomH = v.acv.clientHeight;
     sizeCanvas(v.atomCv, v.actx, v.atomW, v.atomH);
     v.circW = v.circWrap.clientWidth; v.circH = v.circWrap.clientHeight;
     sizeCanvas(v.circCv, v.cctx, v.circW, v.circH);
@@ -417,8 +455,8 @@ footer summary { cursor: pointer; }
   };
   View.prototype.needsLayout = function () {
     return this.circWrap.clientWidth !== this.circW || this.circWrap.clientHeight !== this.circH ||
-      this.atomPane.clientHeight !== this.atomH || this.ovCv.clientWidth !== this.ovW ||
-      Math.abs(this.atomCv.width - Math.round(this.atomPane.clientWidth * DPR)) > 1;
+      this.acv.clientHeight !== this.atomH || this.ovCv.clientWidth !== this.ovW ||
+      Math.abs(this.atomCv.width - Math.round(this.acv.clientWidth * DPR)) > 1;
   };
   function sizeCanvas(cv, ctx, w, h) {
     cv.width = Math.max(1, Math.round(w * DPR)); cv.height = Math.max(1, Math.round(h * DPR));
@@ -490,9 +528,10 @@ footer summary { cursor: pointer; }
         draw[2 * r.q[j]] = r.f[2 * j] + (r.t[2 * j] - r.f[2 * j]) * e;
         draw[2 * r.q[j] + 1] = r.f[2 * j + 1] + (r.t[2 * j + 1] - r.f[2 * j + 1]) * e;
       }
-      v.drawBands(r, e, 1);
+      v.drawSelection(v.anim.m, e);
+      v.drawGhosts(r);
     } else if (mvNow >= 0) {
-      v.drawBands(m.MV[mvNow], 1, 0.55);
+      v.drawSelection(mvNow, null);
       v.drawGhosts(m.MV[mvNow]);
     }
     if (k >= 0 && !v.anim) {
@@ -525,21 +564,25 @@ footer summary { cursor: pointer; }
         ctx.strokeText(String(q2), lx, ly2); ctx.fillText(String(q2), lx, ly2);
       }
     }
+    var cap1 = k >= 0 ? m.describe(k) : "initial loading", cap2 = "";
     if (mvNow >= 0) {
       var rr = m.MV[mvNow];
-      leftTag(ctx, "move " + (mvNow + 1) + "/" + m.M + " · " + rr.q.length + " atom" + (rr.q.length === 1 ? "" : "s") + " · d " + fmt(rr.d, 3), 0, false);
-      if (rr.w && rr.w.length) leftTag(ctx, "⚠ spacing warning", 1, true);
+      cap1 = "move " + (mvNow + 1) + "/" + m.M + " · " + rr.q.length + " atom" + (rr.q.length === 1 ? "" : "s") + " · d " + fmt(rr.d, 4) + " · step " + (rr.s + 1) +
+        (rr.w && rr.w.length ? " · ⚠ spacing warning" : "");
+      var sl = m.selection(mvNow);
+      var span = function (a) { return a.length > 2 && a[a.length - 1] - a[0] === a.length - 1 ? a[0] + "–" + a[a.length - 1] : a.join(","); };
+      var drop = (sl.droppedR.length ? sl.droppedR.length + " empty row" + (sl.droppedR.length > 1 ? "s" : "") : "") +
+        (sl.droppedC.length ? (sl.droppedR.length ? ", " : "") + sl.droppedC.length + " empty col" + (sl.droppedC.length > 1 ? "s" : "") : "");
+      cap2 = "rows " + span(sl.rows) + " → " + span(sl.nrows) + " · cols " + span(sl.cols) + " → " + span(sl.ncols) + (drop ? " · dropped " + drop : "");
+    }
+    var capText = cap1 + "\n" + cap2;
+    if (capText !== v.capText) {
+      v.capText = capText;
+      v.acap.innerHTML = "<div>" + esc(cap1) + '</div><div class="muted">' + esc(cap2) + "</div>";
+      v.acap.title = cap1 + "\n" + cap2;
     }
     return animating;
   };
-  function leftTag(ctx, s, row, warn) {
-    ctx.font = "12px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "top";
-    var w = ctx.measureText(s).width + 10;
-    ctx.fillStyle = warn ? "rgba(255,236,204,0.95)" : "rgba(255,255,255,0.92)";
-    ctx.fillRect(6, 6 + row * 20, w, 18);
-    ctx.fillStyle = warn ? "#b25e00" : "#3a2a5c";
-    ctx.fillText(s, 11, 9 + row * 20);
-  }
   function cornerTag(ctx, W, s, row, bad) {
     ctx.font = "12px system-ui, sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "top";
     var mw = ctx.measureText(s).width + 10;
@@ -561,24 +604,95 @@ footer summary { cursor: pointer; }
     for (var i = 1; i < xs.length; i++) { var d = xs[i] - xs[i - 1]; if (d > 1e-6 && d < gap) gap = d; }
     return clamp(Math.min(0.56, gap * 0.85), 0.14, 0.56);
   }
-  View.prototype.drawBands = function (r, e, alpha) {
-    var v = this, ctx = v.actx, B = v.B, S = v.S;
+  // Start selection (green): the picked row interval and col interval as one band each, their
+  // intersection (every atom inside moves) outlined. Target (magenta): every target row/col line and
+  // the dashed target rectangle. Line map: connectors picked line -> target line in the right margin
+  // (rows) and the top margin (cols); a picked line dropped because it was empty gets an x.
+  // `e` (animating: 0..1) also draws the AOD lines travelling with the atoms.
+  View.prototype.drawSelection = function (mi, e) {
+    var v = this, m = v.m, ctx = v.actx, B = v.B, S = v.S, r = m.MV[mi], sel = m.selection(mi);
+    var zs = m.GEO.zones, rows = sel.rows, cols = sel.cols, nrows = sel.nrows, ncols = sel.ncols;
+    var r0 = rows[0], r1 = rows[rows.length - 1], c0 = cols[0], c1 = cols[cols.length - 1];
+    var xL = v.sx(B[0] - 0.6), xR = v.sx(B[2] + 0.6);
+    var colPad = 0.13, rowPad = 0.4;
     ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
-    var x0 = v.sx(B[0] - 0.6), x1 = v.sx(B[2] + 0.6), y0 = v.sy(B[3] + 0.6), y1 = v.sy(B[1] - 0.6);
-    var th = bandThickness(r.br || []) * S;
-    (r.br || []).forEach(function (b) {
-      var y = v.sy(b[0] + (b[1] - b[0]) * e);
-      ctx.fillStyle = C.band; ctx.fillRect(x0, y - th / 2, x1 - x0, th);
-      ctx.strokeStyle = C.bandEdge; ctx.strokeRect(x0, y - th / 2, x1 - x0, th);
+    // --- start: row interval band (full width) and col interval band (per zone, full zone height)
+    ctx.fillStyle = C.pick; ctx.strokeStyle = C.pickEdge; ctx.lineWidth = 1.2; ctx.setLineDash([5, 3]);
+    var yTop = v.sy(m.rowPhys(r1) + rowPad), yBot = v.sy(m.rowPhys(r0) - rowPad);
+    ctx.fillRect(xL, yTop, xR - xL, yBot - yTop); ctx.strokeRect(xL, yTop, xR - xL, yBot - yTop);
+    function touches(lo, hi, z) { return Math.max(lo, z.y0) <= Math.min(hi, z.y1); }
+    zs.forEach(function (z, zi) {
+      var xa = v.sx(m.colPhys(zi, c0) - colPad), xb = v.sx(m.colPhys(zi, c1) + colPad);
+      var ya = v.sy(z.py1 + 0.5), yb = v.sy(z.py0 - 0.5);
+      ctx.globalAlpha = touches(r0, r1, z) ? 1 : 0.4;
+      ctx.fillRect(xa, ya, xb - xa, yb - ya); ctx.strokeRect(xa, ya, xb - xa, yb - ya);
     });
-    var tc = bandThickness(r.bc || []) * S;
-    (r.bc || []).forEach(function (b) {
-      var x = v.sx(b[0] + (b[1] - b[0]) * e);
-      ctx.fillStyle = C.band; ctx.fillRect(x - tc / 2, y0, tc, y1 - y0);
-      ctx.strokeStyle = C.bandEdge; ctx.strokeRect(x - tc / 2, y0, tc, y1 - y0);
+    ctx.globalAlpha = 1;
+    // --- target: individual lines + dashed bounding box
+    ctx.setLineDash([]); ctx.strokeStyle = C.tgt; ctx.lineWidth = Math.max(1.2, S * 0.05); ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    nrows.forEach(function (row) { var y = v.sy(m.rowPhys(row)); ctx.moveTo(xL, y); ctx.lineTo(xR, y); });
+    ctx.stroke();
+    var tLo = nrows[0], tHi = nrows[nrows.length - 1];
+    zs.forEach(function (z, zi) {
+      var ya = v.sy(z.py1 + 0.5), yb = v.sy(z.py0 - 0.5);
+      ctx.globalAlpha = touches(tLo, tHi, z) ? 0.85 : 0.25;
+      ctx.beginPath();
+      ncols.forEach(function (col) { var x = v.sx(m.colPhys(zi, col)); ctx.moveTo(x, ya); ctx.lineTo(x, yb); });
+      ctx.stroke();
     });
+    ctx.globalAlpha = 1;
+    var nr0 = nrows[0], nr1 = nrows[nrows.length - 1], nc0 = ncols[0], nc1 = ncols[ncols.length - 1];
+    function rect(lo, hi, cLo, cHi, pad) {   // rectangle rows lo..hi x cols cLo..cHi, split per zone
+      var out = [];
+      zs.forEach(function (z, zi) {
+        var a = Math.max(lo, z.y0), b = Math.min(hi, z.y1);
+        if (a > b) return;
+        var x0 = v.sx(m.colPhys(zi, cLo) - pad), x1 = v.sx(m.colPhys(zi, cHi) + pad), y0 = v.sy(m.rowPhys(b) + pad), y1 = v.sy(m.rowPhys(a) - pad);
+        out.push([x0, y0, x1 - x0, y1 - y0]);
+      });
+      return out;
+    }
+    ctx.fillStyle = C.tgtFill; ctx.strokeStyle = C.tgt; ctx.lineWidth = 1.6; ctx.setLineDash([6, 4]);
+    rect(nr0, nr1, nc0, nc1, 0.3).forEach(function (q) { ctx.fillRect(q[0], q[1], q[2], q[3]); ctx.strokeRect(q[0], q[1], q[2], q[3]); });
+    // --- active rectangle (start intersection), solid
+    ctx.setLineDash([]); ctx.strokeStyle = C.active; ctx.lineWidth = 2;
+    rect(r0, r1, c0, c1, 0.26).forEach(function (q) { ctx.strokeRect(q[0], q[1], q[2], q[3]); });
+    // --- travelling AOD lines while animating
+    if (e !== null && e !== undefined) {
+      ctx.strokeStyle = C.active; ctx.lineWidth = 1; ctx.setLineDash([2, 3]); ctx.globalAlpha = 0.7;
+      ctx.beginPath();
+      (r.br || []).forEach(function (b) { var y = v.sy(b[0] + (b[1] - b[0]) * e); ctx.moveTo(xL, y); ctx.lineTo(xR, y); });
+      (r.bc || []).forEach(function (b) { var x = v.sx(b[0] + (b[1] - b[0]) * e); ctx.moveTo(x, v.sy(B[3] + 0.6)); ctx.lineTo(x, v.sy(B[1] - 0.6)); });
+      ctx.stroke();
+      ctx.globalAlpha = 1; ctx.setLineDash([]);
+    }
+    // --- line maps (connectors)
+    var dot = Math.max(1.8, S * 0.06), fs = Math.round(clamp(S * 0.26, 8, 11));
+    ctx.font = fs + "px system-ui, sans-serif"; ctx.lineWidth = 1;
+    function connector(x0, y0, x1, y1) {
+      ctx.strokeStyle = C.map; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.fillStyle = C.pickEdge; ctx.beginPath(); ctx.arc(x0, y0, dot, 0, 2 * Math.PI); ctx.fill();
+      ctx.fillStyle = C.tgt; ctx.beginPath(); ctx.arc(x1, y1, dot, 0, 2 * Math.PI); ctx.fill();
+    }
+    function cross(x, y) {
+      var d = dot * 1.6;
+      ctx.strokeStyle = C.red; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(x - d, y - d); ctx.lineTo(x + d, y + d); ctx.moveTo(x + d, y - d); ctx.lineTo(x - d, y + d); ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+    var mxA = v.sx(B[2] + 0.75), mxB = v.sx(B[2] + 1.65);
+    sel.rm.forEach(function (x) { connector(mxA, v.sy(m.rowPhys(x[0])), mxB, v.sy(m.rowPhys(x[1]))); });
+    sel.droppedR.forEach(function (row) { cross(mxA, v.sy(m.rowPhys(row))); });
+    var zFrom = m.zoneOfRow(sel.rm.length ? sel.rm[0][0] : r0), zTo = m.zoneOfRow(nr0);
+    var myA = v.sy(B[3] + 1.1), myB = v.sy(B[3] + 2.15);
+    if (sel.cm) {
+      sel.cm.forEach(function (x) { connector(v.sx(m.colPhys(zFrom, x[0])), myA, v.sx(m.colPhys(zTo, x[1])), myB); });
+      sel.droppedC.forEach(function (col) { cross(v.sx(m.colPhys(zFrom, col)), myA); });
+    }
+    ctx.fillStyle = C.map; ctx.textBaseline = "middle";
+    ctx.textAlign = "left"; ctx.fillText("rows", mxA - 2, v.sy(B[3] + 0.9));
+    ctx.textAlign = "right"; ctx.fillText("cols", v.sx(B[0] - 0.75), (myA + myB) / 2);
     ctx.restore();
   };
   View.prototype.drawGhosts = function (r) {
@@ -1355,7 +1469,10 @@ footer summary { cursor: pointer; }
       ["rx (ring)", function (c) { c.fillStyle = C.rxFill; c.strokeStyle = C.rxStroke; c.beginPath(); c.arc(11, 8, 7, 0, 7); c.fill(); c.stroke(); c.fillStyle = C.atom; c.beginPath(); c.arc(11, 8, 3.5, 0, 7); c.fill(); }],
       ["rz (ring + crosshair)", function (c) { c.fillStyle = C.rzFill; c.strokeStyle = C.rzStroke; c.beginPath(); c.arc(11, 8, 7, 0, 7); c.fill(); c.stroke(); c.fillStyle = C.atom; c.beginPath(); c.arc(11, 8, 3.5, 0, 7); c.fill(); }],
       ["cz (pair)", function (c) { c.fillStyle = C.czFill; c.strokeStyle = C.czStroke; [7, 15].forEach(function (x) { c.beginPath(); c.arc(x, 8, 6, 0, 7); c.fill(); c.stroke(); }); c.fillStyle = C.atom; [7, 15].forEach(function (x) { c.beginPath(); c.arc(x, 8, 3, 0, 7); c.fill(); }); }],
-      ["AOD row/col picked up", function (c) { c.fillStyle = C.band; c.fillRect(0, 4, 22, 8); c.strokeStyle = C.bandEdge; c.setLineDash([3, 2]); c.strokeRect(0.5, 4.5, 21, 7); }],
+      ["move start: picked rows/cols", function (c) { c.fillStyle = C.pick; c.fillRect(0, 4, 22, 8); c.strokeStyle = C.pickEdge; c.setLineDash([3, 2]); c.strokeRect(0.5, 4.5, 21, 7); }],
+      ["active rectangle (all of it moves)", function (c) { c.strokeStyle = C.active; c.lineWidth = 2; c.strokeRect(3, 3, 16, 10); }],
+      ["move target: rows/cols + box", function (c) { c.strokeStyle = C.tgt; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0, 8); c.lineTo(22, 8); c.moveTo(11, 0); c.lineTo(11, 16); c.stroke(); c.setLineDash([3, 2]); c.strokeRect(3, 3, 16, 10); }],
+      ["line map picked → target (✕ dropped empty)", function (c) { c.strokeStyle = C.map; c.beginPath(); c.moveTo(3, 13); c.lineTo(19, 3); c.stroke(); c.fillStyle = C.pickEdge; c.beginPath(); c.arc(3, 13, 2.2, 0, 7); c.fill(); c.fillStyle = C.tgt; c.beginPath(); c.arc(19, 3, 2.2, 0, 7); c.fill(); }],
       ["move (circuit)", function (c) { c.fillStyle = C.gMove; c.fillRect(10, 1, 2, 14); c.beginPath(); c.moveTo(11, 1); c.lineTo(14, 4); c.lineTo(11, 7); c.lineTo(8, 4); c.fill(); }],
       ["rx / rz / cz (circuit)", function (c) { c.fillStyle = C.gRx; c.fillRect(1, 3, 6, 10); c.fillStyle = C.gRz; c.fillRect(8, 3, 6, 10); c.fillStyle = C.gCz; c.beginPath(); c.arc(18, 3, 2, 0, 7); c.arc(18, 13, 2, 0, 7); c.fill(); c.fillRect(17.5, 3, 1, 10); }],
       ["current / frame", function (c) { c.fillStyle = C.cur; c.fillRect(1, 1, 9, 14); c.fillStyle = "rgba(255,216,77,0.45)"; c.fillRect(12, 1, 9, 14); }],
