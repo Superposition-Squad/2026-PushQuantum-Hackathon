@@ -104,8 +104,19 @@ matching `(1,2),(3,4),…` is a lift of storage cols 1–9 onto zone cols 0–8 
 
 ### Fallback
 
-Any circuit that does not match a recognised family (the 13 sanity circuits, odd sizes) falls back
-to the naive per-CZ path, which is valid by construction. Correctness first.
+Any circuit that does not match a recognised family falls back to a naive per-CZ path over
+`transpile(circuit, basis_gates=["rx","rz","cz"], optimization_level=1)`, which is valid by
+construction. Correctness first. This is not optional: the sanity set contains `rzz` in the *input*
+(circuits 03/05/06/07/08/10), `ry`+`cz`-only circuits (09/11), and two kitchen sinks —
+`sample_circuit_12` (40 qubits) and `sample_circuit_13` (**70 qubits**, ~10 000 gates) with `ccx`,
+`cswap`, `swap`, `cu1`, `u2`, `rxx`, … So the family paths are gated on `n <= 50` (the lane scheme
+has 5 × 10 = 50 partner slots) as well as on the family test, and nothing expensive (e.g. the
+O(blocks²) commutation DAG) may run on the fallback path.
+
+**`optimization_level >= 2` is forbidden for anything we read gate-by-gate**: it runs
+`ElidePermutations`, which removes a `swap` from `.data` and records it as a layout permutation
+instead, so reading `.data` is then silently wrong. The sanity kitchen sinks contain 34 and 108
+`swap` (plus `cswap`), so this is a live trap (hit by the sibling `gates` branch).
 
 ### Why it stays equivalent (ADR-0003)
 
@@ -162,6 +173,37 @@ whole 147-block hub part, by layout:
 | order as-is, round-robin | 1120 | 1224 |
 | **sorted by first hub block, block-wise** | **852** | **916** |
 | sorted by first hub block, round-robin | 1078 | 1228 |
+
+### Where the remaining cost sits, and the planned fixes
+
+Cost split of the verified 50q QAOA p=3 prototype (3 688 total, ~1 230 per cost layer):
+
+| part | per layer | note |
+|---|---|---|
+| hub conveyor (98 `cz`) | ~100 | ≈1.0 per `cz` — at the predicted floor |
+| hub hops between lanes | ~17 | 4 × 2.0 plus parking |
+| mixer storage dip | 20 | 2 bulk moves |
+| **non-hub visitor rounds (98 blocks)** | **~1 090** | 5 bulk moves × 10 per matching (350) + ~28 single-atom visitor moves × ~5 per matching (980 over 7 matchings) |
+
+So the conveyor is done and the non-hub rounds are 90 % of what is left. Three fixes, in order of
+value:
+
+1. **Super-rounds.** Hoist the storage dips: do every matching's `cz #1` in one zone visit, then
+   one bulk dip where every target gets its `rx(θ)`, then every matching's `cz #2`. Valid only if
+   the matchings in one super-round have **pairwise disjoint target sets** — otherwise a target `w`
+   would see `cz_i, cz_j, rx(θ_i), rx(θ_j), cz_i, cz_j`, which is *not* equal to the product of the
+   two blocks (`rx(θ_i)` and `cz_j` both act on `w` and do not commute). Orienting blocks to keep
+   the max target-degree at ~2 gives ~2–3 super-rounds, i.e. ~120 per layer instead of ~350.
+2. **Target chaining (the idea's namesake).** With per-qubit pending-unitary bookkeeping the `H`
+   after one block's `cz #2` cancels the `H` before the next block's `cz #1` on the same target
+   (`H·H = I`), so a chained target needs **no storage visit** between two of its blocks — just an
+   in-zone re-pair. Also lets a visitor move straight from one dweller's right slot to the next
+   instead of going home first (~2 moves per block → ~1).
+3. **Placement (literature #7).** The visitor move length (~5 on a round-robin layout) is the
+   single biggest multiplier left. Minimise Σ over non-hub edges of the re-pair distance by local
+   swaps of the partner → (lane, slot) assignment; no validity risk.
+
+Together these should take 50q QAOA p=3 from ~3 700 to roughly ~1 300–1 800 (−93 to −95 % vs naive).
 
 ## Results
 
