@@ -1,0 +1,1080 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__VIZ_TITLE__</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2733; --muted: #6b7684; --line: #dde2e8;
+  --blue: #1f5fbf; --orange: #e8762d; --green: #7aa63a; --purple: #8e5bd0; --red: #c62828; --ok: #2e7d32;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+  font: 13px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { display: flex; flex-direction: column; overflow: hidden; }
+button, select, input { font: inherit; }
+button { background: #fff; border: 1px solid #c4ccd6; border-radius: 4px; padding: 2px 8px; cursor: pointer; color: var(--ink); }
+button:hover { background: #eef2f7; }
+button:disabled { opacity: .5; cursor: default; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+header { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header .sub { color: var(--muted); white-space: nowrap; }
+header .spacer { flex: 1; }
+.badge { padding: 2px 8px; border-radius: 10px; font-weight: 700; font-size: 12px; color: #fff; white-space: nowrap; }
+.badge.ok { background: var(--ok); color: #fff; } .badge.bad { background: var(--red); color: #fff; }
+.tag { padding: 1px 6px; border-radius: 4px; background: #eef1f5; color: var(--muted); font-size: 12px; }
+#errBanner { flex: 0 0 auto; margin: 6px 12px 0; border: 2px solid var(--red); background: #fdecea; border-radius: 6px; padding: 6px 10px; }
+#errBanner .head { display: flex; align-items: center; gap: 10px; color: var(--red); font-weight: 700; }
+#errBanner pre { margin: 4px 0 0; max-height: 84px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; color: #5d1010; }
+#regenOut { flex: 0 0 auto; margin: 6px 12px 0; border: 1px solid #c4ccd6; background: #fff; border-radius: 6px; padding: 6px 10px; }
+#regenOut pre { margin: 4px 0 0; max-height: 120px; overflow: auto; white-space: pre-wrap; font-size: 11px; }
+main { flex: 1 1 auto; display: flex; gap: 8px; padding: 8px 12px 4px; min-height: 0; }
+#atomPane { flex: 0 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; position: relative; min-width: 260px; }
+#atomCv { display: block; width: 100%; height: 100%; }
+#rightPane { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
+#circWrap { flex: 1 1 auto; position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; min-height: 120px; overflow: hidden; }
+#circCv { display: block; width: 100%; height: 100%; cursor: crosshair; }
+#ovCv { flex: 0 0 26px; width: 100%; height: 26px; display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+#tip { position: absolute; pointer-events: none; background: rgba(29,39,51,.94); color: #fff; padding: 5px 8px; border-radius: 4px; font-size: 12px; white-space: pre; z-index: 5; max-width: 560px; overflow: hidden; }
+#controls { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+#controls .grp { display: flex; align-items: center; gap: 4px; }
+#controls .sep { width: 1px; height: 20px; background: var(--line); margin: 0 2px; }
+#controls label { display: flex; align-items: center; gap: 3px; color: var(--muted); white-space: nowrap; }
+#scrub { flex: 1 1 260px; min-width: 160px; }
+#playBtn { min-width: 64px; font-weight: 600; }
+#stats { flex: 0 0 auto; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+#stats .c { min-width: 0; }
+#stats .c.w2 { grid-column: span 2; } #stats .c.w3 { grid-column: span 3; } #stats .c.w6 { grid-column: span 6; }
+#stats .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+#stats .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#stats .c.wrap .v { white-space: normal; }
+.good { color: var(--ok); } .bad { color: var(--red); } .warn { color: #b25e00; }
+.bar { height: 4px; background: #e6eaef; border-radius: 2px; position: relative; margin-top: 2px; overflow: hidden; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--purple); }
+.bar b { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); }
+footer { flex: 0 0 auto; display: flex; gap: 14px; align-items: flex-start; padding: 2px 12px 6px; color: var(--muted); font-size: 12px; }
+footer details { flex: 0 0 auto; }
+footer summary { cursor: pointer; }
+#legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; max-width: 1100px; }
+#legend span { display: inline-flex; align-items: center; gap: 5px; }
+#legend canvas { width: 22px; height: 16px; }
+#keys kbd { background: #fff; border: 1px solid #c4ccd6; border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; font-size: 11px; color: var(--ink); }
+#metaWarn { color: #b25e00; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <span class="sub" id="subtitle"></span>
+  <span class="badge" id="badge"></span>
+  <span class="tag" id="modeTag"></span>
+  <span class="spacer"></span>
+  <span id="metaWarn"></span>
+  <a href="../index.html" id="indexLink">index</a>
+  <button id="regenBtn" hidden title="Recompile this circuit with the same compiler file and rebuild the page (served pages only)">↻ Regenerate</button>
+</header>
+<div id="errBanner" hidden>
+  <div class="head"><span id="errStage"></span><button id="errJump" hidden>Jump to instruction</button></div>
+  <pre id="errMsg"></pre>
+</div>
+<div id="regenOut" hidden><b id="regenHead"></b><pre id="regenLog"></pre></div>
+<main>
+  <section id="atomPane"><canvas id="atomCv"></canvas></section>
+  <section id="rightPane">
+    <div id="circWrap"><canvas id="circCv"></canvas><div id="tip" hidden></div></div>
+    <canvas id="ovCv" title="Overview of the whole instruction stream: purple = moves, red = violations. Click or drag to jump."></canvas>
+    <div id="controls">
+      <div class="grp">
+        <button id="startBtn" title="Start: initial loading (Home)">|◀</button>
+        <button id="backBtn" title="Step back (←; Shift+← = one frame)">◀ step</button>
+        <button id="playBtn" title="Play / pause (Space)">▶ play</button>
+        <button id="fwdBtn" title="Step forward (→; Shift+→ = one frame)">step ▶</button>
+        <button id="endBtn" title="End (End)">▶|</button>
+      </div>
+      <div class="sep"></div>
+      <div class="grp">
+        <button id="prevMoveBtn" title="Previous move (↑ or ,)">◆◀</button>
+        <button id="nextMoveBtn" title="Next move (↓ or .)">▶◆</button>
+        <button id="errBtn" title="Jump to the first error (E)" hidden>⚠ error</button>
+      </div>
+      <div class="sep"></div>
+      <label title="Step granularity (G): one instruction, or one frame (a move, or a block of consecutive gates between moves)">step
+        <select id="granSel"><option value="inst">instruction</option><option value="frame">frame</option></select></label>
+      <label title="Playback speed in steps per second (+ / −)">speed
+        <input id="speed" type="range" min="0" max="1000" value="400" style="width:90px"><span id="speedVal" class="mono"></span></label>
+      <label title="Animate moves"><input id="animChk" type="checkbox" checked>animate</label>
+      <label title="Qubit labels on atoms (L)"><input id="labelChk" type="checkbox" checked>labels</label>
+      <label title="Circuit zoom ([ / ])">zoom <button id="zoomOut">−</button><button id="zoomIn">+</button></label>
+      <div class="sep"></div>
+      <input id="scrub" type="range" min="0" max="0" value="0" title="Scrub through the instructions">
+    </div>
+    <div id="stats"></div>
+  </section>
+</main>
+<footer>
+  <details><summary>legend</summary><div id="legend"></div></details>
+  <div id="keys"><kbd>Space</kbd> play/pause · <kbd>←</kbd><kbd>→</kbd> step · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> frame · <kbd>↑</kbd><kbd>↓</kbd> prev/next move · <kbd>Home</kbd><kbd>End</kbd> · <kbd>G</kbd> granularity · <kbd>+</kbd><kbd>−</kbd> speed · <kbd>[</kbd><kbd>]</kbd> zoom · <kbd>L</kbd> labels · <kbd>E</kbd> error · click the circuit or overview to jump</div>
+</footer>
+<script id="viz-data" type="application/json">__VIZ_DATA__</script>
+<script>
+(function () {
+  "use strict";
+
+  // ------------------------------------------------------------------ data
+  var D = JSON.parse(document.getElementById("viz-data").textContent);
+  var META = D.meta || {};
+  var EMPTY = { op: [], qs: [], par: [], col: [], depth: [], mv: [] };
+  var I = D.inst || EMPTY;
+  var N = (I.op || []).length;
+  var NQ = META.num_qubits || 0;
+  var MV = D.moves || [];
+  var M = MV.length;
+  var OPS = D.ops || [];
+  var TOT = D.totals || {};
+  var NAIVE = D.naive || null;
+  var GEO = D.geometry || { zones: [], traps: [], bounds: [0, 0, 9, 19] };
+  var ERR = D.error || null;
+  var WARN_TEXT = D.warnings || [];
+
+  var C = {
+    atom: "#1f5fbf", trapStroke: "#8a94a6", rxStroke: "#1f5fbf", rxFill: "#c9def3",
+    rzStroke: "#7aa63a", rzFill: "#d6e6b5", czFill: "rgba(240,164,108,0.6)", czStroke: "#9aa9c9",
+    band: "rgba(157,195,107,0.35)", bandEdge: "#8bb33a", storageFill: "#e8f1f9", storageEdge: "#9cc3e6",
+    entEdge: "#e8762d", entInner: "#f8decf", gRx: "#3b7dd8", gRz: "#7aa63a", gCz: "#e8762d",
+    gMove: "#8e5bd0", gMeas: "#7d8794", gOther: "#9aa3ad", cur: "#ffd84d", red: "#c62828"
+  };
+
+  // instruction kinds
+  var K_OTHER = 0, K_RX = 1, K_RZ = 2, K_CZ = 3, K_MOVE = 4, K_MEAS = 5, K_BAR = 6;
+  var KIND_OF = { rx: K_RX, rz: K_RZ, cz: K_CZ, move: K_MOVE, measure: K_MEAS, barrier: K_BAR };
+  var opKind = OPS.map(function (o) { return KIND_OF.hasOwnProperty(o) ? KIND_OF[o] : K_OTHER; });
+  var kind = new Uint8Array(N), lo = new Int32Array(N), hi = new Int32Array(N);
+  var movesUpTo = new Int32Array(N), czUpTo = new Int32Array(N), frameOf = new Int32Array(N);
+  var frameEnds = [], moveInst = [];
+  var mvAt = I.mv || [];
+  (function precompute() {
+    var m = 0, cz = 0, f = -1, prevMoveFrame = true;
+    for (var i = 0; i < N; i++) {
+      var k = opKind[I.op[i]] || 0;
+      kind[i] = k;
+      var qs = I.qs[i] || [], a = 1e9, b = -1;
+      for (var j = 0; j < qs.length; j++) { if (qs[j] < a) a = qs[j]; if (qs[j] > b) b = qs[j]; }
+      lo[i] = b < 0 ? -1 : a; hi[i] = b;
+      if (mvAt[i] >= 0) m++;
+      if (k === K_CZ) cz++;
+      movesUpTo[i] = m; czUpTo[i] = cz;
+      if (k === K_MOVE) { moveInst.push(i); f++; frameEnds.push(i); prevMoveFrame = true; }
+      else {
+        if (prevMoveFrame) { f++; frameEnds.push(i); prevMoveFrame = false; }
+        frameEnds[f] = i;
+      }
+      frameOf[i] = f;
+    }
+  })();
+  var F = frameEnds.length;
+  var cumDist = new Float64Array(M + 1), cumWarn = new Int32Array(M + 1);
+  for (var mi = 0; mi < M; mi++) {
+    cumDist[mi + 1] = cumDist[mi] + MV[mi].d;
+    cumWarn[mi + 1] = cumWarn[mi] + (MV[mi].w ? MV[mi].w.length : 0);
+  }
+  // violations / error
+  var viol = new Map();
+  (D.violations || []).forEach(function (v) {
+    if (typeof v.i === "number") { if (!viol.has(v.i)) viol.set(v.i, []); viol.get(v.i).push(v.msg); }
+  });
+  var errI = (ERR && typeof ERR.i === "number" && N > 0) ? Math.max(0, Math.min(N - 1, ERR.i)) : -1;
+  // transversal-CZ (physics) error: ERR.i is the move that ends the faulty segment; point at the
+  // segment's last instruction instead and remember the segment plus the under-pulsed qubits
+  var physSeg = null;
+  if (ERR && ERR.stage === "physics" && errI >= 0) {
+    var segEnd = Math.max(0, OPS[I.op[errI]] === "move" ? errI - 1 : errI);
+    var segStart = segEnd;
+    while (segStart > 0 && OPS[I.op[segStart - 1]] !== "move") segStart--;
+    var under = [], mm = /under-pulsed pairs (\[.*?\]\])/.exec(ERR.msg || "");
+    if (mm) { try { JSON.parse(mm[1]).forEach(function (pr) { pr.forEach(function (q) { under.push(q); }); }); } catch (e) { under = []; } }
+    physSeg = { start: segStart, end: segEnd, under: under };
+    errI = segEnd;
+  }
+  // column buckets
+  var maxCol = 0;
+  for (var i0 = 0; i0 < N; i0++) if (I.col[i0] + 1 > maxCol) maxCol = I.col[i0] + 1;
+  var colStart = new Int32Array(maxCol + 1), colInst = new Int32Array(N);
+  (function bucket() {
+    for (var i = 0; i < N; i++) colStart[I.col[i] + 1]++;
+    for (var c = 0; c < maxCol; c++) colStart[c + 1] += colStart[c];
+    var fill = colStart.slice(0, maxCol);
+    for (var j = 0; j < N; j++) colInst[fill[I.col[j]]++] = j;
+  })();
+
+  // ------------------------------------------------------------------ atom positions
+  var CP_EVERY = 64;
+  var pos0 = new Float64Array(2 * NQ);
+  var hasAtoms = Array.isArray(D.loading) && D.loading.length === NQ && NQ > 0;
+  if (hasAtoms) for (var q0 = 0; q0 < NQ; q0++) { pos0[2 * q0] = D.loading[q0][0]; pos0[2 * q0 + 1] = D.loading[q0][1]; }
+  function applyMove(p, m) {
+    var r = MV[m], q = r.q, t = r.t;
+    for (var j = 0; j < q.length; j++) { p[2 * q[j]] = t[2 * j]; p[2 * q[j] + 1] = t[2 * j + 1]; }
+  }
+  var checkpoints = [pos0.slice()];
+  (function buildCheckpoints() {
+    var p = pos0.slice();
+    for (var m = 0; m < M; m++) {
+      applyMove(p, m);
+      if ((m + 1) % CP_EVERY === 0) checkpoints.push(p.slice());
+    }
+  })();
+  var curPos = pos0.slice(), curM = 0;
+  function positionsAfter(m) {   // positions after the first m replayed moves (cached incrementally)
+    if (m === curM) return curPos;
+    if (m === curM + 1) { applyMove(curPos, curM); curM = m; return curPos; }
+    var c = Math.floor(m / CP_EVERY);
+    curPos = checkpoints[c].slice();
+    for (var j = c * CP_EVERY; j < m; j++) applyMove(curPos, j);
+    curM = m;
+    return curPos;
+  }
+
+  // ------------------------------------------------------------------ view state
+  var k = -1;               // cursor: index of the current (just executed) instruction, -1 = loading
+  var gran = "inst";
+  var playing = false, lastStepTs = 0;
+  var anim = null;          // {m, t0, dur}
+  var showLabels = true, animMoves = true;
+  var cw = 14, scrollX = 0, follow = true;
+  var dirty = true, statsDirty = true;
+
+  function $(id) { return document.getElementById(id); }
+  var atomCv = $("atomCv"), circCv = $("circCv"), ovCv = $("ovCv");
+  var actx = atomCv.getContext("2d"), cctx = circCv.getContext("2d"), octx = ovCv.getContext("2d");
+  var DPR = window.devicePixelRatio || 1;
+
+  function speedFromSlider(v) { return 0.25 * Math.pow(240, v / 1000); }   // 0.25 .. 60 steps/s
+  function sliderFromSpeed(s) { return Math.round(1000 * Math.log(s / 0.25) / Math.log(240)); }
+  var speed = 2;
+
+  function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
+  function fmt(x, d) { return (x === null || x === undefined || isNaN(x)) ? "–" : Number(x).toFixed(d); }
+  function pct(v, base) {
+    if (!base || v === null || v === undefined) return "";
+    var p = (v / base - 1) * 100;
+    var cls = p < -0.05 ? "good" : p > 0.05 ? "bad" : "";
+    return ' <span class="' + cls + '">(' + (p >= 0 ? "+" : "") + p.toFixed(1) + "%)</span>";
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function piStr(a) {
+    if (a === null || a === undefined) return "";
+    var r = a / Math.PI;
+    return fmt(a, 4) + " rad (" + (Math.abs(r - Math.round(r * 1000) / 1000) < 5e-4 ? String(Math.round(r * 1000) / 1000) : r.toFixed(4)) + "π)";
+  }
+  function lowerBound(arr, x) { var a = 0, b = arr.length; while (a < b) { var mid = (a + b) >> 1; if (arr[mid] < x) a = mid + 1; else b = mid; } return a; }
+
+  // ------------------------------------------------------------------ cursor control
+  function movesAt(kk) { return kk < 0 ? 0 : movesUpTo[kk]; }
+  function setCursor(nk, animate) {
+    nk = clamp(nk | 0, -1, N - 1);
+    var prevM = movesAt(k), newM = movesAt(nk);
+    var forward = nk > k;
+    k = nk;
+    anim = null;
+    if (animate && animMoves && forward && hasAtoms && newM === prevM + 1 && stepDuration() >= 0.06) {
+      positionsAfter(prevM);
+      positionsAfter(newM);
+      anim = { m: newM - 1, t0: performance.now(), dur: Math.max(60, 850 / speed) };
+    } else {
+      positionsAfter(newM);
+    }
+    if (follow) ensureVisible(k);
+    dirty = true; statsDirty = true;
+    requestFrame();
+  }
+  function stepDuration() { return 1 / speed; }
+  function step(dir, g, animate) {
+    g = g || gran;
+    if (g === "inst") { setCursor(k + dir, animate); return; }
+    if (dir > 0) {
+      if (k >= N - 1) return;
+      var f = k < 0 ? 0 : (k === frameEnds[frameOf[k]] ? frameOf[k] + 1 : frameOf[k]);
+      setCursor(frameEnds[Math.min(f, F - 1)], animate);
+    } else {
+      if (k < 0) return;
+      var fp = frameOf[k] - (k === frameEnds[frameOf[k]] ? 1 : 0);
+      setCursor(fp < 0 ? -1 : frameEnds[fp], false);
+    }
+  }
+  function nextMove(dir) {
+    if (!moveInst.length) return;
+    if (dir > 0) {
+      var j = lowerBound(moveInst, k + 1);
+      if (j < moveInst.length) setCursor(moveInst[j], true);
+    } else {
+      var jj = lowerBound(moveInst, k) - 1;
+      setCursor(jj >= 0 ? moveInst[jj] : -1, false);
+    }
+  }
+  function setPlaying(p) {
+    playing = p && N > 0;
+    if (playing && k >= N - 1) setCursor(-1, false);
+    lastStepTs = performance.now();
+    $("playBtn").textContent = playing ? "‖ pause" : "▶ play";
+    requestFrame();
+  }
+
+  // ------------------------------------------------------------------ layout / resize
+  var atomW = 0, atomH = 0, circW = 0, circH = 0, ovW = 0, ovH = 0;
+  var B = GEO.bounds || [0, 0, 9, 19];
+  var ML = 1.9, MR = 0.7, MT = 1.7, MB = 1.0;   // world-unit margins around the traps
+  function layout() {
+    var main = document.querySelector("main");
+    var mh = main.clientHeight - 12;
+    var aspect = (B[2] - B[0] + ML + MR) / (B[3] - B[1] + MT + MB);
+    var pane = $("atomPane");
+    var w = Math.max(260, Math.min(Math.round(mh * aspect), Math.round(window.innerWidth * 0.42)));
+    pane.style.width = w + "px";
+    DPR = window.devicePixelRatio || 1;
+    atomW = pane.clientWidth; atomH = pane.clientHeight;
+    sizeCanvas(atomCv, actx, atomW, atomH);
+    var wrap = $("circWrap");
+    circW = wrap.clientWidth; circH = wrap.clientHeight;
+    sizeCanvas(circCv, cctx, circW, circH);
+    ovW = ovCv.clientWidth; ovH = ovCv.clientHeight;
+    sizeCanvas(ovCv, octx, ovW, ovH);
+    buildOverview();
+    clampScroll();
+    dirty = true; requestFrame();
+  }
+  function sizeCanvas(cv, ctx, w, h) {
+    cv.width = Math.max(1, Math.round(w * DPR)); cv.height = Math.max(1, Math.round(h * DPR));
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+
+  // ------------------------------------------------------------------ atom view
+  var S = 1, OX = 0, OY = 0;
+  function sx(x) { return OX + (x - (B[0] - ML)) * S; }
+  function sy(y) { return OY + ((B[3] + MT) - y) * S; }
+  var zoneCols = GEO.zones.map(function () { return []; }), zoneRows = GEO.zones.map(function () { return []; });
+  (function axisLabels() {
+    var seenC = GEO.zones.map(function () { return {}; }), seenR = GEO.zones.map(function () { return {}; });
+    (GEO.traps || []).forEach(function (t) {
+      var z = t[2];
+      if (!seenC[z][t[3]]) { seenC[z][t[3]] = 1; zoneCols[z].push([t[3], t[0]]); }
+      if (!seenR[z][t[4]]) { seenR[z][t[4]] = 1; zoneRows[z].push([t[4], t[1]]); }
+    });
+  })();
+
+  function drawAtoms(now) {
+    var ctx = actx, W = atomW, H = atomH;
+    ctx.clearRect(0, 0, W, H);
+    var ww = B[2] - B[0] + ML + MR, wh = B[3] - B[1] + MT + MB;
+    S = Math.min(W / ww, H / wh);
+    OX = (W - ww * S) / 2; OY = (H - wh * S) / 2;
+    // zones
+    GEO.zones.forEach(function (z, zi) {
+      var x0 = sx(z.px0 - 0.5), x1 = sx(z.px1 + 0.5), y0 = sy(z.py1 + 0.5), y1 = sy(z.py0 - 0.5);
+      ctx.fillStyle = C.storageFill;
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      if (z.paired) {
+        ctx.fillStyle = C.entInner;
+        roundRect(ctx, sx(z.px0 - 0.35), sy(z.py1 + 0.38), (z.px1 - z.px0 + 0.7) * S, (z.py1 - z.py0 + 0.76) * S, 3);
+        ctx.fill();
+      }
+      ctx.lineWidth = Math.max(2, S * 0.07);
+      ctx.strokeStyle = z.paired ? C.entEdge : C.storageEdge;
+      ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+      // zone name, vertical, left of the row labels
+      ctx.save();
+      ctx.translate(sx(z.px0 - 1.45), (y0 + y1) / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = z.paired ? C.entEdge : "#6f9cc6";
+      ctx.font = Math.round(clamp(S * 0.42, 10, 17)) + "px system-ui, sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(z.name.charAt(0).toUpperCase() + z.name.slice(1) + " zone", 0, 0);
+      ctx.restore();
+      // axis labels
+      var fs = Math.round(clamp(S * 0.28, 7, 12));
+      ctx.font = fs + "px system-ui, sans-serif"; ctx.fillStyle = "#6b7684";
+      ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      zoneRows[zi].forEach(function (r) { ctx.fillText(String(r[0]), sx(z.px0 - 0.62), sy(r[1])); });
+      ctx.textAlign = "center";
+      var bottom = z.py0 <= B[1] + 1e-9;
+      ctx.textBaseline = bottom ? "top" : "bottom";
+      var ly = bottom ? sy(z.py0 - 0.62) : sy(z.py1 + 0.62);
+      zoneCols[zi].forEach(function (c) { ctx.fillText(String(c[0]), sx(c[1]), ly); });
+    });
+    // traps
+    var tr = Math.max(1.5, S * 0.09);
+    ctx.lineWidth = Math.max(0.8, S * 0.025);
+    ctx.strokeStyle = C.trapStroke; ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    (GEO.traps || []).forEach(function (t) { ctx.moveTo(sx(t[0]) + tr, sy(t[1])); ctx.arc(sx(t[0]), sy(t[1]), tr, 0, 2 * Math.PI); });
+    ctx.fill(); ctx.stroke();
+    if (!hasAtoms) {
+      ctx.fillStyle = "#6b7684"; ctx.font = "13px system-ui, sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("no atom positions (no valid compiler output)", W / 2, 16);
+      return false;
+    }
+    // positions (with move interpolation)
+    var m = movesAt(k), p = positionsAfter(m), animating = false, u = 1, mvNow = -1;
+    var draw = p;
+    if (anim) {
+      u = (now - anim.t0) / anim.dur;
+      if (u >= 1) { anim = null; u = 1; } else { animating = true; }
+    }
+    if (k >= 0 && mvAt[k] >= 0 && mvAt[k] === m - 1) mvNow = m - 1;
+    if (anim) {
+      mvNow = anim.m;
+      var e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+      draw = p.slice();
+      var r = MV[anim.m];
+      for (var j = 0; j < r.q.length; j++) {
+        draw[2 * r.q[j]] = r.f[2 * j] + (r.t[2 * j] - r.f[2 * j]) * e;
+        draw[2 * r.q[j] + 1] = r.f[2 * j + 1] + (r.t[2 * j + 1] - r.f[2 * j + 1]) * e;
+      }
+      drawBands(ctx, r, e, 1);
+    } else if (mvNow >= 0) {
+      drawBands(ctx, MV[mvNow], 1, 0.55);
+      drawGhosts(ctx, MV[mvNow]);
+    }
+    // gate highlights (under the atoms)
+    if (k >= 0 && !anim) {
+      if (kind[k] !== K_MOVE) {
+        var fr = frameOf[k], start = fr > 0 ? frameEnds[fr - 1] + 1 : 0, end = frameEnds[fr];
+        var many = end - start > 4000;
+        if (!many) for (var g = start; g <= end; g++) if (g !== k && (gran === "frame" || g <= end)) drawGate(ctx, g, draw, gran === "frame" ? (g <= k ? 0.9 : 0.35) : 0.28);
+        drawGate(ctx, k, draw, 1);
+      }
+      if (viol.has(k) || (k === errI && !physSeg)) drawViolation(ctx, k, draw);
+    }
+    if (physSeg && k >= physSeg.start && k <= physSeg.end && !anim) {
+      ctx.save(); ctx.strokeStyle = C.red; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+      var pr = Math.max(7, S * 0.3);
+      physSeg.under.forEach(function (q) { if (q < NQ) { ctx.beginPath(); ctx.arc(sx(draw[2 * q]), sy(draw[2 * q + 1]), pr, 0, 2 * Math.PI); ctx.stroke(); } });
+      ctx.restore();
+      ctx.font = "12px system-ui, sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "top";
+      var msg = "✖ CZ segment: dashed pairs get fewer pulses";
+      var mw = ctx.measureText(msg).width + 10;
+      ctx.fillStyle = "rgba(253,236,234,0.95)"; ctx.fillRect(W - mw - 6, 6, mw, 18);
+      ctx.fillStyle = C.red; ctx.fillText(msg, W - 11, 9);
+    }
+    // atoms
+    var ar = Math.max(2.5, S * 0.12);
+    ctx.fillStyle = C.atom;
+    ctx.beginPath();
+    for (var q = 0; q < NQ; q++) { var X = sx(draw[2 * q]), Y = sy(draw[2 * q + 1]); ctx.moveTo(X + ar, Y); ctx.arc(X, Y, ar, 0, 2 * Math.PI); }
+    ctx.fill();
+    if (showLabels) {
+      var lf = Math.round(clamp(S * 0.24, 7, 12));
+      ctx.font = "600 " + lf + "px system-ui, sans-serif";
+      ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+      ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.fillStyle = "#14325f";
+      for (var q2 = 0; q2 < NQ; q2++) {
+        var lx = sx(draw[2 * q2]) + ar * 0.6, ly2 = sy(draw[2 * q2 + 1]) - ar * 0.6;
+        ctx.strokeText(String(q2), lx, ly2); ctx.fillText(String(q2), lx, ly2);
+      }
+    }
+    // corner tag
+    var tags = [];
+    if (mvNow >= 0) {
+      var rr = MV[mvNow];
+      tags.push("move " + (mvNow + 1) + "/" + M + " · " + rr.q.length + " atom" + (rr.q.length === 1 ? "" : "s") + " · d " + fmt(rr.d, 3));
+      if (rr.w && rr.w.length) tags.push("⚠ spacing warning");
+    }
+    if (tags.length) {
+      ctx.font = "12px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      tags.forEach(function (s, ti) {
+        var w = ctx.measureText(s).width + 10;
+        ctx.fillStyle = ti === 1 ? "rgba(255,236,204,0.95)" : "rgba(255,255,255,0.92)";
+        ctx.fillRect(6, 6 + ti * 20, w, 18);
+        ctx.fillStyle = ti === 1 ? "#b25e00" : "#3a2a5c";
+        ctx.fillText(s, 11, 9 + ti * 20);
+      });
+    }
+    return animating;
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  }
+  function bandThickness(list) {
+    var xs = [];
+    list.forEach(function (b) { xs.push(b[0], b[1]); });
+    xs.sort(function (a, b) { return a - b; });
+    var gap = 1e9;
+    for (var i = 1; i < xs.length; i++) { var d = xs[i] - xs[i - 1]; if (d > 1e-6 && d < gap) gap = d; }
+    return clamp(Math.min(0.56, gap * 0.85), 0.14, 0.56);
+  }
+  function drawBands(ctx, r, e, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
+    var x0 = sx(B[0] - 0.6), x1 = sx(B[2] + 0.6), y0 = sy(B[3] + 0.6), y1 = sy(B[1] - 0.6);
+    var th = bandThickness(r.br || []) * S;
+    (r.br || []).forEach(function (b) {
+      var y = sy(b[0] + (b[1] - b[0]) * e);
+      ctx.fillStyle = C.band; ctx.fillRect(x0, y - th / 2, x1 - x0, th);
+      ctx.strokeStyle = C.bandEdge; ctx.strokeRect(x0, y - th / 2, x1 - x0, th);
+    });
+    var tc = bandThickness(r.bc || []) * S;
+    (r.bc || []).forEach(function (b) {
+      var x = sx(b[0] + (b[1] - b[0]) * e);
+      ctx.fillStyle = C.band; ctx.fillRect(x - tc / 2, y0, tc, y1 - y0);
+      ctx.strokeStyle = C.bandEdge; ctx.strokeRect(x - tc / 2, y0, tc, y1 - y0);
+    });
+    ctx.restore();
+  }
+  function drawGhosts(ctx, r) {
+    var ar = Math.max(2.5, S * 0.12);
+    ctx.save();
+    ctx.strokeStyle = "rgba(31,95,191,0.55)"; ctx.fillStyle = "rgba(31,95,191,0.55)";
+    ctx.lineWidth = 1;
+    for (var j = 0; j < r.q.length; j++) {
+      var fx = sx(r.f[2 * j]), fy = sy(r.f[2 * j + 1]), tx = sx(r.t[2 * j]), ty = sy(r.t[2 * j + 1]);
+      ctx.setLineDash([3, 2]);
+      ctx.beginPath(); ctx.arc(fx, fy, ar, 0, 2 * Math.PI); ctx.stroke();
+      ctx.setLineDash([]);
+      var dx = tx - fx, dy = ty - fy, L = Math.hypot(dx, dy);
+      if (L > ar * 2.5) {
+        var ux = dx / L, uy = dy / L, ex = tx - ux * ar * 1.3, ey = ty - uy * ar * 1.3;
+        ctx.beginPath(); ctx.moveTo(fx + ux * ar, fy + uy * ar); ctx.lineTo(ex, ey); ctx.stroke();
+        var hs = Math.max(4, ar * 1.1);
+        ctx.beginPath(); ctx.moveTo(ex, ey);
+        ctx.lineTo(ex - ux * hs - uy * hs * 0.5, ey - uy * hs + ux * hs * 0.5);
+        ctx.lineTo(ex - ux * hs + uy * hs * 0.5, ey - uy * hs - ux * hs * 0.5);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+  function zoneOfPoint(x, y) {
+    for (var i = 0; i < GEO.zones.length; i++) {
+      var z = GEO.zones[i];
+      if (x >= z.px0 - 0.5 && x <= z.px1 + 0.5 && y >= z.py0 - 0.5 && y <= z.py1 + 0.5) return z;
+    }
+    return null;
+  }
+  function drawGate(ctx, i, p, alpha) {
+    var kd = kind[i], qs = I.qs[i] || [];
+    if (kd === K_MOVE || kd === K_BAR) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    var R = Math.max(5, S * 0.23);
+    if (kd === K_CZ && qs.length === 2) {
+      for (var j = 0; j < 2; j++) {
+        ctx.beginPath(); ctx.arc(sx(p[2 * qs[j]]), sy(p[2 * qs[j] + 1]), R, 0, 2 * Math.PI);
+        ctx.fillStyle = C.czFill; ctx.fill();
+      }
+      ctx.lineWidth = 1.2; ctx.strokeStyle = C.czStroke;
+      for (var j2 = 0; j2 < 2; j2++) { ctx.beginPath(); ctx.arc(sx(p[2 * qs[j2]]), sy(p[2 * qs[j2] + 1]), R, 0, 2 * Math.PI); ctx.stroke(); }
+    } else {
+      qs.forEach(function (q) {
+        var X = sx(p[2 * q]), Y = sy(p[2 * q + 1]);
+        if (kd === K_RZ && alpha > 0.5) {
+          var z = zoneOfPoint(p[2 * q], p[2 * q + 1]);
+          if (z) {
+            ctx.save(); ctx.setLineDash([6, 4]); ctx.strokeStyle = C.rzStroke; ctx.lineWidth = 1.3;
+            ctx.beginPath();
+            ctx.moveTo(sx(z.px0 - 0.5), Y); ctx.lineTo(sx(z.px1 + 0.5), Y);
+            ctx.moveTo(X, sy(z.py0 - 0.5)); ctx.lineTo(X, sy(z.py1 + 0.5));
+            ctx.stroke(); ctx.restore();
+          }
+        }
+        if (kd === K_MEAS) {
+          ctx.lineWidth = 2; ctx.strokeStyle = C.gMeas; ctx.strokeRect(X - R, Y - R, 2 * R, 2 * R);
+          return;
+        }
+        ctx.beginPath(); ctx.arc(X, Y, R, 0, 2 * Math.PI);
+        ctx.fillStyle = kd === K_RX ? C.rxFill : kd === K_RZ ? C.rzFill : "#e3e6ea"; ctx.fill();
+        ctx.lineWidth = 1.6; ctx.strokeStyle = kd === K_RX ? C.rxStroke : kd === K_RZ ? C.rzStroke : C.gOther; ctx.stroke();
+      });
+    }
+    ctx.restore();
+  }
+  function drawViolation(ctx, i, p) {
+    var qs = I.qs[i] || [], R = Math.max(6, S * 0.3);
+    ctx.save(); ctx.strokeStyle = C.red; ctx.lineWidth = 2.5;
+    qs.forEach(function (q) {
+      var X = sx(p[2 * q]), Y = sy(p[2 * q + 1]);
+      ctx.beginPath(); ctx.moveTo(X - R, Y - R); ctx.lineTo(X + R, Y + R); ctx.moveTo(X + R, Y - R); ctx.lineTo(X - R, Y + R); ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  // ------------------------------------------------------------------ circuit view
+  var GUT = 46, PADT = 4;
+  function rowH() { return NQ ? clamp(Math.floor((circH - PADT * 2) / NQ), 4, 22) : 10; }
+  function maxScroll() { return Math.max(0, maxCol * cw - (circW - GUT) + 60); }
+  function clampScroll() { scrollX = clamp(scrollX, 0, maxScroll()); }
+  function colX(c) { return GUT + c * cw - scrollX; }
+  function ensureVisible(i) {
+    if (i < 0 || !circW) { if (i < 0) scrollX = 0; return; }
+    var x = colX(I.col[i]);
+    if (x < GUT + cw || x > circW - 2 * cw) { scrollX = I.col[i] * cw - (circW - GUT) * 0.35; clampScroll(); }
+  }
+  function wireY(q, rh) { return PADT + q * rh + rh / 2; }
+
+  function drawCircuit() {
+    var ctx = cctx, W = circW, H = circH, rh = rowH();
+    ctx.clearRect(0, 0, W, H);
+    if (N === 0) {
+      ctx.fillStyle = "#6b7684"; ctx.font = "14px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(ERR ? "no compiled circuit (" + ERR.stage + " error)" : "empty circuit", W / 2, H / 2);
+      return;
+    }
+    // wires
+    ctx.strokeStyle = "#cfd5dc"; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var q = 0; q < NQ; q++) { var y = Math.round(wireY(q, rh)) + 0.5; ctx.moveTo(GUT, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+    var c0 = Math.max(0, Math.floor(scrollX / cw) - 1), c1 = Math.min(maxCol - 1, Math.ceil((scrollX + W - GUT) / cw) + 1);
+    var curF = k >= 0 ? frameOf[k] : -2;
+    // highlight pass
+    for (var c = c0; c <= c1; c++) {
+      for (var t = colStart[c]; t < colStart[c + 1]; t++) {
+        var i = colInst[t], hl = (i === k) || (gran === "frame" && frameOf[i] === curF);
+        var isErr = i === errI, isV = viol.has(i);
+        if (!hl && !isErr && !isV) continue;
+        var x = colX(c), y0 = wireY(lo[i] < 0 ? 0 : lo[i], rh) - rh / 2, y1 = wireY(hi[i] < 0 ? NQ - 1 : hi[i], rh) + rh / 2;
+        if (isErr) { ctx.fillStyle = "rgba(198,40,40,0.28)"; ctx.fillRect(x, y0, cw, y1 - y0); }
+        if (hl) { ctx.fillStyle = i === k ? C.cur : "rgba(255,216,77,0.45)"; ctx.fillRect(x, y0, cw, y1 - y0); }
+        if (isV) { ctx.strokeStyle = C.red; ctx.lineWidth = 1.5; ctx.strokeRect(x + 0.75, y0 + 0.75, cw - 1.5, y1 - y0 - 1.5); }
+      }
+    }
+    // glyphs
+    var small = cw < 6 || rh < 6;
+    var bw = Math.max(1, Math.min(cw - 2, rh * 1.2)), bh = Math.max(1, Math.min(rh - 2, cw * 1.4));
+    var textOk = bw >= 9 && bh >= 9;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "700 " + Math.round(Math.min(bw, bh) * 0.7) + "px system-ui, sans-serif";
+    for (var c2 = c0; c2 <= c1; c2++) {
+      var xc = colX(c2) + cw / 2;
+      for (var t2 = colStart[c2]; t2 < colStart[c2 + 1]; t2++) {
+        var j = colInst[t2];
+        ctx.globalAlpha = j <= k ? 1 : 0.3;
+        drawGlyph(ctx, j, xc, rh, bw, bh, small, textOk);
+      }
+    }
+    ctx.globalAlpha = 1;
+    // cursor line
+    if (k >= 0) {
+      var cx = colX(I.col[k]) + cw / 2;
+      if (cx >= GUT && cx <= W) {
+        ctx.save(); ctx.strokeStyle = C.red; ctx.setLineDash([4, 3]); ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke(); ctx.restore();
+      }
+    }
+    // gutter
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, GUT, H);
+    ctx.strokeStyle = "#dde2e8"; ctx.beginPath(); ctx.moveTo(GUT - 0.5, 0); ctx.lineTo(GUT - 0.5, H); ctx.stroke();
+    var lf = clamp(rh - 1, 6, 12), every = rh >= 7 ? 1 : (rh >= 4 ? 5 : 10);
+    ctx.font = lf + "px ui-monospace, Menlo, Consolas, monospace"; ctx.fillStyle = "#4a5562"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    var cur = {};
+    if (k >= 0) (I.qs[k] || []).forEach(function (q) { cur[q] = 1; });
+    for (var q2 = 0; q2 < NQ; q2++) {
+      if (cur[q2]) { ctx.fillStyle = C.cur; ctx.fillRect(0, wireY(q2, rh) - rh / 2, GUT - 1, rh); ctx.fillStyle = "#4a5562"; }
+      if (q2 % every === 0 || cur[q2]) ctx.fillText("q" + q2, GUT - 5, wireY(q2, rh));
+    }
+  }
+  function drawGlyph(ctx, i, xc, rh, bw, bh, small, textOk) {
+    var kd = kind[i], qs = I.qs[i] || [];
+    if (lo[i] < 0) return;
+    if (kd === K_MOVE) {
+      var ya = wireY(lo[i], rh), yb = wireY(hi[i], rh);
+      ctx.fillStyle = C.gMove;
+      var lw = Math.max(1.5, Math.min(cw * 0.22, 4));
+      ctx.fillRect(xc - lw / 2, ya - (qs.length === 1 ? rh * 0.35 : 0), lw, yb - ya + (qs.length === 1 ? rh * 0.7 : 0));
+      if (!small) {
+        var d = Math.max(2, Math.min(cw, rh) * 0.32);
+        ctx.beginPath();
+        qs.forEach(function (q) { var y = wireY(q, rh); ctx.moveTo(xc, y - d); ctx.lineTo(xc + d, y); ctx.lineTo(xc, y + d); ctx.lineTo(xc - d, y); ctx.closePath(); });
+        ctx.fill();
+      }
+      if (mvAt[i] < 0) { ctx.strokeStyle = C.red; ctx.lineWidth = 1; ctx.strokeRect(xc - cw / 2 + 1, ya - rh / 2, cw - 2, yb - ya + rh); }
+      return;
+    }
+    if (kd === K_CZ && qs.length === 2) {
+      var y1 = wireY(qs[0], rh), y2 = wireY(qs[1], rh), r = Math.max(1.5, Math.min(cw, rh) * 0.27);
+      ctx.strokeStyle = C.gCz; ctx.lineWidth = Math.max(1, r * 0.45);
+      ctx.beginPath(); ctx.moveTo(xc, y1); ctx.lineTo(xc, y2); ctx.stroke();
+      ctx.fillStyle = C.gCz;
+      ctx.beginPath(); ctx.arc(xc, y1, r, 0, 2 * Math.PI); ctx.moveTo(xc + r, y2); ctx.arc(xc, y2, r, 0, 2 * Math.PI); ctx.fill();
+      return;
+    }
+    if (kd === K_BAR) {
+      ctx.save(); ctx.strokeStyle = "#9aa3ad"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(xc, wireY(lo[i], rh) - rh / 2); ctx.lineTo(xc, wireY(hi[i], rh) + rh / 2); ctx.stroke(); ctx.restore();
+      return;
+    }
+    var col = kd === K_RX ? C.gRx : kd === K_RZ ? C.gRz : kd === K_MEAS ? C.gMeas : C.gOther;
+    var letter = kd === K_RX ? "X" : kd === K_RZ ? "Z" : kd === K_MEAS ? "M" : (OPS[I.op[i]] || "?").charAt(0).toUpperCase();
+    if (qs.length > 1) {   // generic multi-qubit gate: connector
+      ctx.strokeStyle = col; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(xc, wireY(lo[i], rh)); ctx.lineTo(xc, wireY(hi[i], rh)); ctx.stroke();
+    }
+    ctx.fillStyle = col;
+    for (var j = 0; j < qs.length; j++) {
+      var y = wireY(qs[j], rh);
+      ctx.fillRect(xc - bw / 2, y - bh / 2, bw, bh);
+      if (textOk) { ctx.fillStyle = "#fff"; ctx.fillText(letter, xc, y + 0.5); ctx.fillStyle = col; }
+    }
+  }
+  function pick(x, y, strict) {
+    if (N === 0 || x < GUT) return -1;
+    var rh = rowH(), c = Math.floor((x - GUT + scrollX) / cw), w = Math.floor((y - PADT) / rh);
+    if (c < 0 || c >= maxCol) return -1;
+    var best = -1, bestD = 1e9;
+    for (var t = colStart[c]; t < colStart[c + 1]; t++) {
+      var i = colInst[t];
+      if (lo[i] < 0) continue;
+      if (w >= lo[i] && w <= hi[i]) return i;
+      var d = w < lo[i] ? lo[i] - w : w - hi[i];
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return strict ? -1 : best;
+  }
+  function describe(i) {
+    if (i < 0) return "initial loading";
+    var name = OPS[I.op[i]] || "?", qs = I.qs[i] || [];
+    var s = "#" + i + " " + name + " " + qs.map(function (q) { return "q" + q; }).join(", ");
+    if (kind[i] === K_MOVE) {
+      var m = mvAt[i];
+      if (m >= 0) { var r = MV[m]; s = "#" + i + " move " + r.q.length + " atom" + (r.q.length === 1 ? "" : "s") + "  d=" + fmt(r.d, 4) + "  step " + (r.s + 1); }
+      else s += "  (not replayed: illegal)";
+    } else if (I.par[i] !== null && I.par[i] !== undefined) s += "  " + piStr(I.par[i]);
+    return s;
+  }
+  function tooltipText(i) {
+    var lines = [describe(i)];
+    var m = mvAt[i];
+    if (kind[i] === K_MOVE && m >= 0) {
+      var r = MV[m];
+      lines.push("qubits " + r.q.join(" "));
+      lines.push("rows " + r.rows.join(",") + " → " + r.nrows.join(",") + "   cols " + r.cols.join(",") + " → " + r.ncols.join(","));
+      (r.w || []).forEach(function (wi) { lines.push("⚠ " + (WARN_TEXT[wi] || "")); });
+    }
+    lines.push("depth so far " + (I.depth[i] || 0) + "   column " + I.col[i] + "   frame " + (frameOf[i] + 1) + "/" + F);
+    if (viol.has(i)) viol.get(i).forEach(function (s) { lines.push("✖ " + s); });
+    if (i === errI && ERR) lines.push("✖ " + ERR.stage + " error here");
+    return lines.join("\n");
+  }
+
+  // ------------------------------------------------------------------ overview strip
+  var ovBase = null;
+  function buildOverview() {
+    ovBase = document.createElement("canvas");
+    ovBase.width = Math.max(1, Math.round(ovW * DPR)); ovBase.height = Math.max(1, Math.round(ovH * DPR));
+    var o = ovBase.getContext("2d"); o.setTransform(DPR, 0, 0, DPR, 0, 0);
+    o.fillStyle = "#fff"; o.fillRect(0, 0, ovW, ovH);
+    if (!N) return;
+    var bins = Math.max(1, Math.floor(ovW)), cnt = new Float64Array(bins), czc = new Float64Array(bins);
+    for (var j = 0; j < moveInst.length; j++) cnt[Math.min(bins - 1, Math.floor(moveInst[j] / N * bins))]++;
+    for (var i = 0; i < N; i++) if (kind[i] === K_CZ) czc[Math.min(bins - 1, Math.floor(i / N * bins))]++;
+    var mx = 0, mz = 0;
+    for (var b = 0; b < bins; b++) { if (cnt[b] > mx) mx = cnt[b]; if (czc[b] > mz) mz = czc[b]; }
+    for (var b2 = 0; b2 < bins; b2++) {
+      if (czc[b2]) { o.fillStyle = "rgba(232,118,45," + (0.15 + 0.45 * czc[b2] / mz) + ")"; o.fillRect(b2, ovH * 0.55, 1, ovH * 0.45); }
+      if (cnt[b2]) { o.fillStyle = "rgba(142,91,208," + (0.25 + 0.75 * cnt[b2] / mx) + ")"; o.fillRect(b2, 0, 1, ovH * 0.55); }
+    }
+    o.fillStyle = C.red;
+    viol.forEach(function (_, vi) { o.fillRect(Math.floor(vi / N * ovW), 0, 2, ovH); });
+    if (errI >= 0) o.fillRect(Math.floor(errI / N * ovW) - 1, 0, 3, ovH);
+  }
+  function drawOverview() {
+    var ctx = octx;
+    ctx.clearRect(0, 0, ovW, ovH);
+    if (ovBase) ctx.drawImage(ovBase, 0, 0, ovW, ovH);
+    if (!N) return;
+    // visible window of the circuit view
+    var c0 = Math.max(0, Math.floor(scrollX / cw)), c1 = Math.min(maxCol - 1, Math.ceil((scrollX + circW - GUT) / cw));
+    var a = N, b = -1;
+    if (c1 - c0 < 4000) for (var c = c0; c <= c1; c++) for (var t = colStart[c]; t < colStart[c + 1]; t++) { var i = colInst[t]; if (i < a) a = i; if (i > b) b = i; }
+    if (b >= a) {
+      ctx.fillStyle = "rgba(29,39,51,0.10)"; ctx.strokeStyle = "rgba(29,39,51,0.45)"; ctx.lineWidth = 1;
+      var xa = a / N * ovW, xb = Math.max(xa + 2, (b + 1) / N * ovW);
+      ctx.fillRect(xa, 0, xb - xa, ovH); ctx.strokeRect(xa + 0.5, 0.5, xb - xa - 1, ovH - 1);
+    }
+    var xk = (k + 1) / N * ovW;
+    ctx.fillStyle = "#1d2733"; ctx.fillRect(xk - 1, 0, 2, ovH);
+    ctx.beginPath(); ctx.moveTo(xk - 5, 0); ctx.lineTo(xk + 5, 0); ctx.lineTo(xk, 6); ctx.fill();
+  }
+
+  // ------------------------------------------------------------------ stats panel
+  function cell(key, val, cls, title) {
+    return '<div class="c ' + (cls || "") + '"' + (title ? ' title="' + esc(title) + '"' : "") + '><div class="k">' + key + '</div><div class="v mono">' + val + "</div></div>";
+  }
+  function renderStats() {
+    var m = movesAt(k), h = "";
+    h += cell("position", (k + 1) + " / " + N, "", "instructions executed / total (moves and barriers included)");
+    h += cell("frame", (k >= 0 ? frameOf[k] + 1 : 0) + " / " + F, "", "frames: a move, or a block of consecutive gates between moves");
+    h += cell("instruction", esc(describe(k)), "w2");
+    h += cell("moves", m + " / " + M, "", "replayed moves executed / total");
+    var thisMove = k >= 0 && mvAt[k] >= 0;
+    h += cell(thisMove ? "this move" : "last move", m > 0 ? fmt(MV[m - 1].d, 4) + (MV[m - 1].w && MV[m - 1].w.length ? ' <span class="warn">⚠</span>' : "") : "–", "",
+      "longest physical distance travelled by one atom of the move (= the scored distance)");
+    var total = TOT.move_distance, nd = NAIVE ? NAIVE.move_distance : null;
+    var top = Math.max(total || 0, nd || 0, cumDist[M] || 0) || 1;
+    var bar = '<div class="bar"><i style="width:' + (cumDist[m] / top * 100).toFixed(2) + '%"></i>' +
+      (nd ? '<b style="left:' + Math.min(99.5, nd / top * 100).toFixed(2) + '%" title="naive"></b>' : "") + "</div>";
+    h += cell("distance Σ so far / total", fmt(cumDist[m], 3) + " / " + fmt(total, 3) + bar, "w2",
+      "cumulative move distance (validator trace); the black tick on the bar is the naive compiler's total");
+    h += cell("naive distance", fmt(nd, 3) + pct(TOT.partial ? null : total, nd), "", "naive compiler's distance for this circuit; (final change)");
+    h += cell("depth so far / total", (k >= 0 ? I.depth[k] : 0) + " / " + (TOT.depth === undefined ? "–" : TOT.depth), "", "QuantumCircuit.depth() with moves and barriers removed, as scored");
+    h += cell("naive depth", (NAIVE ? NAIVE.depth : "–") + pct(TOT.partial ? null : TOT.depth, NAIVE ? NAIVE.depth : null));
+    h += cell("cz so far / total", (k >= 0 ? czUpTo[k] : 0) + " / " + (TOT.cz === undefined ? "–" : TOT.cz));
+    h += cell("spacing warnings", cumWarn[m] + " / " + (TOT.spacing_warnings === undefined ? cumWarn[M] : TOT.spacing_warnings), "", "spacing warnings double a move's time; they do not affect the score");
+    h += cell("parallel step", (m > 0 ? MV[m - 1].s + 1 : 0) + " / " + (TOT.move_steps === undefined ? "–" : TOT.move_steps), "", "parallel step of the last move (time only, not scored)");
+    // validity
+    var vtxt;
+    if (ERR) vtxt = '<span class="bad">INVALID: ' + esc(ERR.stage) + "</span>";
+    else vtxt = '<span class="good">VALID</span>';
+    var ph = D.physics || {};
+    vtxt += " · equivalence: " + esc(D.equivalence || "–") + " · transversal CZ: " +
+      (ph.ok === true ? '<span class="good">ok</span> (' + ph.segments + " segments)" : ph.ok === false ? '<span class="bad">FAIL</span>' : "not checked");
+    var vhere = (k >= 0 && viol.has(k)) ? ' · <span class="bad">✖ ' + esc(viol.get(k)[0]) + "</span>" : "";
+    h += cell("validity", vtxt + vhere, "w3 wrap", ERR ? ERR.msg : "");
+    var fin = "moves " + (TOT.num_moves === undefined ? "–" : TOT.num_moves) + " · steps " + (TOT.move_steps === undefined ? "–" : TOT.move_steps) +
+      " · distance " + fmt(TOT.move_distance, 6) + " · time " + fmt(TOT.move_time, 3) + " · depth " + (TOT.depth === undefined ? "–" : TOT.depth) +
+      " · ops " + (TOT.num_operations === undefined ? "–" : TOT.num_operations) + (TOT.partial ? ' · <span class="bad">partial (replay failed)</span>' : "");
+    h += cell("final totals (validator)", fin, "w3 wrap", "compute_metrics() of the official validator: equal to bench.py");
+    $("stats").innerHTML = h;
+    var sc = $("scrub");
+    if (+sc.value !== k + 1) sc.value = k + 1;
+  }
+
+  // ------------------------------------------------------------------ main loop
+  var rafPending = false;
+  function requestFrame() { if (!rafPending) { rafPending = true; requestAnimationFrame(frame); } }
+  function frame(now) {
+    rafPending = false;
+    var again = false;
+    if (playing) {
+      var dur = stepDuration() * 1000;
+      if (!anim && now - lastStepTs >= dur) {
+        // catch up when the step rate exceeds the frame rate (several steps per frame, no animation)
+        var due = Math.min(50, Math.floor((now - lastStepTs) / dur));
+        lastStepTs = due >= 50 ? now : lastStepTs + due * dur;
+        if (k >= N - 1) setPlaying(false);
+        else for (var st = 0; st < due && k < N - 1; st++) step(1, gran, due === 1);
+      }
+      again = playing;
+    }
+    var animating = false;
+    if (dirty || anim) {
+      animating = drawAtoms(now);
+      if (dirty) { drawCircuit(); drawOverview(); }
+      dirty = false;
+    }
+    if (statsDirty) { renderStats(); statsDirty = false; }
+    if (animating) again = true;
+    if (again) requestFrame();
+  }
+
+  // ------------------------------------------------------------------ header, banner, legend
+  function initHeader() {
+    $("title").textContent = (META.name || "?") + " · " + (META.circuit || "?");
+    $("subtitle").textContent = NQ + " qubits · " + (META.family || "") + " · " + N + " instructions · " + M + " moves" +
+      (META.compile_s !== undefined ? " · compiled in " + META.compile_s + " s" : "");
+    $("subtitle").title = (META.compiler || "") + "\n" + (META.qasm || "") + "\ngenerated " + (META.generated || "");
+    var badge = $("badge");
+    if (ERR) { badge.className = "badge bad"; badge.textContent = "INVALID: " + ERR.stage; }
+    else { badge.className = "badge ok"; badge.textContent = "VALID"; }
+    $("modeTag").textContent = META.mode === "full" ? "full check" : "fast check";
+    $("modeTag").title = META.mode === "full" ? "the official equivalence check was run" : "fast mode: no equivalence check (like bench.py --mode fast)";
+    if (META.warnings && META.warnings.length) { $("metaWarn").textContent = "⚠ " + META.warnings.join("; "); }
+    if (ERR) {
+      $("errBanner").hidden = false;
+      $("errStage").textContent = ERR.stage + " error" + (physSeg ? " in the CZ segment #" + physSeg.start + "–#" + physSeg.end : errI >= 0 ? " at instruction " + errI : "") +
+        ((D.violations || []).length > 1 ? " (" + D.violations.length + " violations, all marked red)" : "");
+      $("errMsg").textContent = ERR.msg || "";
+      if (errI >= 0) { $("errJump").hidden = false; $("errJump").textContent = "Jump to instruction " + errI; $("errBtn").hidden = false; }
+    }
+    var lg = $("legend"), items = [
+      ["atom", function (c) { c.fillStyle = C.atom; c.beginPath(); c.arc(11, 8, 4, 0, 7); c.fill(); }],
+      ["empty trap", function (c) { c.strokeStyle = C.trapStroke; c.fillStyle = "#fff"; c.beginPath(); c.arc(11, 8, 3.5, 0, 7); c.fill(); c.stroke(); }],
+      ["rx (ring)", function (c) { c.fillStyle = C.rxFill; c.strokeStyle = C.rxStroke; c.beginPath(); c.arc(11, 8, 7, 0, 7); c.fill(); c.stroke(); c.fillStyle = C.atom; c.beginPath(); c.arc(11, 8, 3.5, 0, 7); c.fill(); }],
+      ["rz (ring + crosshair)", function (c) { c.fillStyle = C.rzFill; c.strokeStyle = C.rzStroke; c.beginPath(); c.arc(11, 8, 7, 0, 7); c.fill(); c.stroke(); c.fillStyle = C.atom; c.beginPath(); c.arc(11, 8, 3.5, 0, 7); c.fill(); }],
+      ["cz (pair)", function (c) { c.fillStyle = C.czFill; c.strokeStyle = C.czStroke; [7, 15].forEach(function (x) { c.beginPath(); c.arc(x, 8, 6, 0, 7); c.fill(); c.stroke(); }); c.fillStyle = C.atom; [7, 15].forEach(function (x) { c.beginPath(); c.arc(x, 8, 3, 0, 7); c.fill(); }); }],
+      ["AOD row/col picked up", function (c) { c.fillStyle = C.band; c.fillRect(0, 4, 22, 8); c.strokeStyle = C.bandEdge; c.setLineDash([3, 2]); c.strokeRect(0.5, 4.5, 21, 7); }],
+      ["move (circuit)", function (c) { c.fillStyle = C.gMove; c.fillRect(10, 1, 2, 14); c.beginPath(); c.moveTo(11, 1); c.lineTo(14, 4); c.lineTo(11, 7); c.lineTo(8, 4); c.fill(); }],
+      ["rx / rz / cz (circuit)", function (c) { c.fillStyle = C.gRx; c.fillRect(1, 3, 6, 10); c.fillStyle = C.gRz; c.fillRect(8, 3, 6, 10); c.fillStyle = C.gCz; c.beginPath(); c.arc(18, 3, 2, 0, 7); c.arc(18, 13, 2, 0, 7); c.fill(); c.fillRect(17.5, 3, 1, 10); }],
+      ["current / frame", function (c) { c.fillStyle = C.cur; c.fillRect(1, 1, 9, 14); c.fillStyle = "rgba(255,216,77,0.45)"; c.fillRect(12, 1, 9, 14); }],
+      ["pending (faded)", function (c) { c.globalAlpha = 0.3; c.fillStyle = C.gRx; c.fillRect(6, 3, 10, 10); }],
+      ["violation / error", function (c) { c.strokeStyle = C.red; c.lineWidth = 2; c.strokeRect(3, 2, 16, 12); }]
+    ];
+    items.forEach(function (it) {
+      var sp = document.createElement("span"), cv = document.createElement("canvas");
+      cv.width = 22 * DPR; cv.height = 16 * DPR;
+      var c = cv.getContext("2d"); c.setTransform(DPR, 0, 0, DPR, 0, 0); it[1](c);
+      sp.appendChild(cv); sp.appendChild(document.createTextNode(it[0])); lg.appendChild(sp);
+    });
+  }
+  function initRegen() {
+    if (!D.regen || !D.regen.circuit || location.protocol === "file:") return;
+    fetch("/api/ping", { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (j && j.ok) $("regenBtn").hidden = false;
+    }).catch(function () {});
+    $("regenBtn").addEventListener("click", function () {
+      var btn = $("regenBtn");
+      btn.disabled = true; btn.textContent = "regenerating…";
+      $("regenOut").hidden = false; $("regenHead").textContent = "Recompiling " + D.regen.circuit + " with " + D.regen.compiler + " (may take a minute)…"; $("regenLog").textContent = "";
+      fetch("/api/regenerate", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ compiler: D.regen.compiler, circuit: D.regen.circuit, mode: META.mode || "fast" }) })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, error: "HTTP " + r.status }; }); })
+        .then(function (j) {
+          if (j.ok && j.url) { location.href = j.url + "?t=" + Date.now(); return; }
+          $("regenHead").textContent = "Regeneration failed: " + (j.error || "see log");
+          $("regenLog").textContent = j.log || "";
+          btn.disabled = false; btn.textContent = "↻ Regenerate";
+        })
+        .catch(function (e) { $("regenHead").textContent = "Regeneration failed: " + e; btn.disabled = false; btn.textContent = "↻ Regenerate"; });
+    });
+  }
+
+  // ------------------------------------------------------------------ events
+  function bind() {
+    $("startBtn").onclick = function () { setPlaying(false); setCursor(-1, false); };
+    $("endBtn").onclick = function () { setPlaying(false); setCursor(N - 1, false); };
+    $("backBtn").onclick = function () { setPlaying(false); step(-1); };
+    $("fwdBtn").onclick = function () { setPlaying(false); step(1, gran, true); };
+    $("playBtn").onclick = function () { setPlaying(!playing); };
+    $("prevMoveBtn").onclick = function () { setPlaying(false); nextMove(-1); };
+    $("nextMoveBtn").onclick = function () { setPlaying(false); nextMove(1); };
+    $("errJump").onclick = $("errBtn").onclick = function () { setPlaying(false); if (errI >= 0) setCursor(errI, false); };
+    $("granSel").onchange = function () { gran = this.value; dirty = true; statsDirty = true; requestFrame(); };
+    var sp = $("speed");
+    sp.value = sliderFromSpeed(speed);
+    function speedLabel() { $("speedVal").textContent = (speed < 10 ? speed.toFixed(2) : speed.toFixed(0)) + "/s"; }
+    sp.oninput = function () { speed = speedFromSlider(+sp.value); speedLabel(); };
+    speedLabel();
+    window.__setSpeed = function (s) { speed = clamp(s, 0.25, 60); sp.value = sliderFromSpeed(speed); speedLabel(); };
+    $("animChk").onchange = function () { animMoves = this.checked; };
+    $("labelChk").onchange = function () { showLabels = this.checked; dirty = true; requestFrame(); };
+    $("zoomIn").onclick = function () { zoom(1.4, null); };
+    $("zoomOut").onclick = function () { zoom(1 / 1.4, null); };
+    var sc = $("scrub");
+    sc.max = N; sc.value = 0;
+    sc.oninput = function () { setPlaying(false); setCursor(+sc.value - 1, false); };
+
+    // circuit canvas: wheel scroll / zoom, drag pan, click pick, hover tip
+    circCv.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) { zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.offsetX); return; }
+      var d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (e.deltaMode === 1) d *= 16;
+      scrollX += d; clampScroll(); follow = false; dirty = true; requestFrame();
+    }, { passive: false });
+    var drag = null;
+    circCv.addEventListener("mousedown", function (e) { drag = { x: e.clientX, s: scrollX, moved: false }; });
+    window.addEventListener("mousemove", function (e) {
+      if (drag) {
+        var dx = e.clientX - drag.x;
+        if (Math.abs(dx) > 4) drag.moved = true;
+        if (drag.moved) { scrollX = drag.s - dx; clampScroll(); follow = false; dirty = true; requestFrame(); }
+      }
+    });
+    window.addEventListener("mouseup", function (e) {
+      if (drag && !drag.moved && e.target === circCv) {
+        var r = circCv.getBoundingClientRect(), i = pick(e.clientX - r.left, e.clientY - r.top, false);
+        if (i >= 0) { setPlaying(false); follow = true; setCursor(i, false); }
+      }
+      drag = null;
+    });
+    var tip = $("tip");
+    circCv.addEventListener("mousemove", function (e) {
+      if (drag && drag.moved) { tip.hidden = true; return; }
+      var i = pick(e.offsetX, e.offsetY, true);
+      if (i < 0) { tip.hidden = true; return; }
+      tip.textContent = tooltipText(i);
+      tip.hidden = false;
+      var tw = tip.offsetWidth, th = tip.offsetHeight;
+      tip.style.left = Math.min(circW - tw - 4, e.offsetX + 14) + "px";
+      tip.style.top = (e.offsetY + 16 + th > circH ? Math.max(0, e.offsetY - th - 8) : e.offsetY + 16) + "px";
+    });
+    circCv.addEventListener("mouseleave", function () { tip.hidden = true; });
+
+    // overview: click / drag
+    var ovDrag = false;
+    function ovJump(e) {
+      var r = ovCv.getBoundingClientRect(), x = clamp((e.clientX - r.left) / r.width, 0, 1);
+      setPlaying(false); follow = true; setCursor(Math.round(x * N) - 1, false);
+    }
+    ovCv.addEventListener("mousedown", function (e) { ovDrag = true; ovJump(e); });
+    window.addEventListener("mousemove", function (e) { if (ovDrag) ovJump(e); });
+    window.addEventListener("mouseup", function () { ovDrag = false; });
+
+    document.addEventListener("keydown", function (e) {
+      var t = e.target;
+      if (t && ((t.tagName === "INPUT" && t.type !== "range" && t.type !== "checkbox") || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      var handled = true;
+      switch (e.key) {
+        case " ": setPlaying(!playing); break;
+        case "ArrowRight": setPlaying(false); follow = true; step(1, e.shiftKey ? "frame" : gran, true); break;
+        case "ArrowLeft": setPlaying(false); follow = true; step(-1, e.shiftKey ? "frame" : gran); break;
+        case "ArrowUp": case ",": setPlaying(false); follow = true; nextMove(-1); break;
+        case "ArrowDown": case ".": setPlaying(false); follow = true; nextMove(1); break;
+        case "Home": setPlaying(false); follow = true; setCursor(-1, false); break;
+        case "End": setPlaying(false); follow = true; setCursor(N - 1, false); break;
+        case "g": case "G": gran = gran === "inst" ? "frame" : "inst"; $("granSel").value = gran; dirty = true; statsDirty = true; requestFrame(); break;
+        case "l": case "L": showLabels = !showLabels; $("labelChk").checked = showLabels; dirty = true; requestFrame(); break;
+        case "e": case "E": if (errI >= 0) { setPlaying(false); follow = true; setCursor(errI, false); } break;
+        case "+": case "=": window.__setSpeed(speed * 1.5); break;
+        case "-": case "_": window.__setSpeed(speed / 1.5); break;
+        case "]": zoom(1.4, null); break;
+        case "[": zoom(1 / 1.4, null); break;
+        default: handled = false;
+      }
+      if (handled) { e.preventDefault(); e.stopPropagation(); if (t && t.blur && t.tagName !== "BODY") t.blur(); }
+    }, true);
+    // re-layout whenever a pane changes size (window resize, stats panel growing, fonts, ...):
+    // canvases must be sized to their box, else the drawing is stretched and clicks miss
+    var layoutQueued = false;
+    function queueLayout() {
+      if (layoutQueued) return;
+      layoutQueued = true;
+      requestAnimationFrame(function () {
+        layoutQueued = false;
+        var w = $("circWrap"), a = $("atomPane");
+        if (w.clientWidth !== circW || w.clientHeight !== circH || a.clientHeight !== atomH || ovCv.clientWidth !== ovW) layout();
+      });
+    }
+    window.addEventListener("resize", queueLayout);
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(queueLayout);
+      [$("circWrap"), $("atomPane"), ovCv, document.querySelector("main")].forEach(function (el) { ro.observe(el); });
+    }
+  }
+  function zoom(f, atX) {
+    var ax = atX === null || atX === undefined ? (k >= 0 ? colX(I.col[k]) + cw / 2 : GUT) : atX;
+    var colAt = (ax - GUT + scrollX) / cw;
+    cw = clamp(cw * f, 2, 40);
+    scrollX = colAt * cw - (ax - GUT);
+    clampScroll(); dirty = true; requestFrame();
+  }
+
+  // ------------------------------------------------------------------ start
+  initHeader();
+  bind();
+  initRegen();
+  layout();
+  // test hook (used by headless checks); harmless otherwise
+  window.__viz = {
+    state: function () { return { k: k, N: N, M: M, m: movesAt(k), gran: gran, playing: playing, anim: !!anim, scrollX: scrollX, cw: cw,
+      dist: cumDist[movesAt(k)], depth: k >= 0 ? I.depth[k] : 0, cz: k >= 0 ? czUpTo[k] : 0, warn: cumWarn[movesAt(k)], F: F }; },
+    set: function (i) { setCursor(i, false); },
+    pos: function () { return Array.prototype.slice.call(positionsAfter(movesAt(k))); },
+    colOf: function (i) { return I.col[i]; },
+    sizesOk: function () {   // every canvas's backing store matches its CSS box (else drawing is stretched)
+      return [atomCv, circCv, ovCv].every(function (cv) {
+        return Math.abs(cv.width - Math.round(cv.clientWidth * DPR)) <= 1 && Math.abs(cv.height - Math.round(cv.clientHeight * DPR)) <= 1;
+      });
+    },
+    screenOfInst: function (i) { ensureVisible(i); var rh = rowH(); return { x: colX(I.col[i]) + cw / 2, y: wireY(lo[i] < 0 ? 0 : lo[i], rh) }; }
+  };
+})();
+</script>
+</body>
+</html>

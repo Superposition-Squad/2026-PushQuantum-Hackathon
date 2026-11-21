@@ -16,4 +16,6 @@ package = false
 [dependency-groups]
 dev = [
     "qiskit-aer>=0.18.4",
+    "playwright>=1.65",  # headless-browser checks of the bench/viz.py pages (docs/viz.md); never imported by compilers
+    "esprima>=4.0.1",  # JS syntax check of the inline page scripts (docs/viz.md)
 ]

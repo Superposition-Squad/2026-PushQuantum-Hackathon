@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>planqc compiler visualiser</title>
+<style>
+:root { --ink: #1d2733; --muted: #6b7684; --line: #dde2e8; --ok: #2e7d32; --bad: #c62828; --bg: #f6f7f9; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { background: #fff; border-bottom: 1px solid var(--line); padding: 10px 18px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+header h1 { margin: 0; font-size: 18px; }
+header .muted { color: var(--muted); }
+#toc { padding: 8px 18px 0; display: flex; flex-wrap: wrap; gap: 6px; }
+#toc a { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 2px 10px; text-decoration: none; color: var(--ink); }
+#toc a .s { color: var(--muted); margin-left: 4px; }
+section { background: #fff; border: 1px solid var(--line); border-radius: 8px; margin: 12px 18px; padding: 10px 14px; }
+section h2 { margin: 0 0 2px; font-size: 16px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+section .path { color: var(--muted); font-size: 12px; font-weight: normal; word-break: break-all; }
+.summary { margin: 4px 0 8px; display: flex; gap: 18px; flex-wrap: wrap; align-items: baseline; }
+.summary .score { font-size: 20px; font-weight: 700; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: 3px 7px; border-bottom: 1px solid #eef1f4; text-align: right; white-space: nowrap; }
+th { position: sticky; top: 0; background: #f3f5f8; font-weight: 600; color: #3b4652; cursor: pointer; user-select: none; }
+th.l, td.l { text-align: left; }
+tbody tr:hover { background: #f7fafc; }
+tr.sep td { background: #fafbfc; color: var(--muted); font-weight: 600; text-align: left; }
+.good { color: var(--ok); } .bad { color: var(--bad); } .muted { color: var(--muted); }
+.pill { display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 700; color: #fff; }
+.pill.ok { background: var(--ok); } .pill.fail { background: var(--bad); }
+a { color: #1f5fbf; }
+.empty { padding: 30px 18px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>planqc compiler visualiser</h1>
+  <span class="muted" id="gen"></span>
+  <span class="muted">pages: <code>bench/viz.py all &lt;compiler.py&gt;</code> · Δ = change vs the naive compiler (negative is better)</span>
+</header>
+<div id="toc"></div>
+<div id="groups"></div>
+<script id="viz-index" type="application/json">__VIZ_INDEX__</script>
+<script>
+(function () {
+  "use strict";
+  var DATA = JSON.parse(document.getElementById("viz-index").textContent);
+  var groups = DATA.groups || [];
+  function esc(s) { return String(s === null || s === undefined ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function fmt(x, d) { return (x === null || x === undefined || isNaN(x)) ? "–" : Number(x).toFixed(d); }
+  function delta(v, base) {
+    if (v === null || v === undefined || !base) return { html: "–", val: null };
+    var p = (v / base - 1) * 100;
+    var cls = p < -0.05 ? "good" : p > 0.05 ? "bad" : "muted";
+    return { html: '<span class="' + cls + '">' + (p >= 0 ? "+" : "") + p.toFixed(1) + "%</span>", val: p };
+  }
+  function size(b) { return !b ? "–" : b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.round(b / 1024) + " KB"; }
+  function improvement(v) { return '<span class="' + (v > 0 ? "good" : v < 0 ? "bad" : "muted") + '">' + (v >= 0 ? "+" : "") + fmt(v, 2) + "%</span>"; }
+  $("gen").textContent = "generated " + (DATA.generated || "") + " · " + groups.length + " compiler" + (groups.length === 1 ? "" : "s");
+  function $(id) { return document.getElementById(id); }
+  if (!groups.length) { $("groups").innerHTML = '<div class="empty">No pages yet. Run <code>bench/viz.py page &lt;compiler.py&gt; --circuit metric_circuit_01</code> or <code>bench/viz.py all &lt;compiler.py&gt;</code>.</div>'; return; }
+
+  var COLS = [
+    ["circuit", "l"], ["family", "l"], ["qubits", ""], ["status", "l"], ["distance", ""], ["naive", ""], ["Δ dist", ""],
+    ["depth", ""], ["naive", ""], ["Δ depth", ""], ["moves", ""], ["cz", ""], ["warn", ""], ["equivalence", "l"], ["compile s", ""], ["page", ""]
+  ];
+  var toc = "", out = "";
+  groups.forEach(function (g, gi) {
+    var rows = g.rows || [], s = g.summary;
+    var nok = rows.filter(function (r) { return r.ok; }).length;
+    var badge = s && s.valid ? (s.official ? "score " : "partial ") + (s.score >= 0 ? "+" : "") + fmt(s.score, 2) + "%" : "";
+    toc += '<a href="#g' + gi + '">' + esc(g.name) + '<span class="s">' + nok + "/" + rows.length + (badge ? " · " + badge : "") + "</span></a>";
+    out += '<section id="g' + gi + '"><h2>' + esc(g.name) + ' <span class="path">' + esc(g.compiler || "") + "</span></h2>";
+    out += '<div class="summary">';
+    out += "<span>" + nok + " / " + rows.length + " pages valid</span>";
+    if (s && s.valid) {
+      out += '<span class="score">' + (s.official ? "official score " : "partial score (" + s.n + " metric circuits) ") + improvement(s.score) + "</span>";
+      out += "<span>distance " + fmt(s.distance, 1) + " vs " + fmt(s.naive_distance, 1) + " " + improvement(s.distance_improvement) + "</span>";
+      out += "<span>depth " + s.depth + " vs " + s.naive_depth + " " + improvement(s.depth_improvement) + "</span>";
+      Object.keys(s.families || {}).forEach(function (f) {
+        var v = s.families[f];
+        out += '<span class="muted">' + esc(f) + ": dist " + improvement(v.distance_improvement) + " depth " + improvement(v.depth_improvement) + "</span>";
+      });
+    } else if (s && s.n) {
+      out += '<span class="bad">score not computed: a metric circuit failed</span>';
+    }
+    out += "</div>";
+    out += '<table data-g="' + gi + '"><thead><tr>' + COLS.map(function (c, ci) { return '<th class="' + c[1] + '" data-c="' + ci + '">' + c[0] + "</th>"; }).join("") + "</tr></thead><tbody>";
+    var lastSet = null;
+    rows.forEach(function (r) {
+      var set = /^metric_/.test(r.label) ? "metric circuits" : /^sample_/.test(r.label) ? "sanity circuits" : "other circuits";
+      if (set !== lastSet) { out += '<tr class="sep"><td colspan="' + COLS.length + '">' + set + "</td></tr>"; lastSet = set; }
+      var m = r.metrics || r.partial || {}, nv = r.naive || {};
+      var dd = delta(r.metrics ? m.move_distance : null, nv.move_distance), dp = delta(r.metrics ? m.depth : null, nv.depth);
+      var status = r.ok ? '<span class="pill ok">PASS</span>' : '<span class="pill fail" title="' + esc(r.error || "") + '">FAIL: ' + esc(r.stage || "?") + "</span>";
+      var href = encodeURIComponent(g.name) + "/" + encodeURIComponent(r.page || (r.label + ".html"));
+      var cells = [
+        ['<a href="' + href + '">' + esc(r.label) + "</a>", "l", r.label],
+        [esc(r.family || ""), "l", r.family || ""],
+        [r.qubits === undefined ? "–" : r.qubits, "", r.qubits],
+        [status, "l", r.ok ? 0 : 1],
+        [(r.metrics ? "" : '<span class="muted" title="partial (replay failed)">') + fmt(m.move_distance, 3) + (r.metrics ? "" : "</span>"), "mono", m.move_distance],
+        [fmt(nv.move_distance, 3), "mono muted", nv.move_distance],
+        [dd.html, "mono", dd.val],
+        [m.depth === undefined ? "–" : m.depth, "mono", m.depth],
+        [nv.depth === undefined ? "–" : nv.depth, "mono muted", nv.depth],
+        [dp.html, "mono", dp.val],
+        [m.num_moves === undefined ? "–" : m.num_moves, "mono", m.num_moves],
+        [r.cz === undefined || r.cz === null ? "–" : r.cz, "mono", r.cz],
+        [m.spacing_warnings === undefined ? "–" : m.spacing_warnings, "mono", m.spacing_warnings],
+        [esc(r.equivalence || ""), "l muted", r.equivalence || ""],
+        [fmt(r.compile_s, 1), "mono", r.compile_s],
+        [size(r.page_bytes), "mono muted", r.page_bytes]
+      ];
+      out += '<tr data-set="' + set + '">' + cells.map(function (c) {
+        var v = c[2] === null || c[2] === undefined ? "" : String(c[2]);
+        return '<td class="' + c[1] + '" data-v="' + esc(v) + '">' + c[0] + "</td>";
+      }).join("") + "</tr>";
+    });
+    out += "</tbody></table></section>";
+  });
+  $("toc").innerHTML = toc;
+  $("groups").innerHTML = out;
+
+  // click a header to sort that table (within each circuit set); click again to reverse
+  Array.prototype.forEach.call(document.querySelectorAll("th[data-c]"), function (th) {
+    th.addEventListener("click", function () {
+      var table = th.closest("table"), ci = +th.getAttribute("data-c"), tb = table.tBodies[0];
+      var dir = th.getAttribute("data-dir") === "asc" ? "desc" : "asc";
+      Array.prototype.forEach.call(table.querySelectorAll("th"), function (h) { h.removeAttribute("data-dir"); });
+      th.setAttribute("data-dir", dir);
+      var all = Array.prototype.slice.call(tb.rows), blocks = [], cur = null;
+      all.forEach(function (tr) { if (tr.className === "sep") { cur = { sep: tr, rows: [] }; blocks.push(cur); } else if (cur) cur.rows.push(tr); });
+      blocks.forEach(function (b) {
+        b.rows.sort(function (a, c) {
+          var x = a.cells[ci].getAttribute("data-v"), y = c.cells[ci].getAttribute("data-v");
+          var nx = parseFloat(x), ny = parseFloat(y), r;
+          if (!isNaN(nx) && !isNaN(ny) && /^-?[\d.]+(e-?\d+)?$/.test(x) && /^-?[\d.]+(e-?\d+)?$/.test(y)) r = nx - ny;
+          else r = x < y ? -1 : x > y ? 1 : 0;
+          return dir === "asc" ? r : -r;
+        });
+        tb.appendChild(b.sep);
+        b.rows.forEach(function (tr) { tb.appendChild(tr); });
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
