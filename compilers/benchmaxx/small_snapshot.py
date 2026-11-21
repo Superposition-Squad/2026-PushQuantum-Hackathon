@@ -15,6 +15,14 @@ Differences from `compilers/zonedwell/compiler.py` (itself kept intact), all jud
     the hub firing exactly one `rzz` (with a post-pass assertion that every partner fired).
   * 1q gates are flushed with `flush_now`, which dips exactly as deep as the deepest atom that still
     has a pending gate, so drifted layouts never break the storage invariant.
+  * one mass dip per run (`mass_flush`) applies every pending 1q gate instead of dipping once per
+    matching round, and matchings use *flat* ready sets (every ready block in one group: fewer
+    rounds, more free in-place fires) rather than zonedwell's hub-first split.
+  * `_row_shift_plan` tries one sideways row shift (<= 1.7) that re-pairs a whole row, firing the
+    newly adjacent blocks for free.
+  * a small portfolio: the flat and hub-categorised groupings x the lane layout and a dense two-row
+    band (`plan_layout_band`) are all compiled and the lowest `move_distance + 2.92 * depth` wins
+    (`_objective`, with moves and barriers excluded from the depth).
 
 Original zonedwell header follows.
 
@@ -503,9 +511,12 @@ def _category(blk, hub):
     return "hubY"
 
 
-def plan_groups(blocks, hub):
+def plan_groups(blocks, hub, flat=False):
     """Ready-set scheduling: every ready set is an antichain of the commutation DAG, so all its
-    members pairwise commute and may be reordered freely."""
+    members pairwise commute and may be reordered freely.
+
+    `flat` keeps every ready set whole (maximal parallelism: fewer rounds, more free in-place
+    fires) instead of preferring the hub blocks, which only pays off for the CZ conveyor."""
     n = len(blocks)
     gens = [_block_generator(b) for b in blocks]
     preds = [{i for i in range(j) if not _commute(blocks[i], gens[i], blocks[j], gens[j])} for j in range(n)]
@@ -515,12 +526,15 @@ def plan_groups(blocks, hub):
         ready = [j for j in range(n) if j not in done and not (preds[j] - done)]
         if not ready:  # pragma: no cover
             ready = [j for j in range(n) if j not in done]
-        chosen = None
-        for cat in ("hubZ", "hubY", "non"):
-            sel = [j for j in ready if _category(blocks[j], hub) == cat]
-            if sel:
-                chosen = sel
-                break
+        if flat:
+            chosen = ready
+        else:
+            chosen = None
+            for cat in ("hubZ", "hubY", "non"):
+                sel = [j for j in ready if _category(blocks[j], hub) == cat]
+                if sel:
+                    chosen = sel
+                    break
         groups.append([blocks[j] for j in chosen])
         done |= set(chosen)
     return groups
@@ -688,6 +702,26 @@ class _Machine:
                 st.flush(q)
 
         self.dip(depth, action)
+
+    def mass_flush(self):
+        """Apply every pending 1q gate with one dip as deep as needed (run boundary)."""
+        st = self.st
+        if not st.pending:
+            return
+        need = [q for q in st.pending if not _in_storage(st.pos[q])]
+        if not need:
+            st.flush_all()
+            return
+        if not st.in_zone:
+            self.to_zone()
+        depth = max(1, min(10, max(st.pos[q][1] - 9 for q in need)))
+
+        def action():
+            for q in need:
+                st.flush(q)
+
+        self.dip(depth, action)
+        st.flush_all()
 
     def flush_now(self, qubits):
         """Apply the pending 1q gates of `qubits`, dipping however deep is needed."""
@@ -877,10 +911,73 @@ class _Machine:
                 st.queue_1q(q, u)
         return ready
 
+    def _row_shift_plan(self, M):
+        """Best one-move sideways shift of a whole row that makes several blocks pairable.
+
+        Returns `(row, cols, new_cols, gain)` or None.  The move shifts every atom of the row in
+        the contiguous column span by one column (<= 1.7 physical), which re-pairs the row; it is
+        only proposed when it frees at least two blocks that would otherwise be placed (>= 2 x 2.0).
+        """
+        st = self.st
+        free_now = {blk for blk in M if self._paired_now(blk)}
+        best = None
+        for row in (10, 11):
+            atoms = {q: s[0] for q, s in st.pos.items() if s[1] == row and _in_zone(s)}
+            if len(atoms) < 2:
+                continue
+            lo, hi = min(atoms.values()), max(atoms.values())
+            for d in (-1, 1):
+                if lo + d < 0 or hi + d > 9:
+                    continue
+                new_at = {q: c + d for q, c in atoms.items()}
+                moved = {frozenset((q, st.occ.get((c2, row)))) for q, c2 in new_at.items()}
+                if any(o is not None and o not in atoms for pair in moved for o in [next(iter(pair))] ):
+                    pass
+                targets = {(c2, row): q for q, c2 in new_at.items()}
+                if len(targets) != len(new_at):
+                    continue
+                ok = True
+                for site in targets:
+                    o = st.occ.get(site)
+                    if o is not None and o not in atoms:
+                        ok = False
+                        break
+                if not ok:
+                    continue
+                pos = {q: (c2, row) for q, c2 in new_at.items()}
+                gained = 0
+                for blk in M:
+                    if blk in free_now or blk.u not in pos or blk.v not in pos:
+                        continue
+                    if _partner_site(pos[blk.u]) == pos[blk.v]:
+                        gained += 1
+                cost = max(_dist(st.pos[q], (c2, row)) for q, c2 in new_at.items())
+                if gained >= 2 and (best is None or (gained, -cost) > (best[3], -best[4])):
+                    best = (row, tuple(range(lo, hi + 1)), tuple(range(lo + d, hi + d + 1)), gained, cost)
+        return best
+
     def matching_round(self, M):
         st = self.st
         self.to_zone()
-        if _NATIVE_RZZ:
+        if _NATIVE_RZZ and len(M) > 1:
+            done = self._fire_here(M)
+            if done:
+                M = [blk for blk in M if blk not in done]
+            for _ in range(3):
+                if len(M) < 2:
+                    break
+                plan = self._row_shift_plan(M)
+                if plan is None:
+                    break
+                row, cols, new_cols, _g, _c = plan
+                st.move((row,), cols, (row,), new_cols)
+                done = self._fire_here(M)
+                if not done:
+                    break
+                M = [blk for blk in M if blk not in done]
+            if not M:
+                return
+        elif _NATIVE_RZZ:
             done = self._fire_here(M)
             if done:
                 M = [blk for blk in M if blk not in done]
@@ -1221,6 +1318,8 @@ def _compile_lanes(circuit, items, lay, groups):
     measures = [(it[1], it[2]) for it in items if it[0] == "measure"]
 
     def schedule(group_list):
+        if _NATIVE_RZZ:
+            mach.mass_flush()
         for group in group_list:
             if use_conveyor and all(hub in (b.u, b.v) for b in group):
                 if all(b.kind == "zz" and _mid_theta(b.mid) is not None for b in group):
@@ -1287,6 +1386,71 @@ def _rzz_allowed(spec):
     return any(isinstance(z, dict) and "rzz" in (z.get("operations") or ()) for z in zones.values())
 
 
+def plan_layout_band(n, hub):
+    """Dense two-row band: qubit `q` on column `q % 10`, rows just above storage.
+
+    Cheaper dips (depth 1 for n <= 10, else 2) and, for chain-like graphs, interaction pairs
+    that already hold the right partners (qubit `q` sits next to `q + 1`).
+    """
+    L = 1 if n <= 10 else 2
+    if n > 10 * L:
+        return None
+    home = {q: (q % 10, 10 - L + q // 10) for q in range(n)}
+    if len(set(home.values())) != n:
+        return None
+    zone_home = {q: (s[0], s[1] + L) for q, s in home.items()}
+    partners = [q for q in range(n) if q != hub]
+    return {"home": home, "zone_home": zone_home, "lanes": _lanes(partners, home), "hub": hub,
+            "partners": partners, "conveyor": False, "L": L, "park": zone_home[hub]}
+
+
+def _gate_depth(out):
+    """Depth of the gate layers only (moves and barriers are free, as in the official metric)."""
+    last = {}
+    depth = 0
+    for inst in out.data:
+        name = inst.operation.name
+        if name in ("move", "barrier"):
+            continue
+        qubits = [q for q in inst.qubits]
+        layer = 1 + max((last.get(q, 0) for q in qubits), default=0)
+        for q in qubits:
+            last[q] = layer
+        depth = max(depth, layer)
+    return depth
+
+
+def _objective(st):
+    """What the official score counts: `move_distance + 2.92 * depth`."""
+    return st.distance + 2.92 * _gate_depth(st.out)
+
+
+def _lanes_attempts(items, runs, blocks, hub, n, use_conveyor):
+    """Grouping variants, best objective first (`flat` and hub-categorised ready sets)."""
+    out = []
+    for flat in ((True, False) if _NATIVE_RZZ else (False,)):
+        try:
+            groups = [plan_groups(run, hub, flat=flat) for run in runs]
+        except Exception:
+            continue
+        layouts = [plan_layout(n, hub, blocks, [g for gs in groups for g in gs], use_conveyor)]
+        if n <= 19:
+            layouts.append(plan_layout_band(n, hub))
+        for lay in layouts:
+            if lay is None:
+                continue
+            try:
+                st = _compile_lanes(items["circuit"], items["items"], lay, groups)
+            except AssertionError:
+                _STATS["fell_back"] += 1
+                if _DEBUG:
+                    raise
+                continue
+            out.append((_objective(st), st))
+    out.sort(key=lambda pair: pair[0])
+    return out
+
+
 def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
     global _NATIVE_RZZ
     _NATIVE_RZZ = _rzz_allowed(architecture_spec)
@@ -1300,20 +1464,10 @@ def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any = None):
             hub = _parked_qubit(items, n)
         blocks = [it[1] for it in items if it[0] == "blk"]
         runs = _runs(items)
-        try:
-            groups = [plan_groups(run, hub) for run in runs]
-        except Exception:
-            groups = None
-        if groups is not None:
-            lay = plan_layout(n, hub, blocks, [g for gs in groups for g in gs], use_conveyor)
-            if lay is not None:
-                try:
-                    st = _compile_lanes(circuit, items, lay, groups)
-                except AssertionError:
-                    _STATS["fell_back"] += 1
-                    if _DEBUG:
-                        raise
-                    st = None
+        ctx = {"circuit": circuit, "items": items}
+        best = _lanes_attempts(ctx, runs, blocks, hub, n, use_conveyor)
+        if best:
+            st = best[0][1]
     if st is None:
         _STATS["generic"] += 1
         st = _compile_generic(circuit, architecture_spec)

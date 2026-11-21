@@ -128,11 +128,49 @@ def _b_free_sites(st):
     return [(x, y) for y in range(20) for x in range(10) if (x, y) not in st.occ]
 
 
+_B_KEEP = 0.7
+_B_MU = 0.5
+_B_W = 4.0
+
+
+def _b_pdist(pa, pb):
+    def partner(p):
+        return (p[0] ^ 1, max(p[1], 10))
+
+    return min(_b_dist(pa, partner(pb)), _b_dist(pb, partner(pa)))
+
+
+def _b_delta_phi(st, qs, ct, rows):
+    """Change of the summed pairing distance of the still-needed edges touching the moved atoms
+    (edges this move completes are excluded)."""
+    newpos = {q: (ct, r) for q, r in zip(qs, rows)}
+    occ_new = {s: q for s, q in st.occ.items() if q not in newpos}
+    for q, p in newpos.items():
+        occ_new[p] = q
+    delta = 0.0
+    seen = set()
+    for q in qs:
+        for e in st.adj_todo.get(q, ()):
+            if e in seen or e not in st.todo:
+                continue
+            seen.add(e)
+            a, b = tuple(e)
+            pa_new, pb_new = newpos.get(a, st.pos[a]), newpos.get(b, st.pos[b])
+            if pa_new[1] >= 10 and occ_new.get((pa_new[0] ^ 1, pa_new[1])) == b:
+                continue
+            delta += _b_pdist(pa_new, pb_new) - _b_pdist(st.pos[a], st.pos[b])
+    return delta
+
+
 def _b_router(st, max_run=8, max_iter=3000):
     """Greedy: repeatedly apply the column-run move (any target column, any ascending target rows)
     with the best gain / distance (DP over target rows for each distance threshold)."""
     it = 0
     rows_all = range(20)
+    st.adj_todo = {}
+    for e in st.todo:
+        for q in e:
+            st.adj_todo.setdefault(q, []).append(e)
     while st.todo and it < max_iter:
         it += 1
         need = {}
@@ -141,6 +179,7 @@ def _b_router(st, max_run=8, max_iter=3000):
                 need.setdefault(q, set()).update(e - {q})
         best = None
         best_ratio = 0.0
+        cands = []
         cols = {c: st.column_atoms(c) for c in range(10)}
         occ = st.occ
         for cs in range(10):
@@ -173,7 +212,7 @@ def _b_router(st, max_run=8, max_iter=3000):
                                 g = 0
                                 if t >= 10:
                                     w = occ.get((ct ^ 1, t))
-                                    if w is not None and w in nq:
+                                    if w is not None and w in nq and w not in qset:
                                         g = 1
                                 d = _b_dist(src, (ct, t))
                                 lst.append((t, d, g))
@@ -185,11 +224,11 @@ def _b_router(st, max_run=8, max_iter=3000):
                             if any(g for _, _, g in lst):
                                 maxg += 1
                             opts.append(lst)
-                        if not feasible or maxg == 0 or maxg / ming <= best_ratio:
+                        if not feasible or maxg == 0 or maxg / ming <= best_ratio * _B_KEEP:
                             continue
                         ths = sorted({d for lst in opts for t, d, g in lst if g})
                         for D in ths:
-                            if maxg / D <= best_ratio:
+                            if maxg / D <= best_ratio * _B_KEEP:
                                 break
                             # DP: prev[t] = best gain with last atom at row <= t
                             prev = [0] * 20
@@ -222,7 +261,7 @@ def _b_router(st, max_run=8, max_iter=3000):
                             if gain <= 0:
                                 continue
                             ratio = gain / D
-                            if ratio > best_ratio + 1e-12:
+                            if ratio > best_ratio * _B_KEEP + 1e-12:
                                 # backtrack
                                 tgt = [0] * k
                                 tmax = 19
@@ -236,14 +275,22 @@ def _b_router(st, max_run=8, max_iter=3000):
                                         # verify consistency: cur[t] == need_val
                                         if cur[t] == need_val:
                                             tgt[ai] = t
-                                            gt = 1 if (t >= 10 and occ.get((ct ^ 1, t)) in need.get(qs[ai], ())) else 0
+                                            w2 = occ.get((ct ^ 1, t))
+                                            gt = 1 if (t >= 10 and w2 in need.get(qs[ai], ()) and w2 not in qset) else 0
                                             need_val -= gt
                                             tmax = t - 1
                                             break
-                                best_ratio = ratio
-                                best = ((ratio,), cs, qs, ct, tgt)
-        if best is not None:
-            _, cs, qs, ct, nr = best
+                                best_ratio = max(best_ratio, ratio)
+                                cands.append((ratio, gain, D, cs, qs, ct, tgt))
+        if cands:
+            if _B_MU > 0:
+                best = max(
+                    (c for c in cands if c[0] >= best_ratio * _B_KEEP - 1e-12),
+                    key=lambda c: ((c[1] - _B_MU * _b_delta_phi(st, c[4], c[5], c[6]) / _B_W) / c[2], c[0]),
+                )
+            else:
+                best = max(cands, key=lambda c: c[0])
+            _, _, _, cs, qs, ct, nr = best
             st.move_column_run(cs, qs, ct, nr)
             continue
         # fallback: evict the occupant of u's partner site, then bring v there
@@ -503,7 +550,7 @@ def _big_compile_one(circuit, architecture_spec, required, variant=0):
     return st.build(), Architecture(st.loading, spec=architecture_spec), st.dist
 
 
-_BIG_VARIANTS = 6
+_BIG_VARIANT_LIST = [(0, 0.7, 1.0), (1, 0.7, 1.0), (2, 0.7, 1.0), (0, 0.6, 1.0), (0, 0.8, 1.0), (3, 0.7, 0.6), (0, 1.0, 0.0), (1, 1.0, 0.0)]
 _BIG_BUDGET_S = 150.0  # safety net only (normal runs never hit it, so output stays deterministic)
 
 
@@ -519,8 +566,10 @@ def _big_compile(circuit, architecture_spec):
         if order is not None:
             return _big_path(n, order, required, architecture_spec)
     best = None
-    for v in range(_BIG_VARIANTS):
+    global _B_KEEP, _B_MU
+    for v, keep, mu in _BIG_VARIANT_LIST:
         t1 = time.time()
+        _B_KEEP, _B_MU = keep, mu
         qc, arch, d = _big_compile_one(circuit, architecture_spec, required, v)
         score = d + 2.92 * qc.depth()
         if best is None or score < best[0]:
