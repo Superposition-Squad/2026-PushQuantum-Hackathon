@@ -1,5 +1,9 @@
 # Idea: systolic2 (staging-row choreography for matching rounds)
 
+> **Update ~01:30 CET:** `compilers/solo` (teammate) implements essentially this plan (dynamic band,
+> no fixed homes, rigid rectangle lifts per round, multi-start search) and reaches +90.11; see
+> [solo.md](solo.md). Further work should build on solo / blockingcz rather than on systolic2.
+
 - Code: `compilers/systolic2/compiler.py` (fork of `compilers/systolic`, v5 storage machine).
 - Status: plan + first measurements (2026-11-22 ~00:30 CET). Current systolic2: **+85.41** on the
   v5 set (systolic +85.34), `systolic2_po` **+86.35** (systolic_po +86.30).
