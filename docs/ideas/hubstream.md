@@ -134,6 +134,7 @@ them, on the free storage sites nearest to `(10, 0)` (iteration 2).
 | + end pair of row 10 reserved for the hub, all n | – | 81.35 | 83.61 | 72.33 | D = 45 359.8; 50q p3 stagger 5 981 → 5 579, but 20q qaoa p3 1 262 → 1 387 |
 | + end pair only for n > 20 (final) | `6262b1b` | 81.51 | 83.80 | 72.33 | D = 44 825.4; hub at entangling (9,10), home (9,9); other tasks never use pair (8,9) of row 10 |
 | + round 2: gates' commutation-DAG front end, per-circuit pick | `52039db` | **81.94** | 83.61 | **75.28** | D = 45 368.3, P = 5 854; both front ends compiled, cheaper `D + 2.92·depth` kept |
+| + round 2b: widened candidate grid | `506ecdc` | **82.01** | 83.69 | 75.28 | D = 45 135.4, P = 5 854; + `MAX_PAIRS` 3/5, hub-end on/off, hub loading, DAG end on/off as candidates |
 
 ### Round 2 — commutation DAG front end (step 3r2)
 
@@ -259,6 +260,27 @@ that is the next thing to try, together with keeping the hub at a row-10 end col
 split the run.
 Both 3d pieces are real local wins on `50q qaoa p1` (2 407 → 2 166) but lose ~2 % overall, so they
 are reverted too; the step-2 compiler is unchanged.
+
+### Round 2b — widened candidate grid
+
+Every round-1 knob that was a circuit-dependent win is now a *candidate* instead of a global
+constant, and `compile_circuit` keeps the candidate with the lowest `D + 2.92·depth`:
+
+* wire front end with `MAX_PAIRS` ∈ {3, 4, 5} (a scheduler argument, not a mutated global);
+* the row-10 hub **end-pair reservation** on and off, for every n with a hub (passed into `emit`,
+  `_best_pair` and the loading as a parameter);
+* the round-1 STEP-2 **hub loading** (`_loading_hub`: hub at storage (1,9), partners queued nearest
+  entangling slot (0,10)) as an alternative loading;
+* DAG front end with round caps {2, 3, 4} (both hub-end settings are now reachable through the wire
+  candidates; DAG keeps `hub_end = n > 20`).
+
+The grid is a fixed order (by measured win frequency) truncated by a **count** rule — all candidates
+for n ≤ 20, the first 8 for n ≤ 50, the previous two for n > 50 — never by wall clock. 36-circuit
+Σ(`D + 2.92·depth`): **62 229.1** vs 62 461.9 before (−232.8, −0.37 %); score +82.01 % vs +81.94 %.
+Six circuits improved (12q/20q/50q HEA p1, 50q HEA p3, 50q iHVA tree p1/p3 — e.g. 50q HEA p3
+790.1 → 714.5, 50q HEA p1 206.6 → 152.1), none got worse. Slowest compile 5.5 s (50q iHVA p3),
+70q sanity 12.2 s. A wider grid (wire caps 2/6, two hub loadings, DAG end on/off) measured only
+62 204.7 — 0.02 score points for roughly twice the compile time — so it was not taken.
 
 ### Round 2 — 15-circuit comparison, old (`6262b1b`) vs new, `D + 2.92·depth`
 
