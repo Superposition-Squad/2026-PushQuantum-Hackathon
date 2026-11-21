@@ -268,8 +268,18 @@ Validity, checked by the planner on frozen snapshots of the committed code (not 
 implementer's runs): `--mode full` 36/36 metric and `--set sanity --mode full` 13/13 (every sanity
 circuit up to 18 qubits exactly `equivalent_up_to_global_phase` under QCEC; the 40- and 70-qubit
 kitchen sinks go through the generic fallback). `--mode strict` on `e0c88c4`: all 20-qubit circuits
-(HEA, all six iHVA variants, QAOA) pass the statevector ×3 check; 50-qubit QCEC results are listed
-below. Max compile time 6.3 s on the metric set, 12.8 s on the 70-qubit sanity circuit.
+(HEA, all six iHVA variants, QAOA) pass the statevector ×3 check. 50-qubit QCEC proved
+`equivalent_up_to_global_phase` for HEA p1/p3 and iHVA stagger p1, tree p1/p3, tree_warm p1/p3. For
+50q QAOA p1/p3, QCEC returned only `probably_not_equivalent`, the ZX checker's known inconclusive
+verdict for arbitrary angles (the bench counts it as a pass). The 5-lane hub hops and parking are
+used only at ≥ 41 partners, so 12q/20q checks do not cover them. The planner therefore ran an extra
+exact check (`/tmp/zw/cliff.py`): set every rotation angle to π/2 (which makes the circuit Clifford),
+compile, and compare stabilizer tableaux of the compiled and reference circuits. **Equal for 50q
+QAOA p1, 50q QAOA p3 and 50q iHVA stagger p3** (and 12q QAOA). A wrong pairing, a missing or extra
+`cz`, or misordered blocks would break this; the angle-dependent gate algebra is verified separately
+by exact QCEC at 12 q and statevector at 20 q. The strict run was cut off by the time box before the
+remaining 50q circuits (iHVA stagger p3 and QAOA warm) reported; no circuit failed. Max compile time
+6.3 s on the metric set, 12.8 s on the 70-qubit sanity circuit.
 
 **Per-round cost vs "lift and return".** A hub `cz` costs one conveyor slide of exactly **1.0**,
 and that slide is also the partner's storage trip. Lift-and-return pays at least **2.0** per hub
