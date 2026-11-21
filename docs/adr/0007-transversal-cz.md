@@ -1,6 +1,6 @@
 # ADR-0007: Respect transversal CZ (physics check beyond the validator)
 
-- Status: Accepted (orchestrator decision; flagged to the user)
+- Status: Partly superseded by ADR-0011 (validator v1.0.0 `idle` rule forbids lone atoms in the zone during a gate layer); the equal-pulse-count check stays
 - Date: 2026-11-21
 
 ## Context

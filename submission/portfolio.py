@@ -14,7 +14,7 @@ __generated_with = "0.25.2"
 app = marimo.App(width="medium")
 
 with app.setup:
-    # built from commit 7a013f8 with components: hubstream rectbatch gates (+ naive fallback)
+    # built from commit 1657f65 with components: hubstream rectbatch gates (+ naive fallback)
     #   hubstream    compilers/hubstream/compiler.py  sha256:0f99f9a3fd37  (1442 lines)
     #   rectbatch    compilers/rectbatch/compiler.py  sha256:f85bc87b0489  (1161 lines)
     #   gates        compilers/gates/compiler.py  sha256:702ecc5821e9  (962 lines)
@@ -35,7 +35,7 @@ with app.setup:
     _BUDGET_S = 150.0  # skip remaining components once this much wall/CPU time is spent
     _SV_MAX_QUBITS = 14
     _W_DISTANCE, _W_DEPTH = 0.8, 0.2
-    _NAIVE_DISTANCE, _NAIVE_DEPTH = 276726.91, 23676
+    _NAIVE_DISTANCE, _NAIVE_DEPTH = 163364.3, 13364  # v5 leaderboard set (docs/adr/0011)
 
     _VALIDATOR_SOURCE = (
         'from __future__ import annotations\n'
@@ -117,7 +117,7 @@ with app.setup:
         '\n'
         '@functools.cache\n'
         'def _trusted_text() -> str:\n'
-        '    return \'{\\n  "loading_zone": "storage",\\n  "zones": {\\n    "storage": {\\n      "x": [0, 9],\\n      "y": [0, 9],\\n      "spacing": 1.0,\\n      "operations": ["rx", "rz"]\\n    },\\n    "entangling": {\\n      "x": [0, 9],\\n      "y": [10, 19],\\n      "spacing": 1.0,\\n      "pairs": {"axis": "x", "distance": 0.3},\\n      "operations": ["cz", "rzz"]\\n    }\\n  }\\n}\\n\'\n'
+        '    return \'{\\n  "loading_zone": "storage",\\n  "zones": {\\n    "storage": {\\n      "x": [0, 9],\\n      "y": [0, 9],\\n      "spacing": 1.0,\\n      "operations": ["rx", "rz"]\\n    },\\n    "entangling": {\\n      "x": [0, 9],\\n      "y": [10, 19],\\n      "spacing": 1.0,\\n      "pairs": {"axis": "x", "distance": 0.3},\\n      "operations": ["cz"]\\n    }\\n  }\\n}\\n\'\n'
         '\n'
         '\n'
         'def load_trusted_spec() -> dict[str, Any]:\n'
