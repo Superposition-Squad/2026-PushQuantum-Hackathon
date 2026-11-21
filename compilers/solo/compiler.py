@@ -527,6 +527,7 @@ class Executor:
     def __init__(self, n, hub, home, emit=True):
         self.n, self.hub, self.home = n, hub, dict(home)
         self.m = Machine(n, home, emit)
+        self.nxt = None
 
     # helpers
     def free(self, s):
@@ -601,15 +602,31 @@ class Executor:
         reserved = set(targets.values())
         while pending:
             progress = False
-            for q in sorted(pending, key=lambda q: _dist(m.pos[q], pending[q])):
-                d = pending[q]
+            for q, d in pending.items():
                 o = m.occ.get(d)
-                if o is None:
-                    m.move({q: d})
-                    del pending[q]
-                    progress = True
-                elif o not in pending:
+                if o is not None and o not in pending:
                     raise Illegal("relocation target held by a fixed atom")
+            # atoms whose target is free now, grouped by displacement vector
+            free_now = [q for q in pending if pending[q] not in m.occ]
+            groups = {}
+            for q in free_now:
+                s, d = m.pos[q], pending[q]
+                groups.setdefault((d[0] - s[0], d[1] - s[1]), []).append(q)
+            for vec in sorted(groups, key=lambda v: (-len(groups[v]), v)):
+                qs = [q for q in groups[vec] if q in pending and pending[q] not in m.occ]
+                qs.sort(key=lambda q: (m.pos[q][1], m.pos[q][0]))
+                while qs:
+                    sel = {qs[0]: pending[qs[0]]}
+                    for q in qs[1:]:
+                        trial = dict(sel)
+                        trial[q] = pending[q]
+                        if m.can_move(trial):
+                            sel = trial
+                    m.move(sel)
+                    for q in sel:
+                        del pending[q]
+                    qs = [q for q in qs if q in pending]
+                    progress = True
             if not progress:
                 q = min(pending)
                 tmp = self.nearest_free(m.pos[q], avoid=reserved)
@@ -630,25 +647,64 @@ class Executor:
             raise Illegal("no free site")
         return best[1]
 
+    LOOK = 0.35
+
+    def _lookpos(self, q):
+        nx = self.nxt.get(q) if self.nxt else None
+        return self.m.pos[nx] if nx is not None else None
+
     def run_round_band(self, blks):
         from scipy.optimize import linear_sum_assignment
 
         m = self.m
         P = len(blks)
-        h = max(1, math.ceil(P / 5))
-        rows = list(range(10 - h, 10))
-        slots = [(j, y) for y in rows for j in range(5)]
-        cost = np.zeros((P, len(slots)))
-        orient = np.zeros((P, len(slots)), dtype=bool)
-        for i, b in enumerate(blks):
-            pa, pb = m.pos[b.c], m.pos[b.t]
-            for k, (j, y) in enumerate(slots):
-                L, R = (2 * j, y), (2 * j + 1, y)
-                c1 = _dist(pa, L) + _dist(pb, R)
-                c2 = _dist(pa, R) + _dist(pb, L)
-                cost[i, k] = min(c1, c2)
-                orient[i, k] = c2 < c1
-        ri, ci = linear_sum_assignment(cost)
+        lam = self.LOOK
+        members = {q for b in blks for q in b.qubits()}
+        look = {q: self._lookpos(q) for q in members}
+        # candidate rectangles: rows a..9, pair columns j1..j2
+        rects = []
+        for j1 in range(5):
+            for j2 in range(j1, 5):
+                w = j2 - j1 + 1
+                hmin = math.ceil(P / w)
+                for h in (hmin, hmin + 1):
+                    if 1 <= h <= 10 - 0 and h <= 9:
+                        rects.append((10 - h, j1, j2))
+        occ_free = None
+        best = None
+        for a, j1, j2 in rects:
+            slots = [(j, y) for y in range(a, 10) for j in range(j1, j2 + 1)]
+            cost = np.zeros((P, len(slots)))
+            orient = np.zeros((P, len(slots)), dtype=bool)
+            for i, b in enumerate(blks):
+                pa, pb = m.pos[b.c], m.pos[b.t]
+                la, lb = look[b.c], look[b.t]
+                for k, (j, y) in enumerate(slots):
+                    L, R = (2 * j, y), (2 * j + 1, y)
+                    c1 = _dist(pa, L) + _dist(pb, R)
+                    c2 = _dist(pa, R) + _dist(pb, L)
+                    if lam:
+                        if la is not None:
+                            c1 += lam * _dist(L, la)
+                            c2 += lam * _dist(R, la)
+                        if lb is not None:
+                            c1 += lam * _dist(R, lb)
+                            c2 += lam * _dist(L, lb)
+                    cost[i, k] = min(c1, c2)
+                    orient[i, k] = c2 < c1
+            ri, ci = linear_sum_assignment(cost)
+            tot = float(cost[ri, ci].sum())
+            x1, x2 = 2 * j1, 2 * j2 + 1
+            ev = [q for q, (x, y) in m.pos.items() if y >= a and y <= 9 and x1 <= x <= x2 and q not in members]
+            for q in ev:
+                x, y = m.pos[q]
+                tot += min(y - a + 1, x - x1 + 1 if x1 > 0 else 99, x2 - x + 1 if x2 < 9 else 99)
+            h = 10 - a
+            tot += 4 * math.hypot(h, 0.7)
+            if best is None or tot < best[0] - 1e-9:
+                best = (tot, a, j1, j2, slots, ri, ci, orient)
+        _, a, j1, j2, slots, ri, ci, orient = best
+        h = 10 - a
         targets = {}
         for i, k in zip(ri, ci):
             b = blks[i]
@@ -658,11 +714,11 @@ class Executor:
                 targets[b.c], targets[b.t] = R, L
             else:
                 targets[b.c], targets[b.t] = L, R
-        members = set(targets)
         reserved = set(targets.values())
-        # evict non-members from the band rows
-        for q in sorted(q for q, s in m.pos.items() if s[1] in rows and q not in members):
-            t = self.nearest_free(m.pos[q], avoid=reserved, rows=range(0, 10 - h))
+        x1, x2 = 2 * j1, 2 * j2 + 1
+        inside = lambda s: a <= s[1] <= 9 and x1 <= s[0] <= x2
+        for q in sorted(q for q, s in m.pos.items() if inside(s) and q not in members):
+            t = self.nearest_free(m.pos[q], avoid=reserved | {(x, y) for x in range(x1, x2 + 1) for y in range(a, 10)})
             reserved.add(t)
             targets[q] = t
         self.relocate(targets)
@@ -716,6 +772,7 @@ class Executor:
     def clone(self):
         e = Executor.__new__(Executor)
         e.n, e.hub, e.home = self.n, self.hub, self.home
+        e.nxt = self.nxt
         m = Machine.__new__(Machine)
         src = self.m
         m.n, m.emit, m.qc = src.n, False, None
@@ -846,6 +903,18 @@ def default_layout(n, hub):
     return home
 
 
+def next_partners(steps):
+    """nx[k][q] = q's partner in the first step after k that involves q."""
+    nx = [None] * len(steps)
+    cur = {}
+    for k in range(len(steps) - 1, -1, -1):
+        nx[k] = dict(cur)
+        for b in steps[k][1]:
+            cur[b.c] = b.t
+            cur[b.t] = b.c
+    return nx
+
+
 POLICIES = [("look", 2.0), ("look", 0.0), ("look", 1.0), ("look", 4.0), ("thresh", 8), ("thresh", 16), ("thresh", 30), ("thresh", 45), ("rounds",), ("look", 2.0, True, 8), ("look", 2.0, True, 20), ("look", 4.0, True, 12), ("thresh", 20, True), ("thresh", 30, True), ("thresh", 45, True), ("rounds", 0, True)]
 DEPTH_W = 0.2 / 13364 / (0.8 / 163364.298)  # distance units per depth unit (~3.06)
 
@@ -862,7 +931,9 @@ def compile_ihva(n, blocks, policies=None, emit=True):
         try:
             steps = schedule(blocks, preds, succs, hub, pol)
             ex = Executor(n, hub, home, emit=False)
-            for kind, blks in steps:
+            nx = next_partners(steps)
+            for k, (kind, blks) in enumerate(steps):
+                ex.nxt = nx[k]
                 (ex.run_round_band if kind == "round" else ex.run_hub)(blks)
             ex.m.finish()
         except Illegal:
@@ -875,7 +946,9 @@ def compile_ihva(n, blocks, policies=None, emit=True):
     if not emit:
         return best
     ex = Executor(n, hub, home)
-    for kind, blks in best[2]:
+    nx = next_partners(best[2])
+    for k, (kind, blks) in enumerate(best[2]):
+        ex.nxt = nx[k]
         (ex.run_round_band if kind == "round" else ex.run_hub)(blks)
     ex.m.finish()
     return ex.m.qc, home
