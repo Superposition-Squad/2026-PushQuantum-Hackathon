@@ -2302,7 +2302,7 @@ def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None
     if IDLE_RULE and options.get("planner", "pulse") == "pulse":
         # deterministic effort: beam width from the problem size (n atoms x ops), both layouts
         size = max(1, comp.n * len(comp.ops))
-        beam = 1 if DEV_FAST else max(1, min(24, int(BEAM_BUDGET / size)))
+        beam = 1 if (DEV_FAST or comp.n > 12) else max(1, min(24, int(BEAM_BUDGET / size)))
         if options.get("pulse_opts"):
             variants = [options["pulse_opts"]]
         else:
