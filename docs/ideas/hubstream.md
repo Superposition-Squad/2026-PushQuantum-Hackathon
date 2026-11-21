@@ -136,7 +136,8 @@ them, on the free storage sites nearest to `(10, 0)` (iteration 2).
 
 A hard pin of the hub to the end pair (instead of a reservation) failed on 10 circuits: after the
 hub's mixer descent a parked atom could hold the pair when the hub came back ("no free interaction
-pair"). Reserving the pair for hub tasks fixes it.
+pair"). Reserving the pair for hub tasks fixes it. Re-tuning `MAX_PAIRS` on top of it: 3 → 81.01,
+**4 → 81.51**, 5 → 81.21 (depth identical in all three: gate-order ready sets rarely exceed 4 tasks).
 
 Measured on the 8-circuit probe subset (score / distance), used to pick knobs:
 
@@ -158,7 +159,8 @@ Measured on the 8-circuit probe subset (score / distance), used to pick knobs:
 
 **Final (`6262b1b`, `--mode full`): +81.51 %** — distance +83.80 % (D 44 825.4), depth +72.33 %
 (P 6 550). Families: hea +78.57 / +48.39, ihva +86.19 / +75.21, qaoa +80.52 / +69.01. 36/36 metric
-circuits pass full mode with zero physics/architecture/equivalence failures.
+circuits pass full mode with zero physics/architecture/equivalence failures. Sanity: 13/13 pass in full mode
+(QCEC-exact on sample 1–11; sample_circuit_11's check alone takes ~476 s in the harness).
 
 50q circuits (distance, vs naive): QAOA p1 2 021 (−75.7 %), QAOA p3 5 861 (−76.5 %), iHVA stagger
 p3 5 579 (−77.6 %), iHVA tree p3 5 858 (−76.5 %), tree_warm p3 751 (−97.0 %), HEA p3 726 (−72.7 %).
