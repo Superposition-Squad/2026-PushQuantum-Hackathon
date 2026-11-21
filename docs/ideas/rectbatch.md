@@ -229,3 +229,51 @@ control in the zone between the two CZs of a ZZ block, chain several CZs of one 
 
 Caveat for reproducibility: the placement search is wall-clock budgeted, so the score moves by
 about ±0.2 between identical runs on a loaded machine.
+
+## Round 2 (15:20–18:15 UTC)
+
+### 1. Determinism (done, `27af677`)
+
+The wall-clock budget of the placement search is replaced by a fixed **work budget**: each cache
+miss of the per-round cost adds `max(1, k)` units (`2k` for rounds with more than 8 pairs, which
+plan super-linearly), with `k` = pairs in the round; budgets 20 k (≤ 16 q), 40 k (≤ 24 q),
+50 k (≤ 50 q), 10 k (larger or > 1 000 rounds), plus a proposal cap of 3× the budget so that a
+search whose proposals all hit the cache still stops. Fixed seed, no `time` import.
+
+| check | result |
+|---|---|
+| full metric, run 1 vs run 2 (per-circuit `num_moves`, `move_distance`, `depth`, `num_operations`, `move_steps`) | **identical** |
+| `--mode full` | 36/36 + 13/13 sanity |
+| score | **+76.87 %** (distance +77.16 %, depth +75.74 %), was +77.54 % with the 20 s wall-clock search |
+| slowest compile | 17.3 s (50q iHVA tree_warm p1), under load |
+
+Every circuit where rectbatch was best in round 1 (all HEA, all `*_warm` iHVA, 13 circuits) is
+**bit-for-bit the same distance** as before (the search had converged there); the loss is entirely
+on 50q iHVA/QAOA (+2 to +7 % distance), where zonedwell wins anyway.
+
+θ≡0 block elision: not needed — the warm circuits have 18 blocks with θ≡0 mod 2π, but
+`transpile(level 1)` already removes them (same `cz` count with and without explicit elision).
+
+### 2. Fewer zone trips (`8b1b536`, +76.98 %)
+
+- **A. Hub on the control side** (`zz_orient`, exact: `cx(a,b) rz(t)_b cx(a,b) = cx(b,a) rz(t)_a cx(b,a)`,
+  applied to the input before the level-1 transpile, towards the endpoint of larger degree). Cuts
+  the single-qubit gates on the hub wire from 14 to 3–4 (12q QAOA/iHVA), but raises iHVA depth
+  (12q stagger p1 43 → 51). Shipped as a **per-circuit candidate**: the plain pipeline is built
+  first, the oriented one (half search budget) is kept only if it lowers `D + 2.922·P`. It wins only
+  on the 20q QAOA circuits (29/31: 491.6/118 → 486.9/109; 30/32: depth 244 → 237/241); every other
+  circuit is bit-identical to `27af677`.
+- **B. Dynamic positions with parking** (atom stays in the zone while its pending 1q run is empty
+  and its next cz is ≤ K rounds away; blocked pairs; in-zone re-pairing): implemented, validated
+  (legal moves, ADR 0007 by simulation) and **rejected — ~40 % worse** everywhere tried
+  (12q QAOA p1 301 → 435, 12q iHVA stagger p1 254 → 372, 20q QAOA p1 492 → 685, 20q iHVA stagger
+  p3 1655 → 2294). A parked atom sits on a slot chosen for its *previous* partner, so the new
+  partner pays the horizontal offset; since a move costs the max over its atoms, the saved trip
+  of the parked atom almost never lowers any move's cost. Restricting parking to row 10 changed
+  nothing. Code kept behind `PARK = False`. Making retention pay inside this planner would need
+  slot choice with look-ahead to the next partner (what hubstream/zonedwell do with fixed hub
+  slots and lanes) — their designs, not a tweak of mine.
+- **C. θ≡0 elision**: no effect, level 1 already removes those blocks.
+
+Validity of `8b1b536`: full 36/36 + sanity 13/13; `--filter 20q --mode strict` 12/12 (statevector
+×3); two full metric runs per-circuit identical (score 76.9809 both); slowest compile 20.5 s.

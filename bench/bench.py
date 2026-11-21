@@ -4,8 +4,8 @@ Usage (from the repo root):
     uv run python bench/bench.py compilers/<idea>/compiler.py [--mode fast|full|strict]
         [--set metric|sanity|all] [--jobs N] [--filter SUBSTR] [--name LABEL] [--timeout S]
 
-Every mode also runs the transversal-CZ physics check (docs/adr/0007-transversal-cz.md) unless
---no-physics is given.
+Every mode also runs the transversal-CZ physics check (docs/adr/0007-transversal-cz.md) and the
+zone-span check (docs/adr/0010-zone-span.md) unless --no-physics / --no-zonespan is given.
 
 Modes:
     fast   compile + movement replay + metrics (no equivalence check)
@@ -51,6 +51,7 @@ from pushquantum_validator.errors import ArchitectureError, CompilerOutputError,
 
 STRICT_QCEC_TIMEOUT = 120
 NO_PHYSICS = os.environ.get("PQ_NO_PHYSICS") == "1"
+NO_ZONESPAN = os.environ.get("PQ_NO_ZONESPAN") == "1"
 STATEVECTOR_MAX_QUBITS = 22
 
 
@@ -105,6 +106,33 @@ def _strict_check(gates, reference) -> str:
     if eq == "not_equivalent":
         raise NotEquivalentError("QCEC (strict): not_equivalent")
     return f"qcec {eq}"
+
+
+class ZoneSpanError(Exception):
+    """A multi-row move whose picked-up or target rows span both zones (docs/adr/0010)."""
+
+
+def zonespan_check(trace) -> int:
+    """Every move that selects >= 2 rows must keep its picked-up rows within one zone, and its target
+    rows within one zone (storage rows 0-9 vs entangling rows 10-19). A single-row move may cross.
+    Checks the rows as written in the move (`rows`, `new_rows`), i.e. the AOD lines that are driven.
+    Returns the number of moves checked; raises `ZoneSpanError` on the first violation."""
+    from pushquantum_validator.spec import load_trusted_spec
+
+    zones = load_trusted_spec()["zones"]
+    def zone_of(row):
+        for name, z in zones.items():
+            if z["y"][0] <= row <= z["y"][1]:
+                return name
+        return None
+    for rec in trace:
+        mv = rec.move
+        for kind, lines in (("picked-up", mv.rows), ("target", mv.new_rows)):
+            if len(lines) >= 2 and len({zone_of(r) for r in lines}) > 1:
+                raise ZoneSpanError(
+                    f"instruction {rec.index}: move {kind} rows {tuple(lines)} span both zones "
+                    f"(rows {tuple(mv.rows)} -> {tuple(mv.new_rows)}, cols {tuple(mv.cols)} -> {tuple(mv.new_cols)})")
+    return len(trace)
 
 
 class PhysicsError(Exception):
@@ -188,6 +216,8 @@ def run_one(path_str: str, compiler: str, mode: str, timeout: float) -> dict:
             "num_operations": metrics.num_operations,
             "spacing_warnings": movement.spacing_warnings,
         }
+        if not NO_ZONESPAN:
+            zonespan_check(movement.trace)
         if not NO_PHYSICS:
             physics_check(compiled, loading, movement.trace)
         record["equivalence"] = "skipped (fast)"
@@ -205,6 +235,8 @@ def run_one(path_str: str, compiler: str, mode: str, timeout: float) -> dict:
         record["error"] = f"ArchitectureError[{','.join(kinds)}]: {str(error)[:500]}"
     except NotEquivalentError as error:
         record["error"] = f"NotEquivalentError: {str(error)[:500]}"
+    except ZoneSpanError as error:
+        record["error"] = f"ZoneSpanError: {str(error)[:500]}"
     except PhysicsError as error:
         record["error"] = f"PhysicsError: {str(error)[:500]}"
     except CompilerOutputError as error:
@@ -255,11 +287,16 @@ def main(argv=None) -> int:
     ap.add_argument("--timeout", type=float, default=300)
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--no-physics", action="store_true", help="skip the transversal-CZ check (docs/adr/0007)")
+    ap.add_argument("--no-zonespan", action="store_true", help="skip the zone-span check (docs/adr/0010); experiments only")
     args = ap.parse_args(argv)
     if args.no_physics:
         os.environ["PQ_NO_PHYSICS"] = "1"
         global NO_PHYSICS
         NO_PHYSICS = True
+    if args.no_zonespan:
+        os.environ["PQ_NO_ZONESPAN"] = "1"
+        global NO_ZONESPAN
+        NO_ZONESPAN = True
 
     compiler = args.compiler if ":" in args.compiler else f"{args.compiler}:compile_circuit"
     cpath = Path(compiler.rpartition(":")[0]).resolve()
@@ -301,7 +338,7 @@ def main(argv=None) -> int:
     elapsed = round(time.perf_counter() - t0, 1)
 
     out = {"name": name, "compiler": str(cpath.relative_to(ROOT)) if cpath.is_relative_to(ROOT) else str(cpath),
-           "mode": args.mode, "physics_check": not args.no_physics, "set": args.bset, "filter": args.filter,
+           "mode": args.mode, "physics_check": not args.no_physics, "zonespan_check": not args.no_zonespan, "set": args.bset, "filter": args.filter,
            "timestamp": dt.datetime.now().isoformat(timespec="seconds"), "elapsed_s": elapsed,
            "summary": summary, "failed": [r["label"] for r in records if not r["ok"]], "records": records}
     (ROOT / "results" / "runs").mkdir(parents=True, exist_ok=True)

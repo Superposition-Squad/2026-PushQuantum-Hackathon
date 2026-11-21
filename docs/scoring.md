@@ -66,6 +66,12 @@ the validator decides the score, but our own rules (ADRs) may be stricter.
 - Parallel steps (time only): consecutive moves with disjoint qubits whose row and column spans stay
   apart, and whose paths cross no stationary atom.
 
+## Our extra rule: zone span (ADR 0010)
+
+A move that selects two or more rows must keep its picked-up rows within one zone and its target
+rows within one zone. Single-row moves may cross the boundary. Not checked by the validator;
+`bench` enforces it (`ZoneSpanError`).
+
 ## Our extra rule: transversal CZ (ADR 0007)
 
 The validator treats each `cz` as an independent gate. Physically a CZ pulse hits **every** atom
