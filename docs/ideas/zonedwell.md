@@ -124,6 +124,45 @@ to the naive per-CZ path, which is valid by construction. Correctness first.
 Sources: 2411.11784 (reuse-aware / ZAC), 2503.02272 (reduce 1q/2q interleaving), 2509.12083
 (composite moves), 2608.01316 (short vertical hops), 2312.03982 (zoned model, transversal CZ).
 
+## Prototype validation (planner, before the compiler existed)
+
+Two throwaway prototypes checked against the real validator (`/tmp/zw/conv.py`, `/tmp/zw/full.py`):
+
+1. **Conveyor, 12-qubit pure star of ZZ blocks.** `verify_movement` OK, `verify_equivalence` =
+   `equivalent_up_to_global_phase`. Confirms the slide is legal across the zone boundary, costs
+   exactly 1.0 in an even column, and that a lone atom on a pair raises no `PhysicsError`.
+2. **Full QAOA path** (conveyor + non-hub visitor rounds, no 1q merging):
+
+| circuit | prototype distance | naive | Δ | prototype depth | naive depth |
+|---|---|---|---|---|---|
+| 12q qaoa p1 | 356.7 | 1956.5 | −82 % | 50 | 206 |
+| 50q qaoa p3 | 3687.8 | 24906.9 | −85 % | 382 | 2275 |
+
+Cost split at 50q: the hub conveyor is only ~100 per cost layer (≈1.0 per `cz`, as predicted); the
+non-hub visitor rounds are ~1100 per layer and dominate, because each visitor gets its own `Move`.
+
+Two traps found and fixed in the design: (a) a hub parked on a right slot forms an unwanted
+two-atom pair with the lane atom below it — park it at `(9, 19)` opposite a permanently empty slot;
+(b) the bulk storage dip must cover **all** columns 0–9, otherwise a visitor left at column 9 gets
+an `rx` in the entangling zone. Bulk moves over cols 0–9 produce "not evenly spaced" spacing
+warnings; those only affect `move_time`, which is not scored.
+
+### iHVA structure (measured, `/tmp/zw/ihva.py`)
+
+iHVA has **no gates between its p layers**, so a 50q p=3 circuit is one stream of 441 Pauli
+rotations `exp(-iθ/2 Z_u Y_v)` (147 hub + 294 non-hub). They anticommute iff exactly one of
+`u == v'`, `v == u'` holds. A ready-set (antichain) scheduler preferring hub-Z, then hub-Y, then
+non-hub gives 29 groups on `stagger` (hub groups of size 19/13/12/5 and up to 16) and 57 on `tree`.
+Hub groups are inherently serial, so each needs a *partial* conveyor pass. Measured cost of the
+whole 147-block hub part, by layout:
+
+| partner → lane/slot layout | stagger | tree |
+|---|---|---|
+| order as-is, block-wise | 936 | 1382 |
+| order as-is, round-robin | 1120 | 1224 |
+| **sorted by first hub block, block-wise** | **852** | **916** |
+| sorted by first hub block, round-robin | 1078 | 1228 |
+
 ## Results
 
 | iteration | commit | score | dist % | depth % | notes |
