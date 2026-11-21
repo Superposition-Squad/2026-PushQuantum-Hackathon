@@ -34,9 +34,15 @@ an interaction pair of the input (validator pair-set check above 19 qubits).
 so no restore is needed), or partners are first compacted into the bottom rows, or lifted directly;
 the cheapest strategy is chosen on a cloned machine.
 
-**Search.** Deterministic multi-start: 40 base candidates (policy x lookahead x matching key x
-parity set), the best 3 re-run with simulation-guided round composition, then seeded cost
-perturbations of the best (fixed budgets by size). Score = distance + 3.06 x depth.
+**Plan simulation.** Per round, the best 6 band plans by the Hungarian estimate are executed on a
+cloned machine and the cheapest real outcome (distance + 3.06 x depth delta) is kept (+1-3 % on
+50q); the hub strategy is chosen the same way.
+
+**Search.** Deterministic multi-start: 13 base candidates (hub-in-round threshold x lookahead x
+matching key x parity set, chosen by a greedy set cover over the 12 non-warm scored iHVA circuits),
+then for the best 3-5: simulation-guided round composition (EVAL), estimate-only plans, a first-use
+initial layout derived from the candidate's own step order; then seeded cost perturbations of the
+best (fixed budgets by size, no wall clock). Score = distance + 3.06 x depth.
 
 **Fallback.** Anything not iHVA-shaped (HEA, sanity circuits) goes to the naive scheme (valid; the
 portfolio covers HEA).

@@ -935,7 +935,22 @@ class Executor:
             raise Illegal("no hub strategy")
         self._hub(blks, best[1])
 
-    HUB_STRATS = ("rotate", "direct", "compact")
+    HUB_STRATS = ("rotate", "direct", "compact", "gravity")
+
+    def _gravity(self):
+        """Refill holes in the bottom rows with the atoms above them (nearest first)."""
+        from scipy.optimize import linear_sum_assignment
+
+        m = self.m
+        R = max(1, math.ceil((self.n - 1) / 10))
+        lo = 10 - R
+        holes = [(x, y) for y in range(lo, 10) for x in range(10) if (x, y) not in m.occ]
+        above = sorted(q for q, st in m.pos.items() if st[1] < lo)
+        if not holes or not above:
+            return
+        cost = np.array([[_dist(m.pos[q], hs) for hs in holes] for q in above])
+        ri, ci = linear_sum_assignment(cost)
+        self.relocate({above[i]: holes[k] for i, k in zip(ri, ci)})
 
     def _compact(self, pset):
         """Relocate the batch partners densely into the bottom storage rows (row 9-r stays free)."""
@@ -1005,6 +1020,9 @@ class Executor:
             self.prep(p, pre_p)
         if strat == "compact":
             self._compact({p for p, _ in partners})
+            strat = "rotate"
+        elif strat == "gravity":
+            self._gravity()
             strat = "rotate"
         hub_home = m.pos[hub]
         if strat == "direct":
