@@ -2357,6 +2357,37 @@ class _StorageMachine:
         if cur != site:
             st.move((cur[1],), (cur[0],), (site[1],), (site[0],))
 
+    def _serve_partner(self, p, back_site, theta):
+        """One complete hub block: lift p to row 10, cz #1, home, `rx` in storage, lift, cz #2,
+        home.  Blocks of a hub group commute and the hub is the control of every one, so its two
+        `cz` gates may follow each other with only the target's storage visit between them."""
+        st = self.st
+        hub = self.hub
+        site = (self.home[p][0], 10)
+        self._hub_move(_partner_site(site))
+        self._lift(p, site)
+        st.pulse([(hub, p)])
+        self._lift(p, back_site)
+        ang = _tight(theta)
+        if ang:
+            st.out.rx(ang, p)
+        self._lift(p, site)
+        st.pulse([(hub, p)])
+        self._lift(p, back_site)
+
+    def _rotate_storage(self):
+        """One storage row rotation: row 9 -> row 9-R, then rows 9-R..8 -> 10-R..9 (cost R + 1).
+
+        Columns are preserved, so every partner keeps its pair column; after R rotations the whole
+        arrangement (every atom back at its home) is restored."""
+        st = self.st
+        top = 10 - self.R
+        st.move((9,), tuple(range(10)), (top - 1,), tuple(range(10)))
+        st.move(tuple(range(top - 1, 9)), tuple(range(10)), tuple(range(top, 10)), tuple(range(10)))
+
+    def _lift_cost(self, p, row):
+        return math.hypot(10.0 - row, 0.7 if self.home[p][0] % 2 else 0.0)
+
     def hub_group(self, group):
         st = self.st
         hub = self.hub
@@ -2373,25 +2404,46 @@ class _StorageMachine:
         before, after = ops
         for q, u in before.items():
             st.queue_1q(q, u)
-        st.flush_all()
+        st.flush_all()  # every atom is home in storage
         partners = [targ[b] for b in group]
-        order = self._hub_order(partners)
+        theta_p = {targ[b]: theta[b] for b in group}
         hub_home = self.home[hub]
-        self._hub_move(self._pair(order[0])[1])
-        for pass_no in (0, 1):
-            seq = order if pass_no == 0 else list(reversed(order))
-            for p in seq:
-                site, slot = self._pair(p)
-                self._hub_move(slot)
-                self._lift(p, site)
-                st.pulse([(hub, p)])
-                self._lift(p, self.home[p])
-            if pass_no == 0:
-                for blk in group:
-                    p = targ[blk]
-                    ang = _tight(theta[blk])
-                    if ang:
-                        st.out.rx(ang, p)
+        rotate = False
+        if 2 <= self.R <= 8:
+            direct = sum(4.0 * self._lift_cost(p, self.home[p][1]) for p in partners)
+            rot = self.R * (self.R + 1) + sum(4.0 * self._lift_cost(p, 9) for p in partners)
+            rotate = rot < direct
+        def cz_pass(p, back_site):
+            site = (self.home[p][0], 10)
+            self._hub_move(_partner_site(site))
+            self._lift(p, site)
+            st.pulse([(hub, p)])
+            self._lift(p, back_site)
+
+        def batch_run(batch, back_site):
+            """cz #1 for the whole batch, then every `rx` in ONE layer (all partners in storage),
+            then cz #2 in reverse: the hub's `cz` gates are serialised anyway, the `rx` are not."""
+            if not batch:
+                return
+            self._hub_move(_partner_site((self.home[batch[0]][0], 10)))
+            for p in batch:
+                cz_pass(p, back_site(p))
+            for p in batch:
+                ang = _tight(theta_p[p])
+                if ang:
+                    st.out.rx(ang, p)
+            for p in reversed(batch):
+                cz_pass(p, back_site(p))
+
+        if rotate:
+            for k in range(self.R):
+                row = 9 - k
+                batch = sorted((p for p in partners if self.home[p][1] == row),
+                               key=lambda p: (_phys(_partner_site((self.home[p][0], 10)))[0], p))
+                batch_run(batch, lambda p: (self.home[p][0], 9))
+                self._rotate_storage()  # restores the homes after the R-th rotation
+        else:
+            batch_run(self._hub_order(partners), lambda p: self.home[p])
         self._hub_move(hub_home)
         for q, u in after.items():
             st.queue_1q(q, u)
