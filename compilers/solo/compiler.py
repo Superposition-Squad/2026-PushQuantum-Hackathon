@@ -443,7 +443,7 @@ def schedule(blocks, preds, succs, hub, policy=("look", 2.0)):
     return list(schedule_gen(blocks, preds, succs, hub, policy))
 
 
-def schedule_gen(blocks, preds, succs, hub, policy=("look", 2.0), posfn=None, mu=None):
+def schedule_gen(blocks, preds, succs, hub, policy=("look", 2.0), posfn=None, mu=None, evaluator=None):
     """Yields steps ("hub", [block...]) or ("round", [block...]); the caller may execute each step
     before the next one is chosen (`posfn()` gives the current positions for `mu`)."""
     m = len(blocks)
@@ -472,6 +472,26 @@ def schedule_gen(blocks, preds, succs, hub, policy=("look", 2.0), posfn=None, mu
                     continue
                 used |= {b.c, b.t}
                 match.append(i)
+            if evaluator is not None and posfn is not None and len(match) > 1:
+                pos = posfn()
+                variants = [match]
+                for mu2 in (0.5, 2.0):
+                    key2 = lambda i: (_dist(pos[blocks[i].c], pos[blocks[i].t]) - mu2 * len(succs[i]), i)
+                    used2, m2 = set(), []
+                    for i in sorted(pool, key=key2):
+                        b = blocks[i]
+                        if b.c in used2 or b.t in used2:
+                            continue
+                        used2 |= {b.c, b.t}
+                        m2.append(i)
+                    if sorted(m2) != sorted(match):
+                        variants.append(m2)
+                far = [i for i in match if _dist(pos[blocks[i].c], pos[blocks[i].t]) > evaluator.far]
+                if far and len(far) < len(match):
+                    variants.append([i for i in match if i not in far])
+                if len(variants) > 1:
+                    k = evaluator([[blocks[i] for i in v] for v in variants])
+                    match = variants[k]
         cands = []
         if match:
             cands.append(("round", match))
@@ -650,6 +670,8 @@ class Executor:
     PARS = (0, 1)
     SEED = None
     NOISE = 0.6
+    EVAL = False
+    FAR = 4.0
     DUMMY_OFF = False
 
     def _lookpos(self, q):
@@ -1033,7 +1055,22 @@ def run_candidate(n, blocks, preds, succs, home, pol, lam, mu, opts=(), emit=Fal
             byq.setdefault(q, []).append(b)
     ptr = {q: 0 for q in byq}
     done = set()
-    for kind, blks in schedule_gen(blocks, preds, succs, hub, pol, posfn=lambda: ex.m.pos, mu=mu):
+    evaluator = None
+    if ex.EVAL:
+        def evaluator(variants):
+            best = None
+            for k, v in enumerate(variants):
+                e = ex.clone()
+                try:
+                    e.run_round_band(v)
+                except Illegal:
+                    continue
+                c = (e.m.dist - ex.m.dist + DEPTH_W * (max(e.m.depth) - max(ex.m.depth))) / len(v)
+                if best is None or c < best[0] - 1e-9:
+                    best = (c, k)
+            return 0 if best is None else best[1]
+        evaluator.far = ex.FAR
+    for kind, blks in schedule_gen(blocks, preds, succs, hub, pol, posfn=lambda: ex.m.pos, mu=mu, evaluator=evaluator):
         cur = {b.idx for b in blks}
         nxt = {}
         for b in blks:
@@ -1061,12 +1098,12 @@ CANDS = [(pol, lam, mu, (("PARS", pars),)) for pars in ((0, 1), (0,)) for mu in 
 
 
 def _budget(n, nblocks):
-    """(top configs, seeds per config) for the seeded second phase: a fixed work budget by size."""
+    """(top configs re-run with EVAL, seeds for the best config): a fixed work budget by size."""
     if nblocks <= 120:
-        return 3, 10
+        return 4, 16
     if nblocks <= 400:
-        return 2, 6
-    return 1, 4
+        return 3, 8
+    return 3, 4
 
 
 def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
@@ -1091,10 +1128,12 @@ def compile_ihva(n, blocks, cands=None, emit=True, seeds=None):
     if not res:
         raise Illegal("no candidate")
     top, nseed = _budget(n, len(blocks)) if seeds is None else seeds
-    base = sorted(res)[:top]
-    for _, _, cand in base:
+    for _, _, cand in sorted(res)[:top]:
+        pol, lam, mu, opts = cand
+        run((pol, lam, mu, tuple(opts) + (("EVAL", True),)))
+    if nseed:
+        pol, lam, mu, opts = min(res)[2]
         for sd in range(1, nseed + 1):
-            pol, lam, mu, opts = cand
             run((pol, lam, mu, tuple(opts) + (("SEED", sd),)))
     best = min(res)
     if not emit:
