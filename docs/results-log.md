@@ -110,3 +110,15 @@ take part in a two-qubit gate of each gate layer), single-zone pick-up/drop-off,
 leaderboard; re-vendoring v1.0.0 and an `idle`-compliant rebuild are next.
 
 benchmaxx (exploit experiment, branch idea/benchmaxx only): +97.67 % on v0.0.0; parked.
+
+## Validator v1.0.0 vendored (~20:10 UTC)
+
+vendor/ now holds planqc's v1.0.0 (`_validation.py`, `errors.py`, `verify.py` updated; `idle` rule,
+single-zone moves). bench calls `run_compiler_process(..., network=False)` directly (v1.0.0 dropped the
+`network` argument). Naive still reproduces the baseline exactly.
+
+| compiler | v1.0.0 |
+|---|---|
+| portfolio (hubstream, rectbatch, gates; embedded v1.0.0 replay) | **+79.19**, 36/36 valid (bench full + official v1.0.0 replay) |
+
+systolic and hubwalk are being redesigned for the `idle` rule.
