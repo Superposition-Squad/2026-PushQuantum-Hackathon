@@ -1,0 +1,1475 @@
+"""optimizer: pulse-by-pulse scheduler + order-compatible move grouping (fresh build, round 3).
+
+Pipeline (see docs/ideas/optimizer.md):
+
+1. Front end. The input is parsed into a commutation DAG of
+   - Pauli-rotation blocks exp(-i theta/2 P_a P_b) (recognised from `cx rz cx`, optionally
+     conjugated by a 1q gate and its inverse on either wire, and from `rzz`),
+   - single-CZ blocks (bare `cx` / `cz`),
+   - single-qubit unitaries (2x2 matrices) and final measurements.
+   Two ops sharing a qubit get a DAG edge unless they provably commute.
+2. Executor. A block exp(-i theta/2 P_o P_r) is synthesised as
+   W_o^+ W_r^+ . CZ . rx_r(theta) . CZ . W_r W_o   (W_o P_o W_o^+ = Z, W_r P_r W_r^+ = X).
+   Only the *rotator* r needs a 1q gate between its two CZs; the other qubit o is "open" and may
+   start further blocks with the same Pauli (the hub). Every qubit carries the 2x2 unitary that
+   is still pending; it is emitted (ZXZ/XZX, fewest gates) when the atom leaves storage.
+3. Scheduler. One CZ pulse at a time: a set of disjoint CZ events picked from the ready ones
+   (critical-path priority, a few candidates compared by real move cost).
+4. Router. Destinations are pair constraints (partner already in the zone -> exactly its sibling
+   site; both moving -> a free pair chosen jointly). Transfers are grouped into moves by pairwise
+   order compatibility (a move is a monotone row map x a monotone column map) with a ghost-free
+   rectangle; cost of a move = its longest displacement. Strict rule: every pickup rectangle and
+   every drop-off lies inside a single zone.
+5. Self-check: positions are replayed with the validator's rules and the transversal-CZ rule; any
+   failure or unsupported input falls back to the naive compiler.
+"""
+
+from __future__ import annotations
+
+import itertools
+import math
+from collections.abc import Sequence
+from numbers import Integral
+from typing import Any
+
+import numpy as np
+from qiskit import QuantumCircuit, transpile
+from qiskit.circuit import Instruction
+from qiskit.quantum_info import Operator
+from qiskit.synthesis import OneQubitEulerDecomposer
+
+Site = tuple[int, int]
+
+# ---------------------------------------------------------------- template plumbing (keep as is)
+
+
+def _as_lines(values, name):
+    items = [values] if isinstance(values, Integral) else list(values)
+    if not items:
+        raise ValueError(f"`{name}` must not be empty.")
+    result = tuple(int(v) for v in items)
+    if len(set(result)) != len(result):
+        raise ValueError(f"`{name}` must not contain duplicates, got {result!r}.")
+    return result
+
+
+def _check_lines(start, end, name):
+    if len(end) > len(start):
+        raise ValueError(f"`new_{name}` cannot have more lines than `{name}`.")
+    if start != tuple(range(start[0], start[0] + len(start))):
+        raise ValueError(f"Picked-up {name} {start} must be contiguous and ascending.")
+    if any(b <= a for a, b in itertools.pairwise(end)):
+        raise ValueError(f"Target {name} {end} must be ascending.")
+
+
+class Move(Instruction):
+    """Params are `(rows, cols, new_rows, new_cols)`, tuples of ints; rows are y, columns are x."""
+
+    def __init__(self, rows, cols, new_rows, new_cols, num_qubits):
+        names = ("rows", "cols", "new_rows", "new_cols")
+        lines = [_as_lines(v, n) for v, n in zip((rows, cols, new_rows, new_cols), names, strict=True)]
+        _check_lines(lines[0], lines[2], "rows")
+        _check_lines(lines[1], lines[3], "cols")
+        super().__init__("move", num_qubits, 0, lines)
+
+    def validate_parameter(self, parameter):
+        return parameter
+
+    def _define(self):
+        self.definition = QuantumCircuit(self.num_qubits, name=self.name)
+
+
+class Architecture:
+    """Only `initial_loading` is read by the validator (qubit -> (x, y) site in storage)."""
+
+    def __init__(self, initial_loading: dict[int, Site], spec: Any = None) -> None:
+        self.initial_loading = dict(initial_loading)
+        self.spec = spec
+
+
+class Unsupported(Exception):
+    """Input this compiler does not handle; the naive path takes over."""
+
+
+# ---------------------------------------------------------------- geometry (from the spec)
+
+DEFAULT_SPEC = {
+    "loading_zone": "storage",
+    "zones": {
+        "storage": {"x": [0, 9], "y": [0, 9], "spacing": 1.0, "operations": ["rx", "rz"]},
+        "entangling": {
+            "x": [0, 9],
+            "y": [10, 19],
+            "spacing": 1.0,
+            "pairs": {"axis": "x", "distance": 0.3},
+            "operations": ["cz", "rzz"],
+        },
+    },
+}
+
+
+class Geo:
+    """Sites, zones and physical coordinates exactly as the validator computes them."""
+
+    def __init__(self, spec: Any) -> None:
+        if not isinstance(spec, dict) or "zones" not in spec:
+            spec = DEFAULT_SPEC
+        zones = spec["zones"]
+        self.zone_of: dict[Site, str] = {}
+        self.phys: dict[Site, tuple[float, float]] = {}
+        self.storage = self.ent = None
+        for name, z in reversed(list(zones.items())):  # first zone containing a site wins
+            x0, x1 = z["x"]
+            y0, y1 = z["y"]
+            sp = float(z.get("spacing", 1.0))
+            pairs = z.get("pairs")
+            for x in range(x0, x1 + 1):
+                for y in range(y0, y1 + 1):
+                    self.zone_of[(x, y)] = name
+                    self.phys[(x, y)] = (self._coord(x, x0, sp, pairs, "x"), self._coord(y, y0, sp, pairs, "y"))
+        for name, z in zones.items():
+            ops = set(z.get("operations", []))
+            if {"rx", "rz"} <= ops and self.storage is None:
+                self.storage = name
+            if "cz" in ops and z.get("pairs") and self.ent is None:
+                self.ent = name
+        if self.storage is None or self.ent is None or spec.get("loading_zone", "storage") != self.storage:
+            raise Unsupported("unexpected architecture")
+        ez = zones[self.ent]
+        if ez["pairs"]["axis"] != "x":
+            raise Unsupported("pairs along y")
+        self.ex0, self.ex1 = ez["x"]
+        self.ey0, self.ey1 = ez["y"]
+        sz = zones[self.storage]
+        self.sx0, self.sx1 = sz["x"]
+        self.sy0, self.sy1 = sz["y"]
+        self.storage_sites = [s for s, n in self.zone_of.items() if n == self.storage]
+        self.ent_sites = [s for s, n in self.zone_of.items() if n == self.ent]
+        self.sibling: dict[Site, Site] = {}
+        self.pairs: list[tuple[Site, Site]] = []
+        for y in range(self.ey0, self.ey1 + 1):
+            for x in range(self.ex0, self.ex1, 2):
+                a, b = (x, y), (x + 1, y)
+                if self.zone_of.get(a) == self.ent and self.zone_of.get(b) == self.ent:
+                    self.sibling[a], self.sibling[b] = b, a
+                    self.pairs.append((a, b))
+        # storage below the entangling zone? (used only for heuristics, never for legality)
+        self.ent_above = self.ey0 > self.sy1
+
+    @staticmethod
+    def _coord(line, start, spacing, pairs, axis):
+        if pairs is None or pairs.get("axis") != axis:
+            return line * spacing
+        pair, slot = divmod(line - start, 2)
+        return start * spacing + pair * 2 * spacing + slot * float(pairs["distance"])
+
+    def dist(self, a: Site, b: Site) -> float:
+        pa, pb = self.phys[a], self.phys[b]
+        return math.hypot(pa[0] - pb[0], pa[1] - pb[1])
+
+    def in_ent(self, s: Site) -> bool:
+        return self.zone_of.get(s) == self.ent
+
+    def in_storage(self, s: Site) -> bool:
+        return self.zone_of.get(s) == self.storage
+
+
+# ---------------------------------------------------------------- 1q algebra
+
+I2 = np.eye(2, dtype=complex)
+PX = np.array([[0, 1], [1, 0]], dtype=complex)
+PY = np.array([[0, -1j], [1j, 0]], dtype=complex)
+PZ = np.array([[1, 0], [0, -1]], dtype=complex)
+PAULI = {"X": PX, "Y": PY, "Z": PZ}
+HAD = np.array([[1, 1], [1, -1]], dtype=complex) / math.sqrt(2)
+SGATE = np.array([[1, 0], [0, 1j]], dtype=complex)
+
+
+def _is_identity(u: np.ndarray, tol: float = 1e-9) -> bool:
+    return abs(abs(np.trace(u)) - 2.0) < tol
+
+
+def _pauli_of(m: np.ndarray) -> tuple[str, int] | None:
+    """(P, sign) if m = sign * P for a Pauli P and sign = +-1."""
+    for name, p in PAULI.items():
+        c = np.trace(p @ m) / 2
+        if abs(abs(c) - 1) < 1e-9 and abs(c.imag) < 1e-9 and np.allclose(m, c * p, atol=1e-9):
+            return name, (1 if c.real > 0 else -1)
+    return None
+
+
+def _cliffords() -> list[np.ndarray]:
+    found: list[np.ndarray] = [I2]
+    frontier = [I2]
+    while frontier:
+        nxt = []
+        for u in frontier:
+            for g in (HAD, SGATE):
+                v = g @ u
+                if not any(_is_identity(v.conj().T @ w) for w in found):
+                    found.append(v)
+                    nxt.append(v)
+        frontier = nxt
+    return found
+
+
+_CLIFF = _cliffords()
+_BASIS: dict[tuple[str, str], np.ndarray] = {}
+for _p in "XYZ":
+    for _t in "XZ":
+        for _w in _CLIFF:
+            if np.allclose(_w @ PAULI[_p] @ _w.conj().T, PAULI[_t], atol=1e-9):
+                _BASIS[(_p, _t)] = _w
+                break
+
+
+def basis_change(p: str, target: str) -> np.ndarray:
+    """A Clifford W with W P W^+ = +target."""
+    return _BASIS[(p, target)]
+
+
+def _rx(theta: float) -> np.ndarray:
+    c, s = math.cos(theta / 2), math.sin(theta / 2)
+    return np.array([[c, -1j * s], [-1j * s, c]], dtype=complex)
+
+
+_ZXZ = OneQubitEulerDecomposer("ZXZ")
+_XZX = OneQubitEulerDecomposer("XZX")
+
+
+def synth_1q(u: np.ndarray) -> list[tuple[str, float]]:
+    """Fewest rx/rz gates (time order) equal to u up to global phase."""
+    if _is_identity(u):
+        return []
+    best = None
+    for dec in (_ZXZ, _XZX):
+        qc = dec(u, simplify=True, atol=1e-10)
+        gates = [(ins.operation.name, float(ins.operation.params[0])) for ins in qc.data]
+        gates = [(n, a) for n, a in gates if abs(math.remainder(a, 4 * math.pi)) > 1e-10]
+        if best is None or len(gates) < len(best):
+            best = gates
+    return best
+
+
+# ---------------------------------------------------------------- front end
+
+U1, ROT, CZB, MEAS = "u1", "rot", "czb", "meas"
+_SKIP = {"barrier", "delay"}
+_KNOWN_2Q = {"cx", "cz", "rzz"}
+
+
+class Op:
+    __slots__ = ("kind", "qubits", "mat", "paulis", "theta", "basis", "clbit", "idx")
+
+    def __init__(self, kind, qubits, mat=None, paulis=None, theta=0.0, basis=None, clbit=None):
+        self.kind, self.qubits, self.mat, self.paulis = kind, tuple(qubits), mat, paulis
+        self.theta, self.basis, self.clbit, self.idx = theta, basis, clbit, -1
+
+
+def _raw_gates(circuit: QuantumCircuit):
+    """(name, qubits, clbits, op) with qubit/clbit indices; unknown multi-qubit gates are decomposed."""
+    names = {ins.operation.name for ins in circuit.data}
+    ok = all(
+        n in _SKIP or n == "measure" or n in _KNOWN_2Q or (ins.operation.num_qubits == 1 and not ins.operation.num_clbits)
+        for ins in circuit.data
+        for n in [ins.operation.name]
+    )
+    if not ok:
+        circuit = transpile(circuit, basis_gates=["u", "cx", "cz", "rzz", "measure"], optimization_level=0)
+    del names
+    qi = {b: i for i, b in enumerate(circuit.qubits)}
+    ci = {b: i for i, b in enumerate(circuit.clbits)}
+    out = []
+    for ins in circuit.data:
+        op = ins.operation
+        if op.name in _SKIP:
+            continue
+        qs = [qi[q] for q in ins.qubits]
+        cs = [ci[c] for c in ins.clbits]
+        if op.name == "measure":
+            out.append(("measure", qs, cs, op))
+        elif op.name in _KNOWN_2Q:
+            out.append((op.name, qs, cs, op))
+        elif op.num_qubits == 1 and not cs:
+            out.append(("u1", qs, cs, op))
+        else:
+            raise Unsupported(f"gate {op.name}")
+    return out, circuit
+
+
+def front_end(circuit: QuantumCircuit) -> tuple[list[Op], int]:
+    raw, circuit = _raw_gates(circuit)
+    n = circuit.num_qubits
+    mats: dict[int, np.ndarray] = {}
+    for i, (name, qs, cs, op) in enumerate(raw):
+        if name == "u1":
+            mats[i] = Operator(op).data
+    # per-wire sequences of raw indices
+    wire: list[list[int]] = [[] for _ in range(n)]
+    for i, (_, qs, _, _) in enumerate(raw):
+        for q in qs:
+            wire[q].append(i)
+    posw = {}
+    for q in range(n):
+        for k, i in enumerate(wire[q]):
+            posw[(q, i)] = k
+
+    def nxt(q, i, d=1):
+        k = posw[(q, i)] + d
+        return wire[q][k] if 0 <= k < len(wire[q]) else None
+
+    consumed: set[int] = set()
+    replaced: dict[int, Op] = {}
+    for i, (name, qs, _, op) in enumerate(raw):
+        if name != "cx" or i in consumed:
+            continue
+        c, t = qs
+        j = nxt(t, i)
+        k = nxt(t, j) if j is not None else None
+        if j is None or k is None or j in consumed or k in consumed:
+            continue
+        if raw[j][0] != "u1" or raw[k][0] != "cx" or raw[k][1] != [c, t] or nxt(c, i) != k:
+            continue
+        d = mats[j]
+        if abs(d[0, 1]) > 1e-12 or abs(d[1, 0]) > 1e-12:
+            continue
+        theta = float(np.angle(d[1, 1] / d[0, 0]))
+        paulis = {c: "Z", t: "Z"}
+        sign = 1
+        extra: list[int] = []
+        for q in (c, t):
+            p, s = nxt(q, i, -1), nxt(q, k, 1)
+            if p is None or s is None or p in consumed or s in consumed or p == s:
+                continue
+            if raw[p][0] != "u1" or raw[s][0] != "u1":
+                continue
+            mp, ms = mats[p], mats[s]
+            if not _is_identity(ms @ mp):
+                continue
+            pq = _pauli_of(mp.conj().T @ PZ @ mp)
+            if pq is None:
+                continue
+            paulis[q] = pq[0]
+            sign *= pq[1]
+            extra += [p, s]
+        consumed.update([i, j, k, *extra])
+        replaced[i] = Op(ROT, (c, t), paulis=(paulis[c], paulis[t]), theta=sign * theta)
+    ops: list[Op] = []
+    measured: set[int] = set()
+    for i, (name, qs, cs, op) in enumerate(raw):
+        if i in replaced:
+            ops.append(replaced[i])
+            continue
+        if i in consumed:
+            continue
+        if any(q in measured for q in qs):
+            raise Unsupported("gate after measurement")
+        if name == "u1":
+            ops.append(Op(U1, qs, mat=mats[i]))
+        elif name == "measure":
+            ops.append(Op(MEAS, qs, clbit=cs[0]))
+            measured.add(qs[0])
+        elif name == "cx":
+            ops.append(Op(CZB, qs, paulis=("Z", "X"), basis=(I2, HAD)))
+        elif name == "cz":
+            ops.append(Op(CZB, qs, paulis=("Z", "Z"), basis=(I2, I2)))
+        elif name == "rzz":
+            ops.append(Op(ROT, qs, paulis=("Z", "Z"), theta=float(op.params[0])))
+    # elide identity rotations (theta = 0 mod 2pi gives +-identity)
+    ops = [o for o in ops if not (o.kind == ROT and abs(math.remainder(o.theta, 2 * math.pi)) < 1e-12)]
+    for k, o in enumerate(ops):
+        o.idx = k
+    return ops, n
+
+
+def _pauli_on(o: Op, q: int) -> str:
+    return o.paulis[o.qubits.index(q)]
+
+
+def _commute(a: Op, b: Op) -> bool:
+    shared = set(a.qubits) & set(b.qubits)
+    if not shared:
+        return True
+    if a.kind == MEAS or b.kind == MEAS:
+        return False
+    if a.kind == U1 and b.kind == U1:
+        return False
+    if a.kind == U1 or b.kind == U1:
+        u, o = (a, b) if a.kind == U1 else (b, a)
+        p = PAULI[_pauli_on(o, u.qubits[0])]
+        return np.allclose(u.mat @ p, p @ u.mat, atol=1e-9)
+    if a.kind == ROT and b.kind == ROT:
+        anti = sum(_pauli_on(a, q) != _pauli_on(b, q) for q in shared)
+        return anti % 2 == 0
+    # at least one single-CZ block: functions of its per-qubit Paulis -> need qubitwise agreement
+    return all(_pauli_on(a, q) == _pauli_on(b, q) for q in shared)
+
+
+def build_dag(ops: list[Op], n: int):
+    succ: list[set[int]] = [set() for _ in ops]
+    indeg = [0] * len(ops)
+    per_q: list[list[int]] = [[] for _ in range(n)]
+    for o in ops:
+        for q in o.qubits:
+            for j in per_q[q]:
+                if o.idx not in succ[j] and not _commute(ops[j], o):
+                    succ[j].add(o.idx)
+                    indeg[o.idx] += 1
+            per_q[q].append(o.idx)
+    return succ, indeg
+
+
+# ---------------------------------------------------------------- machine state + move grouping
+
+
+class State:
+    """Atom positions with the validator's move semantics (strict: one zone per side)."""
+
+    def __init__(self, geo: Geo, loading: dict[int, Site]):
+        self.geo = geo
+        self.pos = dict(loading)
+        self.occ = {s: q for q, s in self.pos.items()}
+
+    def copy(self) -> State:
+        st = State.__new__(State)
+        st.geo, st.pos, st.occ = self.geo, dict(self.pos), dict(self.occ)
+        return st
+
+    def apply(self, group: list[tuple[int, Site]]) -> tuple[tuple, float]:
+        """group = [(qubit, target)]; returns (move params, distance). Raises on illegal moves."""
+        g = self.geo
+        src = {q: self.pos[q] for q, _ in group}
+        tgt = dict(group)
+        xs = [s[0] for s in src.values()]
+        ys = [s[1] for s in src.values()]
+        x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+        members = set(src)
+        for x in range(x0, x1 + 1):
+            for y in range(y0, y1 + 1):
+                o = self.occ.get((x, y))
+                if o is not None and o not in members:
+                    raise RuntimeError("ghost")
+        rmap: dict[int, int] = {}
+        cmap: dict[int, int] = {}
+        for q in members:
+            (sx, sy), (tx, ty) = src[q], tgt[q]
+            if rmap.setdefault(sy, ty) != ty or cmap.setdefault(sx, tx) != tx:
+                raise RuntimeError("not a product map")
+        for m in (rmap, cmap):
+            ks = sorted(m)
+            if any(m[a] >= m[b] for a, b in itertools.pairwise(ks)):
+                raise RuntimeError("order not preserved")
+        zs = {g.zone_of[s] for s in src.values()}
+        zt = {g.zone_of.get(t) for t in tgt.values()}
+        if len(zs) != 1 or len(zt) != 1 or None in zt:
+            raise RuntimeError("rectangle spans zones")
+        for q in members:
+            o = self.occ.get(tgt[q])
+            if o is not None and o not in members:
+                raise RuntimeError("target occupied")
+        dist = max(g.dist(src[q], tgt[q]) for q in members)
+        for q in members:
+            del self.occ[src[q]]
+        for q in members:
+            self.pos[q] = tgt[q]
+            self.occ[tgt[q]] = q
+        rows = tuple(range(y0, y1 + 1))
+        cols = tuple(range(x0, x1 + 1))
+        new_rows = tuple(rmap[y] for y in sorted(rmap))
+        new_cols = tuple(cmap[x] for x in sorted(cmap))
+        return (rows, cols, new_rows, new_cols, sorted(members)), dist
+
+
+def _sgn(v: int) -> int:
+    return (v > 0) - (v < 0)
+
+
+def _compatible(a, b) -> bool:
+    """Transfers a=(q, src, dst), b: can one monotone row map x column map carry both?"""
+    (_, (ax, ay), (atx, aty)), (_, (bx, by), (btx, bty)) = a, b
+    return _sgn(ax - bx) == _sgn(atx - btx) and _sgn(ay - by) == _sgn(aty - bty)
+
+
+def group_transfers(st: State, transfers: list[tuple[int, Site, Site]]):
+    """Split transfers into legal moves (largest displacement seeds a group, everything compatible
+    joins). Returns [(params, dist)] and applies them to st."""
+    g = st.geo
+    todo = {q: (q, s, d) for q, s, d in transfers if s != d}
+    moves = []
+    guard = 0
+    while todo:
+        guard += 1
+        if guard > 10 * len(transfers) + 50:
+            raise RuntimeError("grouping did not converge")
+        movers = set(todo)
+        # a transfer can go now if its target is free, or held by another mover (who may join)
+        cands = sorted(todo.values(), key=lambda t: -g.dist(t[1], t[2]))
+        seed = None
+        for t in cands:
+            o = st.occ.get(t[2])
+            if o is None:
+                seed = t
+                break
+        if seed is None:
+            # cycle: park one blocker on a free site of its own zone
+            t = cands[0]
+            q = st.occ[t[2]]
+            if q not in todo:
+                raise RuntimeError("target held by a stationary atom")
+            free = [s for s in (g.ent_sites if g.in_ent(st.pos[q]) else g.storage_sites) if s not in st.occ]
+            free.sort(key=lambda s: g.dist(st.pos[q], s))
+            params, dist = st.apply([(q, free[0])])
+            moves.append((params, dist))
+            todo[q] = (q, free[0], todo[q][2])
+            continue
+        zs, zt = g.zone_of[seed[1]], g.zone_of[seed[2]]
+
+        def fits(t, grp):
+            return g.zone_of[t[1]] == zs and g.zone_of[t[2]] == zt and all(_compatible(t, u) for u in grp)
+
+        group = [seed]
+        excluded: set[int] = set()
+        for t in cands:
+            if t is not seed and fits(t, group):
+                group.append(t)
+        sx, sy = seed[1]
+        while True:
+            mem = {u[0] for u in group}
+            xs = [u[1][0] for u in group]
+            ys = [u[1][1] for u in group]
+            ghosts = [
+                st.occ[(x, y)]
+                for x in range(min(xs), max(xs) + 1)
+                for y in range(min(ys), max(ys) + 1)
+                if (x, y) in st.occ and st.occ[(x, y)] not in mem
+            ]
+            held = [u for u in group if st.occ.get(u[2]) is not None and st.occ.get(u[2]) not in mem]
+            if not ghosts and not held:
+                break
+            pulled = False
+            for q in ghosts:
+                if q in todo and q not in excluded and fits(todo[q], group):
+                    group.append(todo[q])
+                    pulled = True
+            if pulled:
+                continue
+            if held:
+                excluded.update(u[0] for u in held)
+                group = [u for u in group if u not in held]  # the seed's target is free
+                continue
+            if len(group) == 1:
+                raise RuntimeError("ghost on a single-atom move")
+            far = max(group[1:], key=lambda u: abs(u[1][0] - sx) + abs(u[1][1] - sy))
+            excluded.add(far[0])
+            group.remove(far)
+        del movers
+        params, dist = st.apply([(u[0], u[2]) for u in group])
+        moves.append((params, dist))
+        for u in group:
+            del todo[u[0]]
+    return moves
+
+
+# ---------------------------------------------------------------- the compiler
+
+
+class Compiler:
+    def __init__(self, circuit: QuantumCircuit, spec: Any, options: dict | None = None):
+        self.opt = {"cands": 4, "proactive_down": True}
+        if options:
+            self.opt.update(options)
+        self.circuit = circuit
+        self.geo = Geo(spec)
+        self.ops, self.n = front_end(circuit)
+        if self.n > len(self.geo.storage_sites):
+            raise Unsupported("too many qubits")
+        self.succ, self.indeg = build_dag(self.ops, self.n)
+
+    # ------------------------------------------------------------ setup
+    def initial_loading(self) -> dict[int, Site]:
+        g = self.geo
+        # rows nearest the entangling zone first
+        rows = sorted(range(g.sy0, g.sy1 + 1), key=lambda y: -y if g.ent_above else y)
+        sites = [(x, y) for y in rows for x in range(g.sx0, g.sx1 + 1)]
+        return {q: sites[q] for q in range(self.n)}
+
+    # ------------------------------------------------------------ main loop
+    def run(self):
+        g = self.geo
+        n = self.n
+        ops = self.ops
+        self.loading = self.initial_loading()
+        st = State(g, self.loading)
+        self.st = st
+        self.out: list[tuple] = []  # ("u", q, name, angle) | ("cz", a, b) | ("move", params) | ("meas", q, c)
+        self.dist_total = 0.0
+        U = [I2.copy() for _ in range(n)]
+        mode = ["idle"] * n  # idle | rot | open
+        frame: list[str | None] = [None] * n
+        open_cnt = [0] * n
+        indeg = list(self.indeg)
+        bstate: dict[int, str] = {}  # block idx -> "cz1"
+        brot: dict[int, int] = {}
+        done = [False] * len(ops)
+        remaining_cz = [0] * n
+        for o in ops:
+            if o.kind in (ROT, CZB):
+                for q in o.qubits:
+                    remaining_cz[q] += 2 if o.kind == ROT else 1
+        ready_blocks: set[int] = set()
+        pend_meas: list[Op] = []
+        level = [0] * n  # ASAP depth level per qubit (gates emitted so far)
+        self.U, self.mode, self.level = U, mode, level
+
+        def finish(i):
+            done[i] = True
+            for j in self.succ[i]:
+                indeg[j] -= 1
+                if indeg[j] == 0:
+                    ready.append(j)
+
+        ready = [o.idx for o in ops if indeg[o.idx] == 0]
+
+        def absorb():
+            # eagerly absorb ready 1q ops / measurements, collect ready blocks
+            progress = True
+            while progress:
+                progress = False
+                nonlocal ready
+                rest = []
+                for i in ready:
+                    o = ops[i]
+                    if o.kind == U1:
+                        q = o.qubits[0]
+                        if mode[q] == "idle":
+                            U[q] = o.mat @ U[q]
+                            finish(i)
+                            progress = True
+                        else:
+                            rest.append(i)
+                    elif o.kind == MEAS:
+                        pend_meas.append(o)
+                        finish(i)
+                        progress = True
+                    else:
+                        ready_blocks.add(i)
+                ready = [i for i in rest if not done[i]]
+
+        absorb()
+        guard = 0
+        while ready_blocks or bstate:
+            guard += 1
+            if guard > 20 * len(ops) + 100:
+                raise RuntimeError("scheduler stuck")
+            events = self._events(ready_blocks, bstate, brot, mode, frame, remaining_cz)
+            if not events:
+                raise RuntimeError("no events")
+            S = self._choose(events, remaining_cz)
+            # commit: basis changes before CZ1 (they are part of the pending unitary)
+            for ev in S:
+                kind, i, r, o_ = ev
+                op = ops[i]
+                if kind == "start":
+                    if op.kind == ROT:
+                        pr, po = _pauli_on(op, r), _pauli_on(op, o_)
+                        U[r] = basis_change(pr, "X") @ U[r]
+                        if mode[o_] != "open":
+                            U[o_] = basis_change(po, "Z") @ U[o_]
+                            mode[o_], frame[o_] = "open", po
+                        open_cnt[o_] += 1
+                        mode[r] = "rot"
+                    else:
+                        for q, w in zip(op.qubits, op.basis):
+                            U[q] = w @ U[q]
+            self._route_and_pulse(S, U)
+            for ev in S:
+                kind, i, r, o_ = ev
+                op = ops[i]
+                for q in op.qubits:
+                    remaining_cz[q] -= 1
+                if kind == "start" and op.kind == ROT:
+                    bstate[i] = "cz1"
+                    brot[i] = r
+                    U[r] = _rx(op.theta) @ U[r]
+                    ready_blocks.discard(i)
+                elif kind == "finish":
+                    del bstate[i]
+                    r = brot.pop(i)
+                    o_ = [q for q in op.qubits if q != r][0]
+                    U[r] = basis_change(_pauli_on(op, r), "X").conj().T @ U[r]
+                    mode[r] = "idle"
+                    open_cnt[o_] -= 1
+                    if open_cnt[o_] == 0:
+                        U[o_] = basis_change(frame[o_], "Z").conj().T @ U[o_]
+                        mode[o_], frame[o_] = "idle", None
+                    finish(i)
+                else:  # single-CZ block
+                    for q, w in zip(op.qubits, op.basis):
+                        U[q] = w.conj().T @ U[q]
+                    ready_blocks.discard(i)
+                    finish(i)
+            absorb()
+        # final: every atom with a pending unitary goes to storage, then measurements
+        down = [q for q in range(n) if not _is_identity(U[q]) and g.in_ent(st.pos[q])]
+        self._send_down(down)
+        for q in range(n):
+            if not _is_identity(U[q]):
+                self._flush(q)
+        for o in sorted(pend_meas, key=lambda o: o.idx):
+            self.out.append(("meas", o.qubits[0], o.clbit))
+        return self.out
+
+    # ------------------------------------------------------------ scheduling
+    def _events(self, ready_blocks, bstate, brot, mode, frame, rem):
+        ops = self.ops
+        evs = []
+        for i in bstate:
+            r = brot[i]
+            o_ = [q for q in ops[i].qubits if q != r][0]
+            evs.append(("finish", i, r, o_))
+        for i in ready_blocks:
+            op = ops[i]
+            a, b = op.qubits
+            if op.kind == CZB:
+                if mode[a] == "idle" and mode[b] == "idle":
+                    evs.append(("start", i, None, None))
+                continue
+            for r, o_ in ((a, b), (b, a)):
+                if mode[r] != "idle":
+                    continue
+                po = _pauli_on(op, o_)
+                if mode[o_] == "idle" or (mode[o_] == "open" and frame[o_] == po):
+                    evs.append(("start", i, r, o_))
+        # rotator choice: keep only the better orientation per block (rotate the less busy qubit,
+        # never one that is open)
+        best: dict[int, tuple] = {}
+        for ev in evs:
+            if ev[0] != "start" or ev[2] is None:
+                continue
+            k = (self.mode[ev[3]] == "open", rem[ev[3]] - rem[ev[2]])
+            if ev[1] not in best or k > best[ev[1]][0]:
+                best[ev[1]] = (k, ev)
+        return [ev for ev in evs if ev[0] != "start" or ev[2] is None or best[ev[1]][1] is ev]
+
+    def _ev_qubits(self, ev):
+        return self.ops[ev[1]].qubits
+
+    def _choose(self, events, rem):
+        """Greedy matching by priority; a few candidate sets are compared by real routing cost."""
+        st = self.st
+        g = self.geo
+
+        def est(ev):
+            a, b = self._ev_qubits(ev)
+            return g.dist(st.pos[a], st.pos[b])
+
+        def prio(ev):
+            a, b = self._ev_qubits(ev)
+            return max(rem[a], rem[b])
+
+        evs = sorted(events, key=lambda e: (-prio(e), e[0] != "finish", est(e), e[1]))
+        cands = []
+        top = evs[: self.opt["cands"]]
+        for first in top:
+            used = set(self._ev_qubits(first))
+            S = [first]
+            for e in evs:
+                if e is first:
+                    continue
+                qs = self._ev_qubits(e)
+                if used & set(qs):
+                    continue
+                S.append(e)
+                used.update(qs)
+            cands.append(S)
+        if len(cands) == 1:
+            return cands[0]
+        best, best_cost = None, None
+        for S in cands:
+            cost = self._dry_cost(S)
+            score = cost / (len(S) + 2.0 * sum(prio(e) for e in S[:1]) / max(1, max(rem)))
+            if best_cost is None or score < best_cost:
+                best, best_cost = S, score
+        return best
+
+    def _dry_cost(self, S):
+        saved = (self.st, self.out, self.dist_total, self.U)
+        self.st = self.st.copy()
+        self.out = []
+        self.dist_total = 0.0
+        try:
+            U = [u.copy() for u in self.U]
+            for kind, i, r, o_ in S:
+                op = self.ops[i]
+                if kind == "start" and op.kind == ROT:
+                    U[r] = basis_change(_pauli_on(op, r), "X") @ U[r]
+                    if self.mode[o_] != "open":
+                        U[o_] = basis_change(_pauli_on(op, o_), "Z") @ U[o_]
+                elif kind == "start":
+                    for q, w in zip(op.qubits, op.basis):
+                        U[q] = w @ U[q]
+            self.U = U
+            self._route_and_pulse(S, U, dry=True)
+            return self.dist_total
+        finally:
+            self.st, self.out, self.dist_total, self.U = saved[0], saved[1], saved[2], saved[3]
+
+    # ------------------------------------------------------------ routing
+    def _emit_move(self, params, dist):
+        self.out.append(("move", params))
+        self.dist_total += dist
+
+    def _flush(self, q):
+        assert self.geo.in_storage(self.st.pos[q])
+        for name, ang in synth_1q(self.U[q]):
+            self.out.append(("u", q, name, ang))
+        self.U[q] = I2.copy()
+
+    def _storage_targets(self, qs: list[int], st: State) -> dict[int, Site]:
+        """Drop zone atoms straight down into the free storage sites nearest the zone, keeping
+        the order of rows within every column."""
+        g = self.geo
+        res: dict[int, Site] = {}
+        bycol: dict[int, list[int]] = {}
+        for q in qs:
+            bycol.setdefault(st.pos[q][0], []).append(q)
+        taken: set[Site] = set()
+        for x, group in bycol.items():
+            group.sort(key=lambda q: st.pos[q][1])
+            xs = min(max(x, g.sx0), g.sx1)
+            free = [(xs, y) for y in range(g.sy0, g.sy1 + 1) if (xs, y) not in st.occ and (xs, y) not in taken]
+            free.sort(key=lambda s: -s[1] if g.ent_above else s[1])
+            if len(free) >= len(group):
+                chosen = sorted(free[: len(group)], key=lambda s: s[1])
+                for q, s in zip(group, chosen):
+                    res[q] = s
+                    taken.add(s)
+            else:
+                for q in group:
+                    cand = [s for s in g.storage_sites if s not in st.occ and s not in taken]
+                    cand.sort(key=lambda s: g.dist(st.pos[q], s))
+                    res[q] = cand[0]
+                    taken.add(cand[0])
+        return res
+
+    def _send_down(self, qs):
+        if not qs:
+            return
+        st = self.st
+        tg = self._storage_targets(qs, st)
+        for params, dist in group_transfers(st, [(q, st.pos[q], tg[q]) for q in qs]):
+            self._emit_move(params, dist)
+
+    def _route_and_pulse(self, S, U, dry=False):
+        g = self.geo
+        st = self.st
+        ops = self.ops
+        pairs = [tuple(ops[i].qubits) for _, i, _, _ in S]
+        in_S = {q for p in pairs for q in p}
+        # phase A: dirty atoms in the zone go to storage (those in S must; others proactively)
+        down = []
+        for q in range(self.n):
+            if g.in_ent(st.pos[q]) and not _is_identity(U[q]):
+                if q in in_S or self.opt["proactive_down"]:
+                    down.append(q)
+        self._send_down(down)
+        # phase B: destinations as pair constraints
+        reserved: set[Site] = set()
+        tg: dict[int, Site] = {}
+
+        def free(s):
+            return s not in st.occ and s not in reserved
+
+        order = sorted(pairs, key=lambda p: -min(self._anchor_cost(p, st)))
+        for a, b in order:
+            if g.in_ent(st.pos[a]) and g.sibling.get(st.pos[a]) == st.pos[b]:
+                continue  # already together
+            best = None
+            for anc, mov in ((a, b), (b, a)):
+                s = st.pos[anc]
+                if g.in_ent(s) and free(g.sibling[s]):
+                    c = g.dist(st.pos[mov], g.sibling[s])
+                    if best is None or c < best[0]:
+                        best = (c, {mov: g.sibling[s]})
+            # both move to a free pair
+            for left, right in g.pairs:
+                if not (free(left) or st.occ.get(left) in (a, b)) or not (free(right) or st.occ.get(right) in (a, b)):
+                    continue
+                if st.occ.get(left) is not None and st.occ.get(left) not in (a, b):
+                    continue
+                pa, pb = st.pos[a], st.pos[b]
+                for qa, qb in ((a, b), (b, a)):
+                    c = max(g.dist(st.pos[qa], left), g.dist(st.pos[qb], right))
+                    if best is None or c < best[0] - 1e-9:
+                        best = (c, {qa: left, qb: right})
+                del pa, pb
+            if best is None:
+                raise RuntimeError("no room in the entangling zone")
+            for q, s in best[1].items():
+                tg[q] = s
+                reserved.add(s)
+        transfers = [(q, st.pos[q], s) for q, s in tg.items() if st.pos[q] != s]
+        # atoms leaving storage get their pending 1q gates first
+        for q, src, _ in transfers:
+            if g.in_storage(src) and not _is_identity(U[q]):
+                if not dry:
+                    self._flush(q)
+                else:
+                    U[q] = I2.copy()
+        for q in in_S:
+            if not _is_identity(U[q]):
+                if g.in_storage(st.pos[q]):
+                    if not dry:
+                        self._flush(q)
+                else:
+                    raise RuntimeError("dirty atom in the zone")
+        for params, dist in group_transfers(st, transfers):
+            self._emit_move(params, dist)
+        # sanity: every pulse pair together, no other pair doubly occupied
+        if not dry:
+            for a, b in pairs:
+                if g.sibling.get(st.pos[a]) != st.pos[b]:
+                    raise RuntimeError("pair not formed")
+            for left, right in g.pairs:
+                qa, qb = st.occ.get(left), st.occ.get(right)
+                if qa is not None and qb is not None and {qa, qb} not in [set(p) for p in pairs]:
+                    raise RuntimeError("unwanted pair")
+            for a, b in pairs:
+                self.out.append(("cz", a, b))
+
+    def _anchor_cost(self, p, st):
+        g = self.geo
+        a, b = p
+        return [g.dist(st.pos[a], st.pos[b])]
+
+
+# ---------------------------------------------------------------- executor (gate-level state machine)
+
+
+class Exec:
+    """DAG progress plus, per qubit, the pending 1q unitary and the role (idle / rot / open frame).
+
+    Events: ("start", block, rotator) and ("finish", block, rotator); rotator is None for single-CZ
+    blocks. `pre_ws(ev)` = the basis changes an event adds before its CZ (per qubit)."""
+
+    def __init__(self, ops, succ, indeg, n):
+        self.ops, self.succ, self.n = ops, succ, n
+        self.indeg = list(indeg)
+        self.U = [I2.copy() for _ in range(n)]
+        self.mode = ["idle"] * n
+        self.frame: list[str | None] = [None] * n
+        self.open_cnt = [0] * n
+        self.bstate: dict[int, int] = {}
+        self.done = [False] * len(ops)
+        self.ready = [o.idx for o in ops if indeg[o.idx] == 0]
+        self.ready_blocks: set[int] = set()
+        self.pend_meas: list[Op] = []
+        self.absorb()
+
+    def clone(self) -> Exec:
+        e = Exec.__new__(Exec)
+        e.ops, e.succ, e.n = self.ops, self.succ, self.n
+        e.indeg = list(self.indeg)
+        e.U = [u.copy() for u in self.U]
+        e.mode, e.frame, e.open_cnt = list(self.mode), list(self.frame), list(self.open_cnt)
+        e.bstate, e.done, e.ready = dict(self.bstate), list(self.done), list(self.ready)
+        e.ready_blocks, e.pend_meas = set(self.ready_blocks), list(self.pend_meas)
+        return e
+
+    def finished(self) -> bool:
+        return not self.ready_blocks and not self.bstate
+
+    def _finish(self, i):
+        self.done[i] = True
+        for j in self.succ[i]:
+            self.indeg[j] -= 1
+            if self.indeg[j] == 0:
+                self.ready.append(j)
+
+    def absorb(self):
+        progress = True
+        while progress:
+            progress = False
+            rest = []
+            for i in self.ready:
+                o = self.ops[i]
+                if o.kind == U1:
+                    q = o.qubits[0]
+                    if self.mode[q] == "idle":
+                        self.U[q] = o.mat @ self.U[q]
+                        self._finish(i)
+                        progress = True
+                    else:
+                        rest.append(i)
+                elif o.kind == MEAS:
+                    self.pend_meas.append(o)
+                    self._finish(i)
+                    progress = True
+                else:
+                    self.ready_blocks.add(i)
+            self.ready = [i for i in rest if not self.done[i]]
+
+    def other(self, i, r):
+        return [q for q in self.ops[i].qubits if q != r][0]
+
+    def start_roles(self, i) -> list[int | None]:
+        """Feasible rotators for starting ready block i (None for a single-CZ block)."""
+        op = self.ops[i]
+        a, b = op.qubits
+        if op.kind == CZB:
+            return [None] if self.mode[a] == "idle" and self.mode[b] == "idle" else []
+        res = []
+        for r, o in ((a, b), (b, a)):
+            if self.mode[r] != "idle":
+                continue
+            po = _pauli_on(op, o)
+            if self.mode[o] == "idle" or (self.mode[o] == "open" and self.frame[o] == po):
+                res.append(r)
+        return res
+
+    def pre_ws(self, ev) -> dict[int, np.ndarray]:
+        kind, i, r = ev
+        op = self.ops[i]
+        if kind == "finish":
+            return {}
+        if op.kind == CZB:
+            return {q: w for q, w in zip(op.qubits, op.basis)}
+        o = self.other(i, r)
+        res = {r: basis_change(_pauli_on(op, r), "X")}
+        if self.mode[o] != "open":
+            res[o] = basis_change(_pauli_on(op, o), "Z")
+        return res
+
+    def apply_pre(self, ev, skip=()):
+        kind, i, r = ev
+        op = self.ops[i]
+        for q, w in self.pre_ws(ev).items():
+            if q not in skip:
+                self.U[q] = w @ self.U[q]
+        if kind == "start" and op.kind == ROT:
+            o = self.other(i, r)
+            if self.mode[o] != "open":
+                self.mode[o], self.frame[o] = "open", _pauli_on(op, o)
+            self.open_cnt[o] += 1
+            self.mode[r] = "rot"
+
+    def apply_post(self, ev):
+        kind, i, r = ev
+        op = self.ops[i]
+        if kind == "start" and op.kind == ROT:
+            self.bstate[i] = r
+            self.U[r] = _rx(op.theta) @ self.U[r]
+            self.ready_blocks.discard(i)
+        elif kind == "finish":
+            del self.bstate[i]
+            o = self.other(i, r)
+            self.U[r] = basis_change(_pauli_on(op, r), "X").conj().T @ self.U[r]
+            self.mode[r] = "idle"
+            self.open_cnt[o] -= 1
+            if self.open_cnt[o] == 0:
+                self.U[o] = basis_change(self.frame[o], "Z").conj().T @ self.U[o]
+                self.mode[o], self.frame[o] = "idle", None
+            self._finish(i)
+        else:
+            for q, w in zip(op.qubits, op.basis):
+                self.U[q] = w.conj().T @ self.U[q]
+            self.ready_blocks.discard(i)
+            self._finish(i)
+
+
+def find_hub(ops: list[Op], n: int) -> int | None:
+    deg = [set() for _ in range(n)]
+    for o in ops:
+        if o.kind in (ROT, CZB):
+            a, b = o.qubits
+            deg[a].add(b)
+            deg[b].add(a)
+    if n < 4:
+        return None
+    h = max(range(n), key=lambda q: (len(deg[q]), q))
+    return h if len(deg[h]) >= 0.5 * (n - 1) else None
+
+
+class CyclePlanner:
+    """Hub circuits: the whole register is lifted into the zone, the hub walks over its partners
+    (one CZ per step), non-hub pairs are formed before the last pulse of a cycle, the register is
+    dropped back (rotations happen in storage), and the next lift re-forms those pairs for CZ2."""
+
+    def __init__(self, geo: Geo, ops, succ, indeg, n, hub, order=None):
+        self.geo, self.ops, self.succ, self.indeg, self.n, self.hub = geo, ops, succ, indeg, n, hub
+        g = geo
+        partners = order if order is not None else self.default_order()
+        m = len(partners)
+        ncols = (g.ex1 - g.ex0 + 1) // 2
+        R = max(1, math.ceil(m / ncols))
+        if R > g.ey1 - g.ey0 + 1 or R > g.sy1 - g.sy0 + 1 or not g.ent_above:
+            raise Unsupported("layout does not fit")
+        self.R = R
+        self.shift = g.ey0 - (g.sy1 - R + 1)
+        self.home: dict[int, Site] = {}
+        for k, p in enumerate(partners):
+            c, row = divmod(k, R)
+            self.home[p] = (g.ex0 + 2 * c, g.ey0 + row)
+        walk = []
+        for c in range(ncols):
+            col = [p for p in partners if self.home[p][0] == g.ex0 + 2 * c]
+            col.sort(key=lambda p: self.home[p][1], reverse=bool(c % 2))
+            walk += col
+        self.walk = walk
+        self.widx = {p: k for k, p in enumerate(walk)}
+        first = walk[0]
+        hx, hy = self.home[first]
+        self.loading = {p: (s[0], s[1] - self.shift) for p, s in self.home.items()}
+        self.loading[hub] = (hx + 1, hy - self.shift)
+        self.direction = 1
+
+    def default_order(self) -> list[int]:
+        seen = []
+        for o in self.ops:
+            if o.kind in (ROT, CZB) and self.hub in o.qubits:
+                p = [q for q in o.qubits if q != self.hub][0]
+                if p not in seen:
+                    seen.append(p)
+        seen += [q for q in range(self.n) if q != self.hub and q not in seen]
+        return seen
+
+    # ---------------------------------------------------------- output helpers
+    def emit_moves(self, transfers):
+        for params, dist in group_transfers(self.st, transfers):
+            self.out.append(("move", params))
+            self.dist_total += dist
+
+    def flush(self, q):
+        for name, ang in synth_1q(self.ex.U[q]):
+            self.out.append(("u", q, name, ang))
+        self.ex.U[q] = I2.copy()
+
+    # ---------------------------------------------------------- planning one cycle
+    def _hub_event(self, ex: Exec, p):
+        h = self.hub
+        for i, r in ex.bstate.items():
+            if r == p and h in self.ops[i].qubits:
+                return ("finish", i, r)
+        for i in sorted(ex.ready_blocks):
+            op = self.ops[i]
+            if h in op.qubits and p in op.qubits:
+                roles = ex.start_roles(i)
+                if op.kind == CZB and roles:
+                    return ("start", i, None)
+                if p in roles:
+                    return ("start", i, p)
+        return None
+
+    def _qs(self, ev):
+        return self.ops[ev[1]].qubits
+
+    def _clean_ok(self, ex: Exec, ev, touched) -> bool:
+        ws = ex.pre_ws(ev)
+        return all(q not in touched or _is_identity(ws.get(q, I2) @ ex.U[q]) for q in self._qs(ev))
+
+    def _commit(self, ex: Exec, pulse, touched):
+        for ev in pulse:
+            ex.apply_pre(ev)
+            for q in self._qs(ev):
+                if q not in touched:
+                    ex.U[q] = I2.copy()  # flushed before the lift
+                    touched.add(q)
+        for ev in pulse:
+            ex.apply_post(ev)
+        ex.absorb()
+
+    def plan_cycle(self):
+        """Pulses of the next cycle, simulated on a copy of the executor: first the CZ2s of the
+        pairs re-formed by the lift, then one hub event per pulse along the walk, and on the last
+        pulse a matching of non-hub CZ1s (chosen on the state before that pulse)."""
+        h = self.hub
+        ex = self.ex.clone()
+        touched: set[int] = set()
+        pulses: list[list] = []
+        p1 = [("finish", i, r) for i, r in sorted(ex.bstate.items()) if h not in self.ops[i].qubits]
+        if p1:
+            if not all(self._clean_ok(ex, ev, touched) for ev in p1):
+                raise RuntimeError("lift pair not clean")
+            self._commit(ex, p1, touched)
+            pulses.append(p1)
+        cands = [p for p in self.walk if self._hub_event(ex, p) is not None]
+        if cands:
+            hpos = self.st.pos[h]
+            if self.geo.dist(hpos, self.home[cands[-1]]) < self.geo.dist(hpos, self.home[cands[0]]):
+                cands.reverse()
+        snap = None
+        n_hub = 0
+        for p in cands:
+            ev = self._hub_event(ex, p)
+            if ev is None or not self._clean_ok(ex, ev, touched):
+                continue
+            snap = (ex.clone(), set(touched), len(pulses))
+            self._commit(ex, [ev], touched)
+            pulses.append([ev])
+            n_hub += 1
+        # matching on the state before the last pulse
+        if snap is not None:
+            ex, touched, k = snap[0], snap[1], snap[2]
+            last = pulses[k]
+            del pulses[k:]
+        else:
+            last = []
+        used = {q for ev in last for q in self._qs(ev)}
+        M = []
+        for i in sorted(ex.ready_blocks):
+            op = self.ops[i]
+            if h in op.qubits or used & set(op.qubits):
+                continue
+            for r in ex.start_roles(i):
+                ev = ("start", i, r)
+                if self._clean_ok(ex, ev, touched):
+                    M.append(ev)
+                    used.update(op.qubits)
+                    break
+        if last or M:
+            self._commit(ex, last + M, touched)
+            pulses.append(last + M)
+        return pulses
+
+    # ---------------------------------------------------------- execution
+    def run(self):
+        g = self.geo
+        h = self.hub
+        self.ex = Exec(self.ops, self.succ, self.indeg, self.n)
+        self.st = State(g, self.loading)
+        self.out: list[tuple] = []
+        self.dist_total = 0.0
+        guard = 0
+        while not self.ex.finished():
+            guard += 1
+            if guard > 4 * len(self.ops) + 20:
+                raise RuntimeError("cycle planner stuck")
+            pulses = self.plan_cycle()
+            if not pulses:
+                raise RuntimeError("empty cycle")
+            # which event touches each qubit first in this cycle
+            first: dict[int, tuple] = {}
+            for pl in pulses:
+                for ev in pl:
+                    for q in self.ops[ev[1]].qubits:
+                        first.setdefault(q, ev)
+            # flush before the lift: pending unitary + basis change of the first event
+            ex = self.ex
+            pre_done: dict[int, tuple] = {}
+            sim = ex.clone()
+            for pl in pulses:
+                for ev in pl:
+                    ws = sim.pre_ws(ev)
+                    for q in self.ops[ev[1]].qubits:
+                        if first[q] is ev and q not in pre_done:
+                            pre_done[q] = (ev, ws.get(q))
+                    sim.apply_pre(ev)
+                for ev in pl:
+                    sim.apply_post(ev)
+                sim.absorb()
+            for q, (ev, w) in pre_done.items():
+                if w is not None:
+                    ex.U[q] = w @ ex.U[q]
+                if not g.in_storage(self.st.pos[q]):
+                    if not _is_identity(ex.U[q]):
+                        raise RuntimeError("dirty atom outside storage")
+                    ex.U[q] = I2.copy()
+                else:
+                    self.flush(q)
+            # lift everything that is in storage
+            self.emit_moves([(q, s, (s[0], s[1] + self.shift)) for q, s in self.st.pos.items() if g.in_storage(s)])
+            for pl in pulses:
+                self.route(pl)
+                for ev in pl:
+                    skip = [q for q in self.ops[ev[1]].qubits if first[q] is ev]
+                    ex.apply_pre(ev, skip=skip)
+                    for q in self.ops[ev[1]].qubits:
+                        if not _is_identity(ex.U[q]):
+                            raise RuntimeError("dirty atom at a pulse")
+                for ev in pl:
+                    a, b = self.ops[ev[1]].qubits
+                    self.out.append(("cz", a, b))
+                for ev in pl:
+                    ex.apply_post(ev)
+                ex.absorb()
+            # drop everything
+            self.emit_moves([(q, s, (s[0], s[1] - self.shift)) for q, s in self.st.pos.items() if g.in_ent(s)])
+        for q in range(self.n):
+            if not _is_identity(self.ex.U[q]):
+                if not g.in_storage(self.st.pos[q]):
+                    raise RuntimeError("final atom outside storage")
+                self.flush(q)
+        for o in sorted(self.ex.pend_meas, key=lambda o: o.idx):
+            self.out.append(("meas", o.qubits[0], o.clbit))
+        return self.out
+
+    def route(self, pulse):
+        """Moves before a pulse: hub to its partner, visitors to their dwellers, everyone else home
+        (alone). Destinations are exact sibling sites."""
+        g, st, h = self.geo, self.st, self.hub
+        pairs = [tuple(self.ops[ev[1]].qubits) for ev in pulse]
+        in_pulse = {q for p in pairs for q in p}
+        tg: dict[int, Site] = {}
+        for ev, (a, b) in zip(pulse, pairs):
+            if g.sibling.get(st.pos[a]) == st.pos[b]:
+                continue
+            if h in (a, b):
+                mover = h
+                anchor = b if a == h else a
+            else:
+                r = ev[2]
+                mover = r if r is not None else b
+                anchor = a if mover == b else b
+            tg[mover] = g.sibling[self._target_home(anchor)]
+            if st.pos[anchor] != self._target_home(anchor):
+                tg[anchor] = self._target_home(anchor)
+        # everyone not in the pulse must be alone: displaced partners go home; the hub steps aside
+        for q in range(self.n):
+            if q in in_pulse or q in tg:
+                continue
+            s = st.pos[q]
+            if not g.in_ent(s):
+                continue
+            if q != h and s != self.home[q]:
+                tg[q] = self.home[q]
+        taken = set(tg.values())
+        if h not in in_pulse and g.in_ent(st.pos[h]):
+            sib = g.sibling[st.pos[h]]
+            if st.occ.get(sib) is not None or sib in taken or st.pos[h] in taken:
+                spots = [s for s in g.ent_sites if s not in st.occ and s not in taken
+                         and s[1] < g.ey0 + self.R
+                         and g.sibling[s] not in st.occ and g.sibling[s] not in taken]
+                spots.sort(key=lambda s: g.dist(st.pos[h], s))
+                tg[h] = spots[0]
+        self.emit_moves([(q, st.pos[q], s) for q, s in tg.items()])
+        for left, right in g.pairs:
+            qa, qb = st.occ.get(left), st.occ.get(right)
+            if qa is not None and qb is not None and {qa, qb} not in [set(p) for p in pairs]:
+                raise RuntimeError("unwanted pair before pulse")
+        for a, b in pairs:
+            if g.sibling.get(st.pos[a]) != st.pos[b]:
+                raise RuntimeError("pair not formed")
+
+    def _target_home(self, q):
+        return self.home[q] if q != self.hub else self.st.pos[q]
+
+
+# ---------------------------------------------------------------- emit + self-check
+
+
+def _emit(circuit: QuantumCircuit, prog: list[tuple]) -> QuantumCircuit:
+    out = circuit.copy_empty_like()
+    out.data.clear() if hasattr(out.data, "clear") else None
+    for item in prog:
+        if item[0] == "u":
+            _, q, name, ang = item
+            (out.rx if name == "rx" else out.rz)(ang, q)
+        elif item[0] == "cz":
+            out.cz(item[1], item[2])
+        elif item[0] == "move":
+            rows, cols, nr, nc, qs = item[1]
+            out.append(Move(rows, cols, nr, nc, len(qs)), list(qs))
+        elif item[0] == "meas":
+            out.measure(item[1], item[2])
+    return out
+
+
+def self_check(geo: Geo, loading: dict[int, Site], prog: list[tuple]) -> None:
+    """Replays positions with the validator's rules plus transversal CZ."""
+    st = State(geo, loading)
+    seg_cz: dict[frozenset, int] = {}
+    seg_pairs: set[frozenset] = set()
+
+    def close_segment():
+        if seg_cz:
+            counts = set(seg_cz.values())
+            if len(counts) != 1:
+                raise RuntimeError("non-uniform pulses")
+            for left, right in geo.pairs:
+                qa, qb = st.occ.get(left), st.occ.get(right)
+                if qa is not None and qb is not None and frozenset((qa, qb)) not in seg_cz:
+                    raise RuntimeError("occupied pair without cz")
+        seg_cz.clear()
+
+    for item in prog:
+        if item[0] == "move":
+            close_segment()
+            rows, cols, nr, nc, qs = item[1]
+            rmap = dict(zip([y for y in rows if any(st.pos[q][1] == y for q in qs)], nr, strict=True))
+            cmap = dict(zip([x for x in cols if any(st.pos[q][0] == x for q in qs)], nc, strict=True))
+            st.apply([(q, (cmap[st.pos[q][0]], rmap[st.pos[q][1]])) for q in qs])
+        elif item[0] == "u":
+            if not geo.in_storage(st.pos[item[1]]):
+                raise RuntimeError("1q gate outside storage")
+        elif item[0] == "cz":
+            a, b = item[1], item[2]
+            if geo.sibling.get(st.pos[a]) != st.pos[b]:
+                raise RuntimeError("cz not on a pair")
+            k = frozenset((a, b))
+            seg_cz[k] = seg_cz.get(k, 0) + 1
+    close_segment()
+    del seg_pairs
+
+
+# ---------------------------------------------------------------- naive fallback (from compilers/naive)
+
+
+def _naive(circuit: QuantumCircuit, spec: Any):
+    n = circuit.num_qubits
+    native = transpile(circuit, basis_gates=["rx", "rz", "cz"], optimization_level=0)
+    loading = {q: (q % 10, q // 10) for q in range(n)}
+    pos = dict(loading)
+    out = native.copy_empty_like()
+    index = {bit: i for i, bit in enumerate(native.qubits)}
+
+    def mv(qs, rows, cols, nr, nc):
+        out.append(Move(rows, cols, nr, nc, len(qs)), list(qs))
+
+    for instruction in native.data:
+        name = instruction.operation.name
+        qubits = [index[q] for q in instruction.qubits]
+        if name != "cz":
+            out.append(instruction)
+            continue
+        a, b = sorted(qubits, key=lambda q: pos[q])
+        (xa, ya), (xb, yb) = pos[a], pos[b]
+        if ya == yb and xb == xa + 1:
+            c = xa - xa % 2
+            mv([a, b], (ya,), (xa, xb), (10,), (c, c + 1))
+            out.append(instruction)
+            mv([a, b], (10,), (c, c + 1), (ya,), (xa, xb))
+        else:
+            k = xa - xa % 2
+            mv([a], (ya,), (xa,), (10,), (k,))
+            mv([b], (yb,), (xb,), (10,), (k + 1,))
+            out.append(instruction)
+            mv([a], (10,), (k,), (ya,), (xa,))
+            mv([b], (10,), (k + 1,), (yb,), (xb,))
+    return out, Architecture(loading, spec=spec)
+
+
+# ---------------------------------------------------------------- entry point
+
+
+def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None):
+    options = options or {}
+    comp = Compiler(circuit, spec, options)
+    hub = find_hub(comp.ops, comp.n)
+    if hub is not None and options.get("planner", "cycle") == "cycle":
+        cp = CyclePlanner(comp.geo, comp.ops, comp.succ, comp.indeg, comp.n, hub, options.get("order"))
+        prog = cp.run()
+        self_check(comp.geo, cp.loading, prog)
+        return _emit(circuit, prog), Architecture(cp.loading, spec=spec), cp
+    prog = comp.run()
+    self_check(comp.geo, comp.loading, prog)
+    return _emit(circuit, prog), Architecture(comp.loading, spec=spec), comp
+
+
+def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
+    if circuit.num_qubits > 50 or len(circuit.data) > 5000:
+        return _naive(circuit, architecture_spec)
+    try:
+        out, arch, _ = compile_with(circuit, architecture_spec)
+        return out, arch
+    except (Unsupported, RuntimeError, KeyError, IndexError, ValueError, AssertionError):
+        return _naive(circuit, architecture_spec)
