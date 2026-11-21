@@ -1184,7 +1184,9 @@ class _Machine:
     def flush_dip(self, qubits):
         """Flush the pending 1q gates of `qubits` with the shallowest dip that reaches storage."""
         st = self.st
-        need = [q for q in qubits if q in st.pending]
+        eye = np.eye(2)
+        need = [q for q in qubits
+                if q in st.pending and not _eq_phase(st.pending[q], eye, 1e-9)]
         if not need:
             return
         if not st.in_zone:
@@ -1205,10 +1207,21 @@ class _Machine:
                 self.st.flush(q)
 
     def park_hub(self):
-        site = self.lay["park"]
-        p = self.st.pos[self.hub]
-        if p != site:
-            self.st.move((p[1],), (p[0],), (site[1],), (site[0],))
+        """Park the hub on the nearest free lone site of the lane rows (ADR-0010 keeps it in the
+        zone rows that `to_storage` carries).  A lone site means its pair partner is empty too."""
+        st = self.st
+        p = st.pos[self.hub]
+        best, best_key = None, None
+        for y in range(10, 10 + self.lay["L"]):
+            for x in range(10):
+                s = (x, y)
+                if s == p or s in st.occ or _partner_site(s) in st.occ:
+                    continue
+                key = (_dist(p, s), s)
+                if best_key is None or key < best_key:
+                    best, best_key = s, key
+        if best is not None and best != p:
+            st.move((p[1],), (p[0],), (best[1],), (best[0],))
 
     # -- conveyor ------------------------------------------------------
     def _conveyor_ops(self, group, targ):
@@ -1491,8 +1504,14 @@ class _Machine:
             out.append((blk, qu, qv, su, sv, self._pick_targ(blk, qu, qv, su)))
         return out
 
-    def _assign_cost(self, assign):
-        """Simulated cost of a placement: batched outward trip + return trip + the storage dip."""
+    def _assign_cost(self, assign, has_mid=True):
+        """Simulated cost of a placement: batched outward trip + return trip + the storage dips.
+
+        Two dips are paid (each move costs its depth, and each dip is a down+up pair): the flush
+        dip that stores the pre-gates before `cz #1` and the mid dip that carries the `rx`.  Both
+        reach the deepest atom that needs them, so a placement that pulls those atoms into low rows
+        is cheaper.
+        """
         st = self.st
         sites = {q: site for _, qa, qb, sa, sb, _ in assign for q, site in ((qa, sa), (qb, sb))}
         reloc = {q: (st.pos[q], site) for q, site in sites.items() if st.pos[q] != site}
@@ -1505,8 +1524,20 @@ class _Machine:
                 pos[q] = d
         back = {q: (pos[q], st.pos[q]) for q in reloc if pos[q] != st.pos[q]}
         cost += sum(_move_cost(g) for g in _plan_moves(back, occ))
-        targs = [t for *_, t in assign]
-        cost += 2.0 * (1 + max(0, max(pos[t][1] - 10 for t in targs)))
+        eye = np.eye(2)
+        need = []
+        for blk, qa, qb, sa, sb, targ in assign:
+            pre: dict = {}
+            for q, u in _block_pre(blk, targ):
+                pre[q] = u @ pre.get(q, eye)
+            for q in (qa, qb, targ):
+                if not _eq_phase(pre.get(q, eye) @ st.pending.get(q, eye), eye, 1e-9):
+                    need.append(pos[q][1])
+        flush = 1 + max(0, max(need) - 10) if need else 0
+        cost += 2.0 * flush
+        if has_mid:
+            targs = [t for *_, t in assign]
+            cost += 2.0 * max(flush, 1 + max(0, max(pos[t][1] - 10 for t in targs)))
         return cost
 
     def _assign_runs(self, M):
@@ -1585,16 +1616,17 @@ class _Machine:
     def _choose_assign(self, M):
         """Pick the placement strategy with the cheapest simulated batched cost (deterministic)."""
         best, best_cost = None, None
+        has_mid = M[0].mid is not None
         for penalty, dweller_only in ((0.5, False), (2.0, False), (0.5, True), (4.0, False), (1.5, True)):
             assign = self._assign(M, penalty, dweller_only)
             if assign is None:
                 continue
-            cost = self._assign_cost(assign)
+            cost = self._assign_cost(assign, has_mid)
             if best_cost is None or cost < best_cost - 1e-12:
                 best, best_cost = assign, cost
         runs = self._assign_runs(M)
         if runs is not None:
-            cost = self._assign_cost(runs)
+            cost = self._assign_cost(runs, has_mid)
             if best_cost is None or cost < best_cost - 1e-12:
                 best, best_cost = runs, cost
         return best

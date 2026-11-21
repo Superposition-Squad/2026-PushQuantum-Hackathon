@@ -263,3 +263,19 @@ Results, `c47a22e` → this commit (fast and full mode give the same D/P):
 36/36 metric full, 13/13 sanity full, exact Clifford tableaux equal on 19–22 and 33–36 (two angle
 draws each), bench zone-span check clean on every circuit, deterministic on 50q p3, max compile
 time 16.5 s CPU (50q QAOA warm p3, idle).
+
+## Round 3: dip-aware placement (1d7aeeb +)
+
+The matching rounds pay two dips at the deepest atom that needs them: the flush dip (pre-gates
+before `cz #1`) and the mid dip (`rx`).  `_assign_cost` only counted the mid dip, and `flush_dip`
+took the depth over qubits with *identity* pending gates too.  Now:
+
+* `_assign_cost` simulates the pending pre-gate of every involved qubit and adds the flush dip
+  (and takes the mid dip as `max(flush, target)`), so `_choose_assign` prefers placements that pull
+  the flushing/target atoms into low rows; bare-cx groups (HEA) no longer pay a phantom mid dip.
+* `flush_dip` ignores identity pending gates when sizing its dip.
+* `park_hub` parks on the nearest free lone site of the lane rows instead of the fixed park.
+
+`1d7aeeb` → this: **+88.95 % → +89.01 %** (distance 25 733.3 → 25 475.1, depth 4272 → 4289).
+The dip depth is now explicit in the placement cost; every circuit except HEA moves (QAOA 50q p3
+2362.8 → 2333.0, 20q p1 232.5 → 216.2 at +6 depth).
