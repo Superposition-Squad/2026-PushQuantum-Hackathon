@@ -1149,7 +1149,7 @@ def _looks_like_hub(items, n):
     if len(used) != n:
         return None
     hub = max(neigh, key=lambda q: (len(neigh[q]), q))
-    if len(neigh[hub]) != n - 1:
+    if len(neigh[hub]) * 4 < n - 1:
         return None
     return hub
 
