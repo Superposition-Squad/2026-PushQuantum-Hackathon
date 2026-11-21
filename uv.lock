@@ -299,6 +299,11 @@ dependencies = [
     { name = "scipy" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "qiskit-aer" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "marimo" },
@@ -307,6 +312,9 @@ requires-dist = [
     { name = "qiskit", specifier = ">=2.0" },
     { name = "scipy" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "qiskit-aer", specifier = ">=0.18.4" }]
 
 [[package]]
 name = "psutil"
@@ -353,6 +361,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ad/17/2db4b414de89659144488e0d9c6c0bf0c8395841dc12d81d0532cc6ef310/pymdown_extensions-11.0.2.tar.gz", hash = "sha256:9506fcbe66fa355a775b768084334238dd6805020ac4b92bea0c0dda6f8f223d", size = 855419, upload-time = "2026-08-22T19:28:47.236Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a6/43/9f45ec4d14e596efc32c925a78104934790438b0c0628b70d741016734ad/pymdown_extensions-11.0.2-py3-none-any.whl", hash = "sha256:259910762019732caa1dfd76f3faa62c59f191d46573e80bcb1d13c0f675bbe5", size = 269929, upload-time = "2026-08-22T19:28:45.389Z" },
+]
+
+[[package]]
+name = "python-dateutil"
+version = "4.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tzdata" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/18/39/b3927f3616f6223832f9b760e4208e8a7c7e1dea2b4d9ad7d32a5d214c3a/python_dateutil-4.0.0.tar.gz", hash = "sha256:d7295ff14fdc0f92f662100bfb6c551d160ca090f2939f1ec5b9794265c03f06", size = 250419, upload-time = "2026-11-01T07:02:42.426Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2f/a9/52b89563d154433d79b51ed1eb4842bf7334cb2696891a7fe135618853d7/python_dateutil-4.0.0-py3-none-any.whl", hash = "sha256:a5e246f79eb80475e691bf93862cead98decd8a498cf53ba0516fcdc0f50dc1c", size = 92853, upload-time = "2026-11-01T07:02:40.797Z" },
 ]
 
 [[package]]
@@ -431,6 +451,28 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/e9/978b3421a992341043aa3d91473da0662dd6201a060bb3100e63aab6531f/qiskit-2.6.2-cp310-abi3-manylinux_2_28_s390x.whl", hash = "sha256:7a6f2df167ed47b93cc3a72fbb4072ea873abff3f63941cbd884d0b227b83190", size = 11935819, upload-time = "2026-11-05T13:47:41.786Z" },
     { url = "https://files.pythonhosted.org/packages/49/08/db2ff7cd24c4a14bb035c4cbbf332ab0abc27330a8fb33d1a64da9d01409/qiskit-2.6.2-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:e8578003e39facf72289fafae1542e38646e5cae7c93665f004046efa5797669", size = 9513711, upload-time = "2026-11-05T13:45:52.926Z" },
     { url = "https://files.pythonhosted.org/packages/ba/9e/d7270337859e1b9f950d011cd10b4a5ab726e5d22f29293fd97048f85958/qiskit-2.6.2-cp310-abi3-win_amd64.whl", hash = "sha256:b8e20c86399c916e0e0b515c4cb5d22721a851b97c536b2f7e2afa1ee1931590", size = 9285015, upload-time = "2026-11-05T13:45:55.653Z" },
+]
+
+[[package]]
+name = "qiskit-aer"
+version = "0.18.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "psutil" },
+    { name = "python-dateutil" },
+    { name = "qiskit" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4a/e2/caa8bfeeb1fae850592b5a09c3fc73fc15943f6091d69a1de98c7df8b114/qiskit_aer-0.18.4.tar.gz", hash = "sha256:f3b9e5c6ac3057a845448330c96d5cac9b93ad4048bc44c14d87ae6db31e9839", size = 6555019, upload-time = "2026-11-17T04:15:24.243Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f5/d6/576254cc4e368d434bf1b0e7c8d4c0ff3f87dddf16904e2db580358d22ac/qiskit_aer-0.18.4-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:6c14597c87d8c9c10ffab02c6526e75731b87cf1366319df54b660e5aafccf4f", size = 2377445, upload-time = "2026-11-17T04:14:07.627Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/2f/a77a86ec1f0a306ce7cf664799a88f2d8690df135fa875acc830e24b9d60/qiskit_aer-0.18.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:126ec52406e5e87dfde3b9ce01c3d207f5830d2f6b5d10745b718b65bda02a78", size = 2119592, upload-time = "2026-11-17T04:14:09.359Z" },
+    { url = "https://files.pythonhosted.org/packages/73/07/7fe624ee8f56d1768189d687d368149eb35689a74a08eff99aa0d289a25f/qiskit_aer-0.18.4-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ad3eb660e27f2ac16aadc654de0ca29af239571d7fe306231cd6b3a02b840aa6", size = 7004874, upload-time = "2026-11-17T04:14:10.903Z" },
+    { url = "https://files.pythonhosted.org/packages/27/6b/3c2958331c6d303dcc1ec11b385368b6ac9abb144ef9f01484b03a1a2739/qiskit_aer-0.18.4-cp312-cp312-manylinux_2_27_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:6504793b581d88269ae7943e6c2e5ad26810004527153af3fa467e2fd7605e7b", size = 10610050, upload-time = "2026-11-17T05:23:47.311Z" },
+    { url = "https://files.pythonhosted.org/packages/64/b5/a18376f8458a685300814b696f005dca1b66b5c8ba584eae612d6ce832fc/qiskit_aer-0.18.4-cp312-cp312-manylinux_2_27_s390x.manylinux_2_28_s390x.whl", hash = "sha256:05f9854e7e3185f40ca5b27ca0d40d638ee804fe63485d6232306d439478464d", size = 8478688, upload-time = "2026-11-17T07:22:44.728Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/65/bf6bdef89f36e99da8c3ec0bffea6ec74194dcd33c6a3810a70b74b2fdc6/qiskit_aer-0.18.4-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:35627201520ff2ab2dfacca98e6e4236850b743646588a9e0a2023138e7d1c5e", size = 14222741, upload-time = "2026-11-17T04:14:13.072Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/36/d0c2c828c2071d119ba96dd72d059e44512a81588a390dfbcfa595a39cbc/qiskit_aer-0.18.4-cp312-cp312-win_amd64.whl", hash = "sha256:96f621e94056f34a54e8d62192680dfeacd6b41ecc7cf2197f18162b8612a3f3", size = 9858169, upload-time = "2026-11-17T04:14:15.592Z" },
 ]
 
 [[package]]
@@ -514,6 +556,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz", hash = "sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5", size = 113555, upload-time = "2026-07-02T08:40:05.92Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl", hash = "sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8", size = 45571, upload-time = "2026-07-02T08:40:04.659Z" },
+]
+
+[[package]]
+name = "tzdata"
+version = "2026.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/29/6a1391d31cd00ff9e927215a224a880e1e84e826b64ba80a499e51c074d8/tzdata-2026.6.tar.gz", hash = "sha256:85d2cd9c09f81f0bb29db27759fc83af4f1e620efb814f8c5bf8b4cc4feece6d", size = 201017, upload-time = "2026-10-28T09:57:09.137Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/66/9a06c2227fedfd4919f0eaaa8b94377d9730882a7e4f95823c9a331ab5e1/tzdata-2026.6-py2.py3-none-any.whl", hash = "sha256:0a10eec6e13ef16b627fabed9a5f2ba61a62b1c67f327305f4e7e412a70b4aec", size = 348210, upload-time = "2026-10-28T09:57:07.276Z" },
 ]
 
 [[package]]
