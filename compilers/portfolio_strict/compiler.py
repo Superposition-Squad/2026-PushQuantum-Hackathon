@@ -6,8 +6,8 @@ circuits) a statevector guard, then returns the valid output with the lowest exa
 0.8*D/D_naive + 0.2*P/P_naive. Ties go to the earlier component; naive is the last-resort fallback.
 """
 
-# built from commit 2b0155d with components: optimizer rectbatch hubstream (+ naive fallback)
-#   optimizer    compilers/optimizer/compiler.py  sha256:78d7908d8978  (1817 lines)
+# built from commit e94bd17 with components: optimizer rectbatch hubstream (+ naive fallback)
+#   optimizer    compilers/optimizer/compiler.py  sha256:d8faab17979d  (1822 lines)
 #   rectbatch    compilers/rectbatch/compiler.py  sha256:f85bc87b0489  (1161 lines)
 #   hubstream    compilers/hubstream/compiler.py  sha256:0f99f9a3fd37  (1442 lines)
 #   naive        compilers/naive/compiler.py  sha256:b5ac116295c2  (100 lines)
@@ -65,6 +65,10 @@ _VALIDATOR_SOURCE = (
     '    "zone": ("gate outside its zone", "gates outside their zone"),\n'
     '    "pair": ("two-qubit gate off an interaction pair", "two-qubit gates off an interaction pair"),\n'
     '    "loading": ("invalid initial loading", "invalid initial loadings"),\n'
+    '    "idle": (\n'
+    '        "two-qubit gate layer with idle atoms in its zone",\n'
+    '        "two-qubit gate layers with idle atoms in their zone",\n'
+    '    ),\n'
     '}\n'
     '"""`ArchitectureError.kind` -> (singular, plural) description."""\n'
     '\n'
@@ -194,7 +198,7 @@ _VALIDATOR_SOURCE = (
     'import math\n'
     'import tempfile\n'
     'from collections.abc import Sequence\n'
-    'from dataclasses import dataclass\n'
+    'from dataclasses import dataclass, field\n'
     'from numbers import Integral\n'
     'from pathlib import Path\n'
     'from typing import TYPE_CHECKING\n'
@@ -491,6 +495,16 @@ _VALIDATOR_SOURCE = (
     '                )\n'
     '        return found\n'
     '\n'
+    '    def _check_single_zone(self, sites: dict[int, Site], action: str) -> None:\n'
+    '        """Raises if the atoms at `sites` (qubit -> site) are in more than one zone."""\n'
+    '        by_zone: dict[str, list[int]] = {}\n'
+    '        for qubit, site in sorted(sites.items()):\n'
+    '            by_zone.setdefault(self.zone_at[site].name, []).append(qubit)\n'
+    '        if len(by_zone) > 1:\n'
+    '            where = "; ".join(f"{name!r}: qubits {qubits}" for name, qubits in by_zone.items())\n'
+    '            msg = f"Move {action} atoms in more than one zone ({where}); each end of a move must lie in one zone."\n'
+    '            raise ArchitectureError(msg)\n'
+    '\n'
     '    def apply_move(self, move: ValidatedMove, qubits: Sequence[int]) -> tuple[dict[Site, Site], tuple[str, ...]]:\n'
     '        """Checks `move` on `qubits` against the current state and applies it.\n'
     '\n'
@@ -517,6 +531,8 @@ _VALIDATOR_SOURCE = (
     '            where = {q: self.positions.get(q) for q in sorted(missing)}\n'
     '            msg = f"Qubits {where} are not at any intersection of rows {move.rows} x cols {move.cols}."\n'
     '            raise ArchitectureError(msg)\n'
+    '        self._check_single_zone(picked, "picks up")\n'
+    '        self._check_single_zone({q: mapping[s] for q, s in picked.items()}, "drops off")\n'
     '        for qubit, source in picked.items():\n'
     '            occupant = self.occupant.get(mapping[source])\n'
     '            if occupant is not None and occupant not in picked:\n'
@@ -602,13 +618,21 @@ _VALIDATOR_SOURCE = (
     '        group: list[AodLines] = []  # moves of the current parallel step\n'
     '        group_qubits: set[int] = set()\n'
     '        group_start: dict[int, Site] = {}  # positions when the step started\n'
+    '        layer = _GateLayer()\n'
     '        for index, instruction in enumerate(circuit.data):\n'
     '            operation = instruction.operation\n'
     '            qubits = tuple(index_of[q] for q in instruction.qubits)\n'
+    '            if operation.name == MOVE_NAME:\n'
+    '                self._close_layer(layer, violations, log)\n'
+    '                layer = _GateLayer()\n'
     '            try:\n'
     '                if operation.name != MOVE_NAME:\n'
     '                    group = []\n'
+    '                    if len(qubits) == 2:\n'
+    '                        layer.add(index, qubits)\n'
     '                    self.check_gate(operation.name, qubits)\n'
+    '                    if len(qubits) == 2:\n'
+    '                        layer.zones.add(self.zone_at[self.positions[qubits[0]]].name)\n'
     '                    continue\n'
     '                move = ValidatedMove.from_instruction(operation)\n'
     '                before = {q: self.positions[q] for q in qubits}\n'
@@ -639,7 +663,44 @@ _VALIDATOR_SOURCE = (
     '                violations.append(violation)\n'
     '                log.append(f"ERROR: {violation}")\n'
     '                group = []\n'
+    '        self._close_layer(layer, violations, log)\n'
     '        return trace, violations\n'
+    '\n'
+    '    def _close_layer(self, layer: _GateLayer, violations: list[ArchitectureError], log: list[str]) -> None:\n'
+    '        """Adds an `idle` violation for every zone where the two-qubit gates of `layer` ran while other\n'
+    '        atoms sat there: the entangling pulse reaches every atom in the zone, so each must be in a gate."""\n'
+    '        for name in sorted(layer.zones):\n'
+    '            zone = self.zones[name]\n'
+    '            inside = (q for q, site in self.positions.items() if zone_contains(zone, site))\n'
+    '            idle = sorted(q for q in inside if q not in layer.qubits)\n'
+    '            if not idle:\n'
+    '                continue\n'
+    '            where = ", ".join(f"{q} at {self.positions[q]}" for q in idle)\n'
+    '            span = f"{layer.first}" if layer.first == layer.last else f"{layer.first}-{layer.last}"\n'
+    '            violation = ArchitectureError(\n'
+    '                f"Instructions {span} (two-qubit gates in the {name!r} zone): qubits {where} sit in that zone "\n'
+    '                "without taking part in a two-qubit gate; every atom in the zone must, or be moved out first.",\n'
+    '                "idle",\n'
+    '            )\n'
+    '            violations.append(violation)\n'
+    '            log.append(f"ERROR: {violation}")\n'
+    '\n'
+    '\n'
+    '@dataclass\n'
+    'class _GateLayer:\n'
+    '    """The two-qubit gates between two moves: the atoms stand still, so they share entangling pulses."""\n'
+    '\n'
+    '    first: int = -1\n'
+    '    last: int = -1\n'
+    '    qubits: set[int] = field(default_factory=set)\n'
+    '    zones: set[str] = field(default_factory=set)\n'
+    '    """Zones where a legal two-qubit gate of the layer ran."""\n'
+    '\n'
+    '    def add(self, index: int, qubits: Sequence[int]) -> None:\n'
+    '        if self.first < 0:\n'
+    '            self.first = index\n'
+    '        self.last = index\n'
+    '        self.qubits.update(qubits)\n'
 )
 
 _SOURCES = {}
@@ -1080,7 +1141,7 @@ _SOURCES['optimizer'] = (
     '        self.pos = dict(loading)\n'
     '        self.occ = {s: q for q, s in self.pos.items()}\n'
     '\n'
-    '    def copy(self) -> State:\n'
+    '    def copy(self) -> "State":\n'
     '        st = State.__new__(State)\n'
     '        st.geo, st.pos, st.occ = self.geo, dict(self.pos), dict(self.occ)\n'
     '        return st\n'
@@ -1618,7 +1679,7 @@ _SOURCES['optimizer'] = (
     '        self.pend_meas: list[Op] = []\n'
     '        self.absorb()\n'
     '\n'
-    '    def clone(self) -> Exec:\n'
+    '    def clone(self) -> "Exec":\n'
     '        e = Exec.__new__(Exec)\n'
     '        e.ops, e.succ, e.n = self.ops, self.succ, self.n\n'
     '        e.indeg = list(self.indeg)\n'
@@ -2382,6 +2443,7 @@ _SOURCES['optimizer'] = (
     '# ---------------------------------------------------------------- entry point\n'
     '\n'
     '\n'
+    'DEV_FAST = False  # dev iteration only (bench/devbench.sh flips it in a scratch copy): one plan, no search\n'
     'DEPTH_WEIGHT = 276726.912853 / (4 * 23676)  # one depth unit = 2.92 distance units in the score\n'
     '\n'
     '\n'
@@ -2398,7 +2460,10 @@ _SOURCES['optimizer'] = (
     '    comp = Compiler(circuit, spec, options)\n'
     '    hub = find_hub(comp.ops, comp.n)\n'
     '    if hub is not None and options.get("planner", "cycle") == "cycle":\n'
-    '        orders = [None] + [sa_order(comp.geo, comp.ops, comp.n, hub, seed) for seed in (1, 2, 3)]\n'
+    '        dev = DEV_FAST\n'
+    '        if dev:\n'
+    '            options = {**options, "budget": -1}\n'
+    '        orders = [None] + ([] if dev else [sa_order(comp.geo, comp.ops, comp.n, hub, seed) for seed in (1, 2, 3)])\n'
     '        space = {\n'
     '            "order": list(range(len(orders))),\n'
     '            "match": ["index", "work"],\n'
@@ -2409,6 +2474,7 @@ _SOURCES['optimizer'] = (
     '        }\n'
     '        cur = {k: v[0] for k, v in space.items()}\n'
     '        cur["order"] = 2 if len(orders) > 2 else 0\n'
+    '        space["order"] = list(range(len(orders)))\n'
     '        fixed = {k: options[k] for k in space if k in options}\n'
     '        cur.update(fixed)\n'
     '        seen: dict = {}\n'
@@ -5271,6 +5337,24 @@ def _physics_check(compiled, loading, trace):
     close(len(compiled.data))
 
 
+def _zonespan_check(trace):
+    """Copy of bench.py `zonespan_check` (ADR 0010): a move selecting >= 2 rows keeps its picked-up
+    rows within one zone and its target rows within one zone."""
+    zones = _V.load_trusted_spec()["zones"]
+
+    def zone_of(row):
+        for name, z in zones.items():
+            if z["y"][0] <= row <= z["y"][1]:
+                return name
+        return None
+
+    for rec in trace:
+        mv = rec.move
+        for lines in (mv.rows, mv.new_rows):
+            if len(lines) >= 2 and len({zone_of(r) for r in lines}) > 1:
+                raise PortfolioReject(f"zone span violated at instruction {rec.index}: rows {tuple(lines)}")
+
+
 def _interaction_pairs(circuit):
     index = {bit: i for i, bit in enumerate(circuit.qubits)}
     return {
@@ -5333,6 +5417,7 @@ def _evaluate(reference, output, ref_pairs):
     loading = {int(q): (int(s[0]), int(s[1])) for q, s in raw.items()}
     replay = _V.ValidationArchitecture.from_loading(loading, None)  # always the trusted spec, like the scorer
     trace = replay.run(compiled, log_file=os.devnull)
+    _zonespan_check(trace)
     _physics_check(compiled, loading, trace)
     gates = _strip_moves(compiled)
     required, allowed = ref_pairs

@@ -432,7 +432,7 @@ class State:
         self.pos = dict(loading)
         self.occ = {s: q for q, s in self.pos.items()}
 
-    def copy(self) -> State:
+    def copy(self) -> "State":
         st = State.__new__(State)
         st.geo, st.pos, st.occ = self.geo, dict(self.pos), dict(self.occ)
         return st
@@ -970,7 +970,7 @@ class Exec:
         self.pend_meas: list[Op] = []
         self.absorb()
 
-    def clone(self) -> Exec:
+    def clone(self) -> "Exec":
         e = Exec.__new__(Exec)
         e.ops, e.succ, e.n = self.ops, self.succ, self.n
         e.indeg = list(self.indeg)
