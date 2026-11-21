@@ -659,14 +659,14 @@ class Executor:
                 m.move({q: tmp})
         return
 
-    def nearest_free(self, s, avoid=(), rows=range(10), kappa=0.0, y0=6):
+    def nearest_free(self, s, avoid=(), rows=range(10), kappa=0.0, y0=6, floor=0, kfloor=0.0):
         best = None
         for y in rows:
             for x in range(10):
                 t = (x, y)
                 if t in self.m.occ or t in avoid:
                     continue
-                d = _dist(s, t) + kappa * max(0, y - y0)
+                d = _dist(s, t) + kappa * max(0, y - y0) + kfloor * max(0, floor - y)
                 if best is None or d < best[0]:
                     best = (d, t)
         if best is None:
@@ -681,6 +681,11 @@ class Executor:
     NOISE = 0.6
     KAPPA = 0.0
     HUBDEP = True
+    KFLOOR = 0.0
+
+    def floor_row(self):
+        return 10 - math.ceil(self.n / 10) - 1
+    ROT_PARTIAL = True
     Y0 = 6
     allowed = frozenset()
     EVAL = False
@@ -783,7 +788,7 @@ class Executor:
         keep = {q for pr in dummies for q in pr}
         for q in sorted(q for q, s in m.pos.items() if inside(s) and q not in members and q not in keep):
             t = self.nearest_free(m.pos[q], avoid=reserved | {(x, y) for x in range(x1, x2 + 1) for y in range(a, bb + 1)},
-                                  kappa=self.KAPPA, y0=self.Y0)
+                                  kappa=self.KAPPA, y0=self.Y0, floor=self.floor_row(), kfloor=self.KFLOOR)
             reserved.add(t)
             targets[q] = t
         self.relocate(targets)
@@ -997,32 +1002,53 @@ class Executor:
             rlo = min(m.pos[p][1] for p in pset)
             others = {q for q in range(self.n) if q != hub}
             rt = None
-            for r in range(rlo - 1, -1, -1):
-                if not any(m.pos[q][1] == r for q in others):
-                    rt = r
-                    break
+            if self.ROT_PARTIAL:
+                cols9 = {m.pos[q][0] for q in others if m.pos[q][1] == 9}
+                for r in range(rlo - 1, -1, -1):
+                    if not any(m.pos[q][1] == r and m.pos[q][0] in cols9 for q in others):
+                        rt = r
+                        break
+            else:
+                for r in range(rlo - 1, -1, -1):
+                    if not any(m.pos[q][1] == r for q in others):
+                        rt = r
+                        break
             if rt is None:
                 raise Illegal("no free row for rotation")
-            k = 9 - rlo
-            visits = []  # list of partner lists per rotation state
-            for step in range(k + 1):
-                row = [p for p in pset if m.pos[p][1] == 9]
-                row.sort(key=lambda p: (m.pos[p][0] // 2, -(m.pos[p][0] % 2)))
-                if step % 2:
-                    row.reverse()
-                for p in row:
-                    self._serve(p)
-                visits.append(row)
-                if step < k:
-                    self._rotate(rt, True)
+            cap = 2 * (10 - rt) + 2
+
+            visits = []
+
+            def sweep(todo, forward):
+                step = 0
+                while True:
+                    row = [p for p in todo if m.pos[p][1] == 9]
+                    row.sort(key=lambda p: (m.pos[p][0] // 2, -(m.pos[p][0] % 2)))
+                    if step % 2:
+                        row.reverse()
+                    if not forward:
+                        k = len(visits) - 1 - step
+                        if 0 <= k < len(visits) and set(visits[k]) == set(row):
+                            row = visits[k][::-1]
+                    else:
+                        visits.append(row)
+                    for p in row:
+                        self._serve(p)
+                        todo.discard(p)
+                    if not todo:
+                        return
+                    step += 1
+                    if step > cap:
+                        raise Illegal("rotation did not reach every partner")
+                    self._rotate(rt, forward)
+
+            sweep(set(pset), True)
             for p, th in partners:
                 m.apply1(p, _rx(th))
                 m.flush(p)
-            for step in range(k, -1, -1):
-                for p in reversed(visits[step]):
-                    self._serve(p)
-                if step > 0:
-                    self._rotate(rt, False)
+            sweep(set(pset), False)
+        if hub_home in m.occ:
+            hub_home = self.nearest_free(m.pos[hub])
         self.go(hub, hub_home)
         for p, _ in partners:
             m.apply1(p, post_p)
