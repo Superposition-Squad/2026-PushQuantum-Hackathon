@@ -312,3 +312,19 @@ machine:
 
 Interim (`v100`): all 49 circuits valid under the v1.0.0 validator (idle/zone/pair/loading), bench
 fast 36/36, score +76.27 (distance 67 879.7, depth 4858).
+
+### Round-4 optimisations (storage-home)
+
+* Control stays: for a mid (`rx`) block only the target visits storage between the two pulses; the
+  control remains on its pair (no `cz` runs while it sits there, so `idle` does not apply).
+* `_mid_spots`: the target's middle trips go to the shallowest storage site freed by the lift, not
+  to its own home.
+* `_pairing_layout`: a matching of real blocks laid out in adjacent slot pairs (one block per
+  interaction pair), so the first matching round of each layer is column-preserving.
+* `_assign_vertical(..., rowlift=True)`: home row y maps to zone row 19−y, so every home row lifts
+  as ONE single-row move (cost 10−y for up to ten atoms) and returns the same way; `_diag_order`
+  now orders blocks by home row so the greedy packing puts whole rows into one round.
+* Lazy layout stream (only the layouts a budget reaches are computed) keeps 50q p3 at ~12–20 s.
+
+`v107`: +82.54 (distance 46 987.0, depth 4593), all 36 bench-valid; the row-lift cuts the first
+matching round of each layer from ~350 to ~126.
