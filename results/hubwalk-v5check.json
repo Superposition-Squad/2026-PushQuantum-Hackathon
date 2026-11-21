@@ -1,0 +1,240 @@
+{
+ "name": "hubwalk-v5check",
+ "compiler": "compilers/hubwalk/compiler.py",
+ "mode": "fast",
+ "physics_check": true,
+ "zonespan_check": true,
+ "set": "metric",
+ "scored_set": "leaderboard20",
+ "filter": null,
+ "timestamp": "2026-11-21T23:58:03",
+ "elapsed_s": 33.7,
+ "summary": {
+  "n": 20,
+  "valid": false
+ },
+ "failed": [
+  "metric_circuit_01",
+  "metric_circuit_02",
+  "metric_circuit_07",
+  "metric_circuit_08",
+  "metric_circuit_09",
+  "metric_circuit_10",
+  "metric_circuit_11",
+  "metric_circuit_12",
+  "metric_circuit_13",
+  "metric_circuit_14",
+  "metric_circuit_15",
+  "metric_circuit_16",
+  "metric_circuit_17",
+  "metric_circuit_18",
+  "metric_circuit_19",
+  "metric_circuit_20",
+  "metric_circuit_21",
+  "metric_circuit_22",
+  "metric_circuit_23",
+  "metric_circuit_24"
+ ],
+ "records": [
+  {
+   "label": "metric_circuit_01",
+   "file": "metric_benchmarks/hea/bus_stop_12q_hea_linear_p1.qasm",
+   "family": "hea",
+   "ok": false,
+   "qubits": 12,
+   "compile_s": 0.77,
+   "error": "ArchitectureError[idle]: Instructions 44 (two-qubit gates in the 'entangling' zone): qubits 0 at (8, 11), 1 at (6, 11), 2 at (6, 10), 3 at (4, 10), 4 at (4, 11), 5 at (2, 12), 6 at (2, 11), 7 at (2, 10), 8 at (0, 10), 9 at (0, 11) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 2 more violation(s), see the replay log)",
+   "wall_s": 0.78
+  },
+  {
+   "label": "metric_circuit_02",
+   "file": "metric_benchmarks/hea/bus_stop_12q_hea_linear_p3.qasm",
+   "family": "hea",
+   "ok": false,
+   "qubits": 12,
+   "compile_s": 1.03,
+   "error": "ArchitectureError[idle]: Instructions 44 (two-qubit gates in the 'entangling' zone): qubits 0 at (0, 10), 1 at (0, 11), 2 at (0, 12), 3 at (2, 12), 4 at (2, 11), 5 at (4, 11), 6 at (6, 11), 7 at (8, 11), 8 at (6, 10), 9 at (4, 10) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 8 more violation(s), see the replay log)",
+   "wall_s": 1.04
+  },
+  {
+   "label": "metric_circuit_07",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_stagger_p1.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 12,
+   "compile_s": 1.23,
+   "error": "ArchitectureError[idle]: Instructions 51 (two-qubit gates in the 'entangling' zone): qubits 0 at (0, 11), 1 at (0, 10), 2 at (2, 10), 3 at (4, 10), 4 at (8, 11), 5 at (6, 11), 6 at (6, 10), 7 at (2, 11), 8 at (0, 12), 9 at (2, 12) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 33 more violation(s), see the replay log)",
+   "wall_s": 1.24
+  },
+  {
+   "label": "metric_circuit_08",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_stagger_p3.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 12,
+   "compile_s": 2.33,
+   "error": "ArchitectureError[idle]: Instructions 51 (two-qubit gates in the 'entangling' zone): qubits 0 at (2, 12), 1 at (0, 11), 2 at (0, 12), 3 at (4, 11), 4 at (6, 11), 5 at (8, 11), 6 at (6, 10), 7 at (0, 10), 9 at (4, 10), 10 at (2, 11) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 101 more violation(s), see the replay log)",
+   "wall_s": 2.35
+  },
+  {
+   "label": "metric_circuit_09",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_tree_p1.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 12,
+   "compile_s": 1.32,
+   "error": "ArchitectureError[idle]: Instructions 45 (two-qubit gates in the 'entangling' zone): qubits 0 at (2, 11), 1 at (2, 10), 2 at (0, 10), 3 at (0, 11), 4 at (0, 12), 5 at (2, 12), 6 at (4, 11), 7 at (6, 11), 8 at (8, 11), 9 at (6, 10) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 33 more violation(s), see the replay log)",
+   "wall_s": 1.33
+  },
+  {
+   "label": "metric_circuit_10",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_tree_p3.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 12,
+   "compile_s": 2.44,
+   "error": "ArchitectureError[idle]: Instructions 45 (two-qubit gates in the 'entangling' zone): qubits 0 at (4, 10), 1 at (6, 10), 2 at (4, 11), 3 at (0, 11), 4 at (0, 12), 5 at (2, 11), 6 at (2, 10), 7 at (6, 11), 8 at (8, 11), 9 at (2, 12) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 109 more violation(s), see the replay log)",
+   "wall_s": 2.48
+  },
+  {
+   "label": "metric_circuit_11",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_tree_warm_p1.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 12,
+   "compile_s": 0.72,
+   "error": "ArchitectureError[idle]: Instructions 38 (two-qubit gates in the 'entangling' zone): qubits 1 at (8, 11), 2 at (6, 11), 3 at (4, 11), 4 at (2, 10), 5 at (0, 10), 6 at (0, 12), 7 at (2, 12), 9 at (0, 11), 10 at (9, 10), 11 at (4, 10) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 13 more violation(s), see the replay log)",
+   "wall_s": 0.72
+  },
+  {
+   "label": "metric_circuit_12",
+   "file": "metric_benchmarks/ihva/bus_stop_12q_ihva_tree_warm_p3.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 12,
+   "compile_s": 0.72,
+   "error": "ArchitectureError[idle]: Instructions 38 (two-qubit gates in the 'entangling' zone): qubits 1 at (8, 11), 2 at (6, 11), 3 at (4, 11), 4 at (2, 10), 5 at (0, 10), 6 at (0, 12), 7 at (2, 12), 9 at (0, 11), 10 at (9, 10), 11 at (4, 10) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 13 more violation(s), see the replay log)",
+   "wall_s": 0.73
+  },
+  {
+   "label": "metric_circuit_13",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_stagger_p1.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 20,
+   "compile_s": 1.98,
+   "error": "ArchitectureError[idle]: Instructions 75 (two-qubit gates in the 'entangling' zone): qubits 0 at (0, 11), 1 at (0, 13), 2 at (2, 13), 3 at (0, 12), 4 at (0, 10), 5 at (2, 12), 6 at (8, 13), 7 at (6, 13), 8 at (6, 12), 9 at (4, 13), 10 at (4, 12), 11 at (6, 10), 12 at (4, 11), 13 at (4, 10), 14 at (8, 11), 15 at (8, 12), 16 at (6, 11), 17 at (2, 11) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 53 more violation(s), see the replay log)",
+   "wall_s": 1.99
+  },
+  {
+   "label": "metric_circuit_14",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_stagger_p3.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 20,
+   "compile_s": 5.04,
+   "error": "ArchitectureError[idle]: Instructions 75 (two-qubit gates in the 'entangling' zone): qubits 0 at (0, 11), 1 at (0, 13), 2 at (2, 12), 3 at (2, 11), 4 at (0, 12), 5 at (2, 13), 6 at (4, 13), 7 at (6, 13), 8 at (6, 12), 9 at (4, 12), 10 at (4, 11), 11 at (6, 10), 12 at (6, 11), 13 at (4, 10), 14 at (8, 11), 15 at (8, 12), 16 at (8, 13), 17 at (2, 10) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 159 more violation(s), see the replay log)",
+   "wall_s": 5.07
+  },
+  {
+   "label": "metric_circuit_15",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_tree_p1.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 20,
+   "compile_s": 2.18,
+   "error": "ArchitectureError[idle]: Instructions 67-72 (two-qubit gates in the 'entangling' zone): qubits 4 at (6, 10), 5 at (4, 10), 6 at (4, 11), 10 at (0, 11), 13 at (2, 11), 15 at (4, 12), 18 at (8, 13), 19 at (9, 10) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 57 more violation(s), see the replay log)",
+   "wall_s": 2.21
+  },
+  {
+   "label": "metric_circuit_16",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_tree_p3.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 20,
+   "compile_s": 5.09,
+   "error": "ArchitectureError[idle]: Instructions 67-72 (two-qubit gates in the 'entangling' zone): qubits 4 at (6, 10), 5 at (4, 10), 6 at (4, 11), 10 at (0, 11), 13 at (2, 11), 15 at (4, 12), 18 at (8, 13), 19 at (9, 10) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 193 more violation(s), see the replay log)",
+   "wall_s": 5.13
+  },
+  {
+   "label": "metric_circuit_17",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_tree_warm_p1.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 20,
+   "compile_s": 1.27,
+   "error": "ArchitectureError[idle]: Instructions 69 (two-qubit gates in the 'entangling' zone): qubits 1 at (4, 12), 2 at (4, 13), 3 at (6, 11), 4 at (6, 10), 5 at (6, 13), 6 at (2, 12), 7 at (0, 10), 8 at (0, 13), 9 at (8, 12), 10 at (2, 11), 11 at (0, 11), 12 at (8, 13), 13 at (2, 13), 14 at (8, 11), 15 at (2, 10), 16 at (0, 12), 17 at (6, 12), 18 at (4, 11) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 33 more violation(s), see the replay log)",
+   "wall_s": 1.28
+  },
+  {
+   "label": "metric_circuit_18",
+   "file": "metric_benchmarks/ihva/bus_stop_20q_ihva_tree_warm_p3.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 20,
+   "compile_s": 1.28,
+   "error": "ArchitectureError[idle]: Instructions 69 (two-qubit gates in the 'entangling' zone): qubits 1 at (4, 12), 2 at (4, 13), 3 at (6, 11), 4 at (6, 10), 5 at (6, 13), 6 at (2, 12), 7 at (0, 10), 8 at (0, 13), 9 at (8, 12), 10 at (2, 11), 11 at (0, 11), 12 at (8, 13), 13 at (2, 13), 14 at (8, 11), 15 at (2, 10), 16 at (0, 12), 17 at (6, 12), 18 at (4, 11) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first. (and 33 more violation(s), see the replay log)",
+   "wall_s": 1.3
+  },
+  {
+   "label": "metric_circuit_19",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_stagger_p1.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 50,
+   "compile_s": 6.15,
+   "error": "ArchitectureError[idle]: Instructions 162 (two-qubit gates in the 'entangling' zone): qubits 0 at (0, 11), 1 at (2, 11), 2 at (4, 11), 3 at (4, 10), 4 at (6, 12), 5 at (8, 12), 6 at (8, 11), 7 at (2, 10), 8 at (4, 12), 9 at (4, 13), 10 at (4, 14), 11 at (0, 18), 12 at (0, 19), 13 at (8, 16), 14 at (8, 15), 15 at (8, 13), 16 at (8, 14), 17 at (6, 11), 18 at (6, 10), 19 at (4, 15), 20 at (0, 14), 21 at (0, 17), 22 at (0, 16), 23 at (2, 16), 24 at (2, 13), 25 at (6, 13), 26 at (2, 17), 27 at (4, 17), 28 at (2, 15), 29 at (",
+   "wall_s": 6.18
+  },
+  {
+   "label": "metric_circuit_20",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_stagger_p3.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 50,
+   "compile_s": 18.7,
+   "error": "ArchitectureError[idle]: Instructions 162 (two-qubit gates in the 'entangling' zone): qubits 1 at (2, 10), 2 at (4, 10), 3 at (4, 11), 4 at (4, 12), 5 at (6, 13), 6 at (6, 14), 7 at (4, 14), 8 at (6, 12), 9 at (4, 13), 10 at (2, 15), 11 at (0, 16), 12 at (0, 17), 13 at (8, 16), 14 at (8, 15), 15 at (8, 13), 16 at (8, 12), 17 at (8, 11), 18 at (6, 10), 19 at (4, 18), 20 at (0, 19), 21 at (0, 18), 22 at (0, 15), 23 at (2, 16), 24 at (2, 12), 25 at (6, 11), 26 at (2, 18), 27 at (2, 19), 28 at (0, 14), 29 at (0, 12), 30 at ",
+   "wall_s": 18.8
+  },
+  {
+   "label": "metric_circuit_21",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_tree_p1.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 50,
+   "compile_s": 6.85,
+   "error": "ArchitectureError[idle]: Instructions 159 (two-qubit gates in the 'entangling' zone): qubits 0 at (0, 10), 1 at (2, 10), 2 at (4, 10), 4 at (4, 14), 5 at (6, 16), 6 at (4, 16), 7 at (6, 14), 8 at (2, 12), 9 at (2, 11), 10 at (6, 13), 11 at (2, 16), 12 at (4, 19), 13 at (8, 19), 14 at (8, 18), 15 at (8, 17), 16 at (8, 16), 17 at (8, 13), 18 at (8, 11), 19 at (8, 12), 20 at (6, 12), 21 at (2, 17), 22 at (2, 15), 23 at (0, 15), 24 at (0, 13), 25 at (2, 13), 26 at (0, 14), 27 at (6, 15), 28 at (4, 12), 29 at (0, 12), 30 at ",
+   "wall_s": 6.9
+  },
+  {
+   "label": "metric_circuit_22",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_tree_p3.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 50,
+   "compile_s": 18.7,
+   "error": "ArchitectureError[idle]: Instructions 159 (two-qubit gates in the 'entangling' zone): qubits 0 at (4, 13), 1 at (4, 12), 2 at (4, 10), 4 at (2, 14), 5 at (4, 16), 6 at (4, 17), 7 at (8, 15), 8 at (0, 11), 9 at (2, 10), 10 at (6, 11), 11 at (2, 16), 12 at (4, 15), 13 at (6, 17), 14 at (6, 16), 15 at (0, 15), 16 at (0, 14), 17 at (0, 10), 18 at (6, 10), 19 at (8, 11), 20 at (6, 12), 21 at (2, 15), 22 at (2, 17), 23 at (0, 17), 24 at (2, 11), 25 at (0, 12), 26 at (0, 16), 27 at (8, 14), 28 at (6, 14), 29 at (2, 13), 30 at ",
+   "wall_s": 18.78
+  },
+  {
+   "label": "metric_circuit_23",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_tree_warm_p1.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 50,
+   "compile_s": 2.49,
+   "error": "ArchitectureError[idle]: Instructions 159 (two-qubit gates in the 'entangling' zone): qubits 0 at (0, 11), 1 at (0, 10), 2 at (8, 17), 3 at (6, 15), 4 at (0, 13), 5 at (0, 14), 6 at (0, 15), 7 at (6, 12), 8 at (0, 16), 9 at (6, 11), 10 at (6, 13), 11 at (6, 14), 12 at (0, 17), 13 at (0, 18), 14 at (0, 19), 15 at (2, 10), 16 at (4, 13), 17 at (8, 16), 18 at (8, 15), 20 at (8, 18), 21 at (6, 19), 22 at (2, 12), 23 at (2, 13), 24 at (2, 14), 25 at (2, 15), 26 at (2, 16), 27 at (8, 11), 28 at (2, 17), 29 at (2, 18), 30 at (",
+   "wall_s": 2.52
+  },
+  {
+   "label": "metric_circuit_24",
+   "file": "metric_benchmarks/ihva/bus_stop_50q_ihva_tree_warm_p3.qasm",
+   "family": "ihva",
+   "ok": false,
+   "qubits": 50,
+   "compile_s": 2.5,
+   "error": "ArchitectureError[idle]: Instructions 159 (two-qubit gates in the 'entangling' zone): qubits 0 at (0, 11), 1 at (0, 10), 2 at (8, 17), 3 at (6, 15), 4 at (0, 13), 5 at (0, 14), 6 at (0, 15), 7 at (6, 12), 8 at (0, 16), 9 at (6, 11), 10 at (6, 13), 11 at (6, 14), 12 at (0, 17), 13 at (0, 18), 14 at (0, 19), 15 at (2, 10), 16 at (4, 13), 17 at (8, 16), 18 at (8, 15), 20 at (8, 18), 21 at (6, 19), 22 at (2, 12), 23 at (2, 13), 24 at (2, 14), 25 at (2, 15), 26 at (2, 16), 27 at (8, 11), 28 at (2, 17), 29 at (2, 18), 30 at (",
+   "wall_s": 2.52
+  }
+ ]
+}

@@ -6,9 +6,9 @@ circuits) a statevector guard, then returns the valid output with the lowest exa
 0.8*D/D_naive + 0.2*P/P_naive. Ties go to the earlier component; naive is the last-resort fallback.
 """
 
-# built from commit 1aed7d9 with components: systolic_po pulsebeam_po hubstream_po rectbatch_po gates_po (+ naive fallback)
+# built from commit 1074c82 with components: systolic_po optimizer-optimizer_po hubstream_po rectbatch_po gates_po (+ naive fallback)
 #   systolic_po  compilers/systolic_po/compiler.py  sha256:f1a3e2b88d9f  (3111 lines)
-#   pulsebeam_po compilers/pulsebeam_po/compiler.py  sha256:a912ff6f03eb  (2840 lines)
+#   optimizer-optimizer_po compilers/optimizer-optimizer_po/compiler.py  sha256:68b584dca44a  (2843 lines)
 #   hubstream_po compilers/hubstream_po/compiler.py  sha256:fe2451dfe1cf  (1884 lines)
 #   rectbatch_po compilers/rectbatch_po/compiler.py  sha256:c7d34540db54  (1605 lines)
 #   gates_po     compilers/gates_po/compiler.py  sha256:a158d4161397  (1406 lines)
@@ -24,7 +24,7 @@ import types
 
 from qiskit import QuantumCircuit, transpile
 
-_COMPONENTS = ('systolic_po', 'pulsebeam_po', 'hubstream_po', 'rectbatch_po', 'gates_po')
+_COMPONENTS = ('systolic_po', 'optimizer-optimizer_po', 'hubstream_po', 'rectbatch_po', 'gates_po')
 _FALLBACK = 'naive'
 _BUDGET_S = 150.0  # skip remaining components once this much wall/CPU time is spent
 _SV_MAX_QUBITS = 14
@@ -3822,9 +3822,9 @@ _SOURCES['systolic_po'] = (
     '    return out, arch\n'
 )
 
-# ========================================================================================== component: pulsebeam_po
-_SOURCES['pulsebeam_po'] = (
-    '"""pulsebeam: idle-rule pulse planner (atoms live in storage; each pulse = block drop + lifts) with beam search over pulses and drop/lift choices.\n'
+# ========================================================================================== component: optimizer-optimizer_po
+_SOURCES['optimizer-optimizer_po'] = (
+    '"""optimizer-optimizer (pulse-beam planner): idle-rule pulse planner (atoms live in storage; each pulse = block drop + lifts) with beam search over pulses and drop/lift choices.\n'
     '\n'
     '(Historical notes below describe the earlier zone-resident planners kept in this file.)\n'
     '\n'
@@ -6107,6 +6107,7 @@ _SOURCES['pulsebeam_po'] = (
     '# ---------------------------------------------------------------- entry point\n'
     '\n'
     '\n'
+    'MAX_OPS = 1500  # larger (irregular, unscored) circuits go to the naive fallback; scored ones have <= ~600\n'
     'BEAM_BUDGET = 15000  # beam width = BEAM_BUDGET / (atoms x ops): ~10 at 12q p1, 1 at 20q p3 and 50q\n'
     'IDLE_RULE = True  # validator v1.0.0: every atom in the entangling zone must be in a CZ of each pulse\n'
     'DEV_FAST = False  # dev iteration only (bench/devbench.sh flips it in a scratch copy): one plan, no search\n'
@@ -6125,6 +6126,8 @@ _SOURCES['pulsebeam_po'] = (
     '    options = options or {}\n'
     '    comp = Compiler(circuit, spec, options)\n'
     '    hub = find_hub(comp.ops, comp.n)\n'
+    '    if IDLE_RULE and len(comp.ops) > MAX_OPS:\n'
+    '        raise Unsupported("too many operations for the beam planner")  # naive fallback, fast\n'
     '    if IDLE_RULE and options.get("planner", "pulse") == "pulse":\n'
     '        # deterministic effort: beam width from the problem size (n atoms x ops), both layouts\n'
     '        size = max(1, comp.n * len(comp.ops))\n'

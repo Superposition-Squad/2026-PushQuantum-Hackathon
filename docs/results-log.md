@@ -159,3 +159,21 @@ circuits), fix pending before it replaces the official portfolio.
 | blockingcz (partner's notebook, extracted verbatim: S-conjugation, blocking-CZ matchings, 2-leaf hub sweep) | +90.48 | full 20/20, slowest compile 23 s | 84c1d6f |
 | solo (pq-solo, Opus 5.5, implements itself) | +90.11 (fast), bf8bc79 +89.94 full | full 20/20 (bf8bc79) | ed8ef89 |
 | **portfolio (blockingcz, solo, systolic_po)** | **+90.81** | full 20/20, slowest compile 65 s | this commit |
+portfolio_po rebuilt after the optimizer-optimizer size cutoff: **+86.63, full 33/33** (20 scored +
+13 sanity, sanity_circuit_12 no longer times out). Deeper postopt variants (beam / local search over
+per-layer configurations with free pair and storage sites) did not beat the gap-wise re-plan: the
+remaining waste is systolic's fixed, scattered storage homes (single-atom drops/lifts), which a
+per-gap optimizer cannot remove without re-planning the storage choreography over many layers.
+
+## systolic2 (fork of systolic, matching-round movement), ~00:10 CET
+
+Phase breakdown of systolic on 50q stagger p3 (5385): matching rounds 79 % (lift 1471, home 1384,
+mid trip 794 + 610; 55 rounds of ~5.3 pairs, ~77 per round in ~22 moves), hub groups 21 % (1126).
+A round would cost ~5 if its pairs sat side by side in row 9 (lift, drop, lift, drop at ~1.2), so the
+headroom is in sorting atoms into the working row, not in the hub stream.
+
+| change | v5 set |
+|---|---|
+| systolic2 = + order-preserving (DP) placement candidate, block mid-drop when the working row is free | +85.41 (systolic 85.34) |
+| systolic2_po | +86.35 (systolic_po 86.30) |
+| TOP_HOME = 8 (row 9 kept free as working row) | worse (50q stagger p3 5366 -> 6740: deeper lifts, block mid rarely fits) |
