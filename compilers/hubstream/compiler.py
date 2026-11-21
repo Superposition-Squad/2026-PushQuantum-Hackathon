@@ -22,6 +22,7 @@ from __future__ import annotations
 import itertools
 import math
 from collections import Counter, defaultdict
+from collections.abc import Sequence
 from numbers import Integral
 from typing import Any
 
@@ -80,7 +81,7 @@ class Architecture:
         self.spec = spec
 
 
-def _move(circuit: QuantumCircuit, qubits, rows, cols, new_rows, new_cols) -> None:
+def _move(circuit: QuantumCircuit, qubits: Sequence[int], rows, cols, new_rows, new_cols) -> None:
     circuit.append(Move(rows, cols, new_rows, new_cols, len(qubits)), list(qubits))
 
 
