@@ -115,9 +115,23 @@ if they differ), so worktree pages never collide with main's.
 
 ## Results
 
-| iteration | commit | what | status |
-|---|---|---|---|
+| iteration | what | status |
+|---|---|---|
+| 1 | `bench/viz.py` (data + CLI) and `bench/viz_page.py` (renderer) implemented to the schema above | done |
+| 2 | naive, all 49 circuits: every metric (`move_distance`, `depth`, `num_moves`, `move_steps`, `num_operations`, `spacing_warnings`) identical to `bench/bench.py` | verified |
+| 3 | zonedwell, 36 metric circuits: viz reports +78.80 % (distance +79.26 %, depth +76.95 %), equal to its own `results/zonedwell.json` | verified |
+| 4 | per-move distances were rounded to 6 dp, so the page's cumulative sum drifted from `metrics.move_distance` on 40 k-move circuits (the page's MISMATCH guard caught it) → store full precision, and assert on the *stored* values | fixed |
+| 5 | invalid compilation (scratch broken compiler): `status=invalid`, `error_index=37`, partial metrics, violations listed, page renders up to the failure | verified |
+| 6 | `serve`: `/` 200, pages 200, `/regen` 202 → 409 while running → `status.json` progress, `/etc/passwd` and traversal 400, `POST` 405 | verified |
+| 7 | 99 generated pages pass the static JS check (balanced brackets, `DATA` parses, no dangling DOM ids) | verified |
+
+Sizes: `metric_circuit_36` (50 q, 11 k instructions) 0.70 MB; biggest overall is the 70-qubit
+sanity circuit `sample_circuit_13` (140 k instructions, 40 k moves) at 9.0 MB.
 
 ## Verdict
 
-(pending)
+Delivered. Not a scoring change: this is debugging tooling. The guarantee that matters is that the
+numbers on a page are the numbers `bench/bench.py` scores — asserted at build time, re-checked in
+the page, and cross-checked against bench runs for two compilers (49 + 36 circuits).
+No browser or JS engine exists in this image, so the pages were verified statically and through the
+renderer's `--demo` modes, never clicked.

@@ -4,6 +4,8 @@
   rules, benchmark structure.
 - [harness.md](harness.md): `bench/bench.py`, `bench/compare.py`, `bench/package.py`, modes and
   outputs.
+- [viz.md](viz.md): `bench/viz.py`, the step-by-step visualiser (atom view + wire diagram) for a
+  compiled circuit.
 - [literature.md](literature.md): techniques from the papers corpus mapped to our metric.
 - [ideas/](ideas/): one design doc per idea branch, with results and verdict.
 - [results-log.md](results-log.md): round-by-round leaderboard of our compilers (orchestrator).
