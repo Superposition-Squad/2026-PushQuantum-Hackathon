@@ -88,6 +88,8 @@ See the implementer spec in the session log; summary:
 | 2f: row-major lane slots | 3281ce1 | +83.81 | | | shallow lanes for 12/20q: 20q QAOA p3 1085→810 |
 | 2e: exact θ≡0 block elision | f8e3a28 | +86.43 | | | tree_warm circuits |
 | 2c: conveyor pre-flush by shallow dip | 4c8dcec | +86.69 | 88.41 | 79.83 | portfolio with hubwalk ≈ 87.58 (wins 20 circuits) |
+| 2g: layout SA (200× steps + leaf-move cost) | 02bad93 | +87.06 | 88.90 | 79.72 | 50q QAOA p1 904→841; 50q iHVA stagger p3 3258→3251 |
+| 2b: MILP round packing | (not kept) | +87.06 | | | HiGHS: cap-1 depth objective times out (gap never ≤0.05 in 10 s); cap-2 feasibility is instant but ~50 % more leaf moves → 50q QAOA p1 841→1218. Greedy kept. |
 
 Planner offline models (`/tmp/hwproto/sim*.py`): with random chords, neither star rounds with
 SA layout (≈800 for the 50q QAOA p1 non-hub part) nor whole-lane shears (≈870) batch well; the
