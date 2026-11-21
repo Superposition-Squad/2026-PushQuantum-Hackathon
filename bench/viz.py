@@ -68,10 +68,10 @@ logging.getLogger("pushquantum_validator").setLevel(logging.ERROR)  # spacing wa
 BASE_OPS = ["rx", "rz", "cz", "move", "measure", "barrier"]
 """Name table; `ops` is this plus any other operation encountered, in order of appearance."""
 
-CHALLENGE_COMPILERS = Path("/home/hackathon/challenge/compilers")
+CHALLENGE_COMPILERS = Path(__file__).resolve().parents[1] / "compilers"
 """Compiler root of the canonical checkout."""
 
-WT_ROOT = Path("/home/hackathon/challenge-wt")
+WT_ROOT = Path(__file__).resolve().parents[2] / "challenge-wt"
 """Root of the worktree checkouts; `<wt>/compilers/<idea>/...` is allowed too."""
 
 VIZ_VERSION = 1

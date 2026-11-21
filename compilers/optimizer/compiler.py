@@ -1095,19 +1095,25 @@ class CyclePlanner:
     (one CZ per step), non-hub pairs are formed before the last pulse of a cycle, the register is
     dropped back (rotations happen in storage), and the next lift re-forms those pairs for CZ2."""
 
-    def __init__(self, geo: Geo, ops, succ, indeg, n, hub, order=None):
+    def __init__(self, geo: Geo, ops, succ, indeg, n, hub, order=None, match="index"):
         self.geo, self.ops, self.succ, self.indeg, self.n, self.hub = geo, ops, succ, indeg, n, hub
+        self.match = match
         g = geo
-        partners = order if order is not None else self.default_order()
+        slots = order if order is not None else self.default_order()
+        partners = [p for p in slots if p is not None]
         m = len(partners)
         ncols = (g.ex1 - g.ex0 + 1) // 2
         R = max(1, math.ceil(m / ncols))
+        if len(slots) > R * ncols:
+            raise Unsupported("order longer than the grid")
         if R > g.ey1 - g.ey0 + 1 or R > g.sy1 - g.sy0 + 1 or not g.ent_above:
             raise Unsupported("layout does not fit")
         self.R = R
         self.shift = g.ey0 - (g.sy1 - R + 1)
         self.home: dict[int, Site] = {}
-        for k, p in enumerate(partners):
+        for k, p in enumerate(slots):
+            if p is None:
+                continue
             c, row = divmod(k, R)
             self.home[p] = (g.ex0 + 2 * c, g.ey0 + row)
         walk = []
@@ -1216,7 +1222,18 @@ class CyclePlanner:
             last = []
         used = {q for ev in last for q in self._qs(ev)}
         M = []
-        for i in sorted(ex.ready_blocks):
+        # remaining non-hub work per atom: busiest atoms first (greedy edge colouring)
+        work = [0] * self.n
+        for i, o in enumerate(self.ops):
+            if not ex.done[i] and o.kind in (ROT, CZB) and h not in o.qubits:
+                for q in o.qubits:
+                    work[q] += 1
+        if self.match == "work":
+            mord = sorted(ex.ready_blocks, key=lambda i: (-max(work[q] for q in self.ops[i].qubits),
+                                                            -min(work[q] for q in self.ops[i].qubits), i))
+        else:
+            mord = sorted(ex.ready_blocks)
+        for i in mord:
             op = self.ops[i]
             if h in op.qubits or used & set(op.qubits):
                 continue
@@ -1304,44 +1321,74 @@ class CyclePlanner:
         return self.out
 
     def route(self, pulse):
-        """Moves before a pulse: hub to its partner, visitors to their dwellers, everyone else home
-        (alone). Destinations are exact sibling sites."""
+        """Moves before a pulse. Each pulse pair is a constraint "a and b on one pair"; for a
+        non-hub pair either atom may come to the other's sibling site. Atoms that would otherwise
+        sit in an unwanted pair leave (home if free, else the nearest site that is alone). The
+        choice per pair is a local search over the real grouped move cost."""
         g, st, h = self.geo, self.st, self.hub
         pairs = [tuple(self.ops[ev[1]].qubits) for ev in pulse]
-        in_pulse = {q for p in pairs for q in p}
-        tg: dict[int, Site] = {}
-        for ev, (a, b) in zip(pulse, pairs):
+        decisions = []
+        for a, b in pairs:
             if g.sibling.get(st.pos[a]) == st.pos[b]:
                 continue
             if h in (a, b):
-                mover = h
-                anchor = b if a == h else a
-            else:
-                r = ev[2]
-                mover = r if r is not None else b
-                anchor = a if mover == b else b
-            tg[mover] = g.sibling[self._target_home(anchor)]
-            if st.pos[anchor] != self._target_home(anchor):
-                tg[anchor] = self._target_home(anchor)
-        # everyone not in the pulse must be alone: displaced partners go home; the hub steps aside
-        for q in range(self.n):
-            if q in in_pulse or q in tg:
+                p = b if a == h else a
+                opt = {h: g.sibling[self.home[p]]}
+                if st.pos[p] != self.home[p]:
+                    opt[p] = self.home[p]
+                decisions.append([opt])
                 continue
-            s = st.pos[q]
-            if not g.in_ent(s):
-                continue
-            if q != h and s != self.home[q]:
-                tg[q] = self.home[q]
-        taken = set(tg.values())
-        if h not in in_pulse and g.in_ent(st.pos[h]):
-            sib = g.sibling[st.pos[h]]
-            if st.occ.get(sib) is not None or sib in taken or st.pos[h] in taken:
-                spots = [s for s in g.ent_sites if s not in st.occ and s not in taken
-                         and s[1] < g.ey0 + self.R
-                         and g.sibling[s] not in st.occ and g.sibling[s] not in taken]
-                spots.sort(key=lambda s: g.dist(st.pos[h], s))
-                tg[h] = spots[0]
-        self.emit_moves([(q, st.pos[q], s) for q, s in tg.items()])
+            ev = pulse[pairs.index((a, b))]
+            rot = ev[2] if ev[2] is not None else b
+            non = a if rot == b else b
+            hn = self.home[non]
+            canon = {rot: g.sibling[hn]}
+            if st.pos[non] != hn:
+                canon[non] = hn
+            opts = [canon]
+            for anchor, mover in ((a, b), (b, a)):
+                sa = st.pos[anchor]
+                if g.in_ent(sa):
+                    o = {mover: g.sibling[sa]}
+                    if o not in opts:
+                        opts.append(o)
+                ha = self.home[anchor]
+                o = {mover: g.sibling[ha]}
+                if ha != sa:
+                    o[anchor] = ha
+                if o not in opts:
+                    opts.append(o)
+            decisions.append(opts)
+        in_pulse = {q for pr in pairs for q in pr}
+        best = None
+        choice = [0] * len(decisions)
+        cache: dict = {}
+
+        def evaluate(ch):
+            key = tuple(ch)
+            if key in cache:
+                return cache[key]
+            res = self._realize(decisions, ch, pairs, in_pulse)
+            cache[key] = res
+            return res
+
+        best = evaluate(choice)
+        for _ in range(2):
+            improved = False
+            for k, opts in enumerate(decisions):
+                for j in range(len(opts)):
+                    if j == choice[k]:
+                        continue
+                    trial = list(choice)
+                    trial[k] = j
+                    r = evaluate(trial)
+                    if r[0] < best[0] - 1e-9:
+                        best, choice, improved = r, trial, True
+            if not improved:
+                break
+        if best[1] is None:
+            raise RuntimeError("no legal routing for a pulse")
+        self.emit_moves(best[1])
         for left, right in g.pairs:
             qa, qb = st.occ.get(left), st.occ.get(right)
             if qa is not None and qb is not None and {qa, qb} not in [set(p) for p in pairs]:
@@ -1350,8 +1397,135 @@ class CyclePlanner:
             if g.sibling.get(st.pos[a]) != st.pos[b]:
                 raise RuntimeError("pair not formed")
 
+    def _realize(self, decisions, choice, pairs, in_pulse):
+        """(cost, transfers) for one choice per decision; cost inf if illegal."""
+        g, st, h = self.geo, self.st, self.hub
+        tg: dict[int, Site] = {}
+        for opts, c in zip(decisions, choice):
+            for q, s in opts[c].items():
+                if q in tg and tg[q] != s:
+                    return (math.inf, None)
+                tg[q] = s
+        final = dict(st.pos)
+        final.update(tg)
+        occ: dict[Site, int] = {}
+        for q in tg:  # movers first: their targets must be distinct
+            if final[q] in occ:
+                return (math.inf, None)
+            occ[final[q]] = q
+        for q, s in final.items():
+            if q in tg:
+                continue
+            if s in occ:  # a stationary atom sits on a target: it has to leave
+                if q in in_pulse:
+                    return (math.inf, None)
+                final[q] = None
+                continue
+            occ[s] = q
+        pairset = [set(p) for p in pairs]
+        # atoms displaced by a target, or sitting in an unwanted pair, leave
+        for _ in range(3 * self.n):
+            bad = [q for q, s in final.items() if s is None]
+            for left, right in g.pairs:
+                qa, qb = occ.get(left), occ.get(right)
+                if qa is not None and qb is not None and {qa, qb} not in pairset:
+                    cand = [q for q in (qa, qb) if q not in in_pulse and q not in tg]
+                    if not cand:
+                        return (math.inf, None)
+                    # prefer moving the one away from home (or the hub)
+                    cand.sort(key=lambda q: (q != h and final[q] == self.home.get(q), q))
+                    bad.append(cand[0])
+                    del occ[final[cand[0]]]
+                    final[cand[0]] = None
+            if not bad:
+                break
+            for q in bad:
+                if final.get(q) is not None:
+                    continue
+                spot = None
+                hm = self.home.get(q)
+                if hm is not None and hm not in occ and g.sibling[hm] not in occ:
+                    spot = hm
+                else:
+                    cur = st.pos[q]
+                    spots = [s for s in g.ent_sites if s not in occ and g.sibling[s] not in occ
+                             and s[1] < g.ey0 + self.R]
+                    if not spots:
+                        return (math.inf, None)
+                    spot = min(spots, key=lambda s: g.dist(cur, s))
+                final[q] = spot
+                occ[spot] = q
+                tg[q] = spot
+        transfers = [(q, st.pos[q], s) for q, s in tg.items() if st.pos[q] != s]
+        try:
+            moves = group_transfers(st.copy(), transfers)
+        except RuntimeError:
+            return (math.inf, None)
+        return (sum(d for _, d in moves), transfers)
+
     def _target_home(self, q):
         return self.home[q] if q != self.hub else self.st.pos[q]
+
+
+
+def sa_order(geo: Geo, ops: list[Op], n: int, hub: int, seed: int, iters: int = 40000) -> list[int]:
+    """Partner order (zone homes column-major) that keeps non-hub neighbours close: simulated
+    annealing on the summed visitor distance, fixed iteration budget and seed (deterministic)."""
+    import random
+
+    edges = [tuple(o.qubits) for o in ops if o.kind in (ROT, CZB) and hub not in o.qubits]
+    parts = [q for q in range(n) if q != hub]
+    ncols = (geo.ex1 - geo.ex0 + 1) // 2
+    R = max(1, math.ceil(len(parts) / ncols))
+    cells = [(c, r) for c in range(ncols) for r in range(R)]
+
+    def site(cell):
+        return (geo.ex0 + 2 * cell[0], geo.ey0 + cell[1])
+
+    D = {}
+    for a in cells:
+        for b in cells:
+            sa, sb = site(a), site(b)
+            D[a, b] = min(geo.dist(sa, geo.sibling[sb]), geo.dist(sb, geo.sibling[sa]))
+    rng = random.Random(seed)
+    pos = {p: cells[i] for i, p in enumerate(parts)}
+    occ = {c: p for p, c in pos.items()}
+    nb: dict[int, list[int]] = {p: [] for p in parts}
+    for a, b in edges:
+        nb[a].append(b)
+        nb[b].append(a)
+
+    def local(p):
+        return sum(D[pos[p], pos[q]] for q in nb[p])
+
+    T = 3.0
+    for _ in range(iters):
+        a = rng.choice(parts)
+        cell = rng.choice(cells)
+        b = occ.get(cell)
+        if b == a:
+            continue
+        old = local(a) + (local(b) if b is not None else 0)
+        pa = pos[a]
+        pos[a] = cell
+        if b is not None:
+            pos[b] = pa
+        delta = local(a) + (local(b) if b is not None else 0) - old
+        if delta <= 0 or rng.random() < math.exp(-delta / T):
+            occ[cell] = a
+            if b is not None:
+                occ[pa] = b
+            else:
+                del occ[pa]
+        else:
+            pos[a] = pa
+            if b is not None:
+                pos[b] = cell
+        T = max(0.01, T * 0.9998)
+    order = [None] * len(cells)
+    for p, c in pos.items():
+        order[c[0] * R + c[1]] = p
+    return order  # None marks an empty home cell
 
 
 # ---------------------------------------------------------------- emit + self-check
@@ -1451,15 +1625,41 @@ def _naive(circuit: QuantumCircuit, spec: Any):
 # ---------------------------------------------------------------- entry point
 
 
+DEPTH_WEIGHT = 276726.912853 / (4 * 23676)  # one depth unit = 2.92 distance units in the score
+
+
+def _depth(out: QuantumCircuit) -> int:
+    stripped = out.copy_empty_like()
+    for ins in out.data:
+        if ins.operation.name not in ("move", "barrier"):
+            stripped.append(ins)
+    return stripped.depth()
+
+
 def compile_with(circuit: QuantumCircuit, spec: Any, options: dict | None = None):
     options = options or {}
     comp = Compiler(circuit, spec, options)
     hub = find_hub(comp.ops, comp.n)
     if hub is not None and options.get("planner", "cycle") == "cycle":
-        cp = CyclePlanner(comp.geo, comp.ops, comp.succ, comp.indeg, comp.n, hub, options.get("order"))
-        prog = cp.run()
-        self_check(comp.geo, cp.loading, prog)
-        return _emit(circuit, prog), Architecture(cp.loading, spec=spec), cp
+        if "order" in options or "match" in options:
+            variants = [(options.get("order"), options.get("match", "index"))]
+        else:
+            orders = [None] + [sa_order(comp.geo, comp.ops, comp.n, hub, seed) for seed in (1, 2, 3)]
+            variants = [(o, mt) for o in orders for mt in ("index", "work")]
+        best = None
+        for order, match in variants:
+            try:
+                cp = CyclePlanner(comp.geo, comp.ops, comp.succ, comp.indeg, comp.n, hub, order, match)
+                prog = cp.run()
+                self_check(comp.geo, cp.loading, prog)
+            except (RuntimeError, Unsupported):
+                continue
+            out = _emit(circuit, prog)
+            cost = cp.dist_total + DEPTH_WEIGHT * _depth(out)
+            if best is None or cost < best[0] - 1e-9:
+                best = (cost, out, cp)
+        if best is not None:
+            return best[1], Architecture(best[2].loading, spec=spec), best[2]
     prog = comp.run()
     self_check(comp.geo, comp.loading, prog)
     return _emit(circuit, prog), Architecture(comp.loading, spec=spec), comp
