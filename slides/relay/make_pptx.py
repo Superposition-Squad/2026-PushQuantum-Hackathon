@@ -9,7 +9,7 @@ boxes and shapes at the same place. Diagrams are exported as PNG, the animated o
 template) are recorded into looping GIFs. Speaker notes are copied. Slides with reveal steps become
 one slide per step.
 
-Run build.py first. upload_gslides.py puts the result into Google Drive as a Google Slides file.
+Run build.py first. To use the result in Google Slides: upload relay.pptx to Drive and open it with Slides.
 """
 import io
 import re
