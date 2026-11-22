@@ -992,7 +992,7 @@ footer summary { cursor: pointer; }
   function validityHtml(m) {
     var h = m.ERR ? '<span class="bad">INVALID: ' + esc(m.ERR.stage) + "</span>" : '<span class="good">VALID</span>';
     var ph = m.D.physics || {};
-    h += " · equivalence: " + esc(m.D.equivalence || "–") + " · transversal CZ: " +
+    h += (/^skipped \(fast\)/.test(m.D.equivalence || "") ? "" : " · equivalence: " + esc(m.D.equivalence || "–")) + " · transversal CZ: " +
       (ph.ok === true ? '<span class="good">ok</span> (' + ph.segments + " segments)" : ph.ok === false ? '<span class="bad">FAIL</span>' : "not checked");
     return h;
   }

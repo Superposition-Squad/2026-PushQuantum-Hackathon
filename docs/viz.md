@@ -361,3 +361,20 @@ INTERVAL=300 PYTHON=/home/hackathon/challenge/.venv/bin/python bench/viz_sync.sh
 Every `INTERVAL` seconds it runs `git pull --ff-only` and regenerates the metric pages of each
 listed compiler whose `compiler.py` changed since its last generation (stamp `viz/.stamp-<name>`,
 log `viz/.log-<name>`). The running server picks up new pages and the manifest without a restart.
+
+## Keeping the GitHub Pages site up to date
+
+The site is `docs/` on `main` (Pages: deploy from branch, `/docs`; `docs/.nojekyll` skips Jekyll). Pushing
+to `main` redeploys it in a minute or two.
+
+- **New or changed compiler:** `python bench/viz.py all compilers/<idea>/compiler.py --set all --mode full --jobs 5`
+  (writes `docs/viz/<idea>/`, rebuilds `docs/viz/index.html` + `manifest.json`). Sanity circuits 12 and 13 are
+  skipped (4-12 MB per page); render them only with `--filter sample_circuit_12`, and don't commit them.
+- **Only the templates changed** (`bench/viz_page.html`, `bench/viz_index.html`): `python bench/viz.py rewrap`
+  re-embeds the existing pages without recompiling, then `python bench/viz.py index`.
+- **Best compiler:** the index puts the highest official score first and marks it. Once a compiler beats
+  `relay_best_l3`, render its 20 scored circuits and it takes over automatically. Update the numbers on
+  `docs/index.html` (hero score, benchmark cards, the "How we got here" bars) by hand from `results/<idea>.json`.
+- **Slides / animation:** `docs/slides/talk_5min.pdf` and `docs/anim/relay_anim.html` are copies; copy again
+  from `slides/` after changing them.
+- Only commit pages you want public; check `find docs/viz -size +2M` first.

@@ -111,7 +111,7 @@ a { color: #1f5fbf; }
         [m.num_moves === undefined ? "–" : m.num_moves, "mono", m.num_moves],
         [r.cz === undefined || r.cz === null ? "–" : r.cz, "mono", r.cz],
         [m.spacing_warnings === undefined ? "–" : m.spacing_warnings, "mono", m.spacing_warnings],
-        [esc(r.equivalence || ""), "l muted", r.equivalence || ""],
+        [esc(/^skipped \(fast\)/.test(r.equivalence || "") ? "" : (r.equivalence || "")), "l muted", r.equivalence || ""],
         [fmt(r.compile_s, 1), "mono", r.compile_s],
         [size(r.page_bytes), "mono muted", r.page_bytes]
       ];
