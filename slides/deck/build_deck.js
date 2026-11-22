@@ -4,8 +4,10 @@ const path = require("path");
 const pptxgen = require("pptxgenjs");
 const HERE = __dirname;
 const IMG = (f) => path.join(HERE, "img", f);
-const ANIMATION_URL = "https://ss-pres.bertel313.de/animation";
-const VISUALISER_URL = "https://ss-pres.bertel313.de/viz";
+const SITE_URL = "https://superposition-squad.github.io/2026-PushQuantum-Hackathon/";
+const SITE_LABEL = "superposition-squad.github.io/2026-PushQuantum-Hackathon";
+const ANIMATION_URL = SITE_URL + "anim/relay_anim.html";
+const VISUALISER_URL = SITE_URL;  // landing page: visualiser, animation, slides
 
 const THEME = {
   name: "Relay",
@@ -82,9 +84,10 @@ function picture(slide, file, x, y, w, aspect, alt) {
   slide.addImage({ path: IMG(file), x, y, w, h: w / aspect, altText: alt, objectName: nm("picture") });
   slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h: w / aspect, rectRadius: 0.06, fill: { type: "none" }, line: { color: "D5DBE2", width: 1 }, objectName: nm("frame") });
 }
-function webLink(slide, url, x, y, w) {
-  slide.addText(url.replace("https://", ""), {
-    x, y, w, h: 0.34, fontSize: 15, bold: true, color: HEX.blue, margin: 0,
+function webLink(slide, url, x, y, w, label = SITE_LABEL) {
+  // two lines: the github.io address does not fit one line in the 4-inch box of the visualiser slide
+  slide.addText(label.replace(".io/", ".io/\n"), {
+    x, y, w, h: 0.6, fontSize: 13, bold: true, color: HEX.blue, margin: 0,
     hyperlink: { url }, isTextBox: true, objectName: nm("webLink"),
   });
 }
