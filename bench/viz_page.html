@@ -761,9 +761,10 @@ footer summary { cursor: pointer; }
     for (var c = c0; c <= c1; c++) {
       for (var t = m.colStart[c]; t < m.colStart[c + 1]; t++) {
         var i = m.colInst[t], hl = (i === k) || (G.gran === "frame" && m.frameOf[i] === curF);
-        var isErr = i === m.errI, isV = m.viol.has(i);
-        if (!hl && !isErr && !isV) continue;
+        var isErr = i === m.errI, isV = m.viol.has(i), isD = v.dstat && v.dstat[i];
+        if (!hl && !isErr && !isV && !isD) continue;
         var x = v.colX(c), y0 = v.wireY(m.lo[i] < 0 ? 0 : m.lo[i], rh) - rh / 2, y1 = v.wireY(m.hi[i] < 0 ? m.NQ - 1 : m.hi[i], rh) + rh / 2;
+        if (isD) { ctx.fillStyle = v.dside === 1 ? "rgba(214,48,49,0.22)" : "rgba(40,167,69,0.24)"; ctx.fillRect(x, 0, cw, H); }
         if (isErr) { ctx.fillStyle = "rgba(198,40,40,0.28)"; ctx.fillRect(x, y0, cw, y1 - y0); }
         if (hl) { ctx.fillStyle = i === k ? C.cur : "rgba(255,216,77,0.45)"; ctx.fillRect(x, y0, cw, y1 - y0); }
         if (isV) { ctx.strokeStyle = C.red; ctx.lineWidth = 1.5; ctx.strokeRect(x + 0.75, y0 + 0.75, cw - 1.5, y1 - y0 - 1.5); }
@@ -892,6 +893,10 @@ footer summary { cursor: pointer; }
     for (var b2 = 0; b2 < bins; b2++) {
       if (czc[b2]) { o.fillStyle = "rgba(232,118,45," + (0.15 + 0.45 * czc[b2] / mz) + ")"; o.fillRect(b2, H * 0.55, 1, H * 0.45); }
       if (cnt[b2]) { o.fillStyle = "rgba(142,91,208," + (0.25 + 0.75 * cnt[b2] / mx) + ")"; o.fillRect(b2, 0, 1, H * 0.55); }
+    }
+    if (v.dstat) {
+      o.fillStyle = v.dside === 1 ? "rgba(214,48,49,0.85)" : "rgba(40,167,69,0.85)";
+      for (var di = 0; di < m.N; di++) if (v.dstat[di]) o.fillRect(Math.floor(di / m.N * W), H * 0.78, 1.5, H * 0.22);
     }
     o.fillStyle = C.red;
     m.viol.forEach(function (_, vi) { o.fillRect(Math.floor(vi / m.N * W), 0, 2, H); });
@@ -1129,6 +1134,7 @@ footer summary { cursor: pointer; }
     if (document.body.classList.contains("side-off")) o.side = "0";
     if (onlyValid()) o.ov = "1";
     if (!G.showLabels) o.lbl = "0";
+    if (typeof DIFF !== "undefined" && !DIFF.on) o.diff = "0";
     for (var key in over) if (over.hasOwnProperty(key)) { if (over[key] === null) delete o[key]; else o[key] = over[key]; }
     return "#" + Object.keys(o).map(function (key) { return encodeURIComponent(key) + "=" + encodeURIComponent(o[key]); }).join("&");
   }
@@ -1244,6 +1250,146 @@ footer summary { cursor: pointer; }
     }).catch(function () {});
   }
 
+
+  // ================================================================== diff alignment (split view)
+  // Gates are aligned with Myers' diff (they define equivalent states); moves are matched as
+  // multisets inside each pair of aligned gate segments (reordered moves still count as common).
+  // dstat[i] = 1: instruction i exists only on this side (side 1 red, side 2 green).
+  var DIFF = { on: HASH.diff !== "0", al: null };
+  function diffTokens(m) {
+    var I = m.I, OPS = m.OPS, out = new Array(m.N), isMove = new Uint8Array(m.N);
+    for (var i = 0; i < m.N; i++) {
+      var op = OPS[I.op[i]], qs = I.qs[i] || [];
+      if (op === "move") {
+        isMove[i] = 1;
+        var mi = m.mvAt[i];
+        if (mi >= 0) {
+          var mv = m.MV[mi], parts = [];
+          for (var j = 0; j < mv.q.length; j++)
+            parts.push(mv.q[j] + "@" + mv.f[2 * j].toFixed(2) + "," + mv.f[2 * j + 1].toFixed(2) + ">" + mv.t[2 * j].toFixed(2) + "," + mv.t[2 * j + 1].toFixed(2));
+          parts.sort();
+          out[i] = parts.join(";");
+        } else out[i] = "illegal#" + i;
+      } else if (op === "cz") {
+        out[i] = "cz|" + qs.slice().sort(function (x, y) { return x - y; }).join(",");
+      } else {
+        var par = I.par[i];
+        out[i] = op + "|" + qs.join(",") + "|" + (typeof par === "number" ? par.toFixed(4) : "");
+      }
+    }
+    return { tok: out, isMove: isMove };
+  }
+  function myersPairs(a, b, maxD) {   // a, b: arrays of strings; LCS pairs [[i, j], ...] or null if D > maxD
+    var n = a.length, m = b.length, pre = 0, suf = 0;
+    while (pre < n && pre < m && a[pre] === b[pre]) pre++;
+    while (suf < n - pre && suf < m - pre && a[n - 1 - suf] === b[m - 1 - suf]) suf++;
+    var A = a.slice(pre, n - suf), B = b.slice(pre, m - suf), N = A.length, M = B.length;
+    var pairs = [];
+    for (var p0 = 0; p0 < pre; p0++) pairs.push([p0, p0]);
+    var mid = [];
+    if (N && M) {
+      var MAX = Math.min(N + M, maxD), off = MAX + 1, v = new Int32Array(2 * MAX + 3), trace = [], found = -1;
+      for (var d = 0; d <= MAX && found < 0; d++) {
+        trace.push(v.slice(off - d - 1, off + d + 2));
+        for (var k = -d; k <= d; k += 2) {
+          var x = (k === -d || (k !== d && v[off + k - 1] < v[off + k + 1])) ? v[off + k + 1] : v[off + k - 1] + 1, y = x - k;
+          while (x < N && y < M && A[x] === B[y]) { x++; y++; }
+          v[off + k] = x;
+          if (x >= N && y >= M) { found = d; break; }
+        }
+      }
+      if (found < 0) return null;
+      var x2 = N, y2 = M;
+      for (var d2 = found; d2 > 0; d2--) {
+        var vp = trace[d2], o = d2 + 1, k2 = x2 - y2;   // vp holds v[-d2-1 .. d2+1] of the previous round
+        var down = (k2 === -d2 || (k2 !== d2 && vp[o + k2 - 1] < vp[o + k2 + 1]));
+        var kp = down ? k2 + 1 : k2 - 1, xs = vp[o + kp], ys = xs - kp;
+        while (x2 > xs + (down ? 0 : 1) && y2 > ys + (down ? 1 : 0)) { mid.push([x2 - 1, y2 - 1]); x2--; y2--; }
+        x2 = xs; y2 = ys;
+      }
+      while (x2 > 0 && y2 > 0) { mid.push([x2 - 1, y2 - 1]); x2--; y2--; }
+      mid.reverse();
+    }
+    for (var q = 0; q < mid.length; q++) pairs.push([mid[q][0] + pre, mid[q][1] + pre]);
+    for (var s2 = 0; s2 < suf; s2++) pairs.push([n - suf + s2, m - suf + s2]);
+    return pairs;
+  }
+  function alignModels(ma, mb) {
+    var ta = diffTokens(ma), tb = diffTokens(mb);
+    var ga = [], gb = [];
+    for (var i = 0; i < ma.N; i++) if (!ta.isMove[i]) ga.push(i);
+    for (var j = 0; j < mb.N; j++) if (!tb.isMove[j]) gb.push(j);
+    var gp = myersPairs(ga.map(function (i) { return ta.tok[i]; }), gb.map(function (j) { return tb.tok[j]; }), 6000);
+    if (!gp) return null;
+    var pa = new Int32Array(ma.N).fill(-1), pb = new Int32Array(mb.N).fill(-1);
+    gp.forEach(function (pr) { pa[ga[pr[0]]] = gb[pr[1]]; pb[gb[pr[1]]] = ga[pr[0]]; });
+    // segments: number of matched gates before each instruction; match moves inside a segment
+    function segs(m, pmine) { var sg = new Int32Array(m.N), c = 0; for (var i = 0; i < m.N; i++) { sg[i] = c; if (pmine[i] >= 0 && !(m === ma ? ta : tb).isMove[i]) c++; } return sg; }
+    var sa = segs(ma, pa), sb = segs(mb, pb), pool = new Map();
+    for (var j2 = 0; j2 < mb.N; j2++) if (tb.isMove[j2]) {
+      var key = sb[j2] + "#" + tb.tok[j2];
+      if (!pool.has(key)) pool.set(key, []);
+      pool.get(key).push(j2);
+    }
+    for (var i2 = 0; i2 < ma.N; i2++) if (ta.isMove[i2]) {
+      var lst = pool.get(sa[i2] + "#" + ta.tok[i2]);
+      if (lst && lst.length) { var jj = lst.shift(); pa[i2] = jj; pb[jj] = i2; }
+    }
+    function stat(m, pm) { var st = new Uint8Array(m.N); for (var i = 0; i < m.N; i++) st[i] = pm[i] < 0 ? 1 : 0; return st; }
+    // instruction maps: exact on common instructions, interpolated inside differing runs
+    function imap(nFrom, pFrom, nTo) {
+      var out = new Int32Array(nFrom), prevF = -1, prevT = -1;
+      var nextF = new Int32Array(nFrom + 1); nextF[nFrom] = nFrom;
+      for (var i = nFrom - 1; i >= 0; i--) nextF[i] = pFrom[i] >= 0 ? i : nextF[i + 1];
+      for (var i3 = 0; i3 < nFrom; i3++) {
+        if (pFrom[i3] >= 0) { out[i3] = pFrom[i3]; prevF = i3; prevT = pFrom[i3]; continue; }
+        var nf = nextF[i3], nt = nf < nFrom ? pFrom[nf] : nTo;
+        var span = nf - prevF, tspan = nt - prevT;
+        out[i3] = Math.max(prevT, Math.min(nt - 1, prevT + Math.round((i3 - prevF) / span * tspan)));
+      }
+      return out;
+    }
+    var cnt = function (m, tk, pm, mv) { var c = 0, d = 0; for (var i = 0; i < m.N; i++) if (pm[i] < 0 && tk.isMove[i] === mv) { c++; if (mv && m.mvAt[i] >= 0) d += m.MV[m.mvAt[i]].d; } return [c, d]; };
+    return {
+      stA: stat(ma, pa), stB: stat(mb, pb), mapAB: imap(ma.N, pa, mb.N), mapBA: imap(mb.N, pb, ma.N),
+      onlyA: { moves: cnt(ma, ta, pa, 1), gates: cnt(ma, ta, pa, 0) }, onlyB: { moves: cnt(mb, tb, pb, 1), gates: cnt(mb, tb, pb, 0) },
+      commonGates: gp.length
+    };
+  }
+  function mapStep(from, to, s) {   // step s of view `from` -> equivalent step of view `to`
+    var al = DIFF.al;
+    if (s < 0 || !al) return s < 0 ? -1 : to.m.kAt(from.m.progressOf(s));
+    var i = from.m.stepInst[s], ph = from.m.stepPhase[s];
+    var j = (from === views[0] ? al.mapAB : al.mapBA)[i];
+    if (j === undefined || j < 0) return -1;
+    return ph === 1 && to.m.mvAt[j] >= 0 ? to.m.firstStepOfInst(j) : to.m.lastStep[j];
+  }
+  function applyDiff() {
+    DIFF.al = null;
+    views.forEach(function (v) { v.dstat = null; });
+    if (G.split && DIFF.on && views.length > 1) {
+      DIFF.al = alignModels(views[0].m, views[1].m);
+      if (DIFF.al) { views[0].dstat = DIFF.al.stA; views[1].dstat = DIFF.al.stB; views[0].dside = 1; views[1].dside = 2; }
+    }
+    views.forEach(function (v) { if (v.ovCv) { v.buildOverview(); v.dirty = true; } });
+  }
+  function jumpDiff(dir) {
+    var v = views[0], st = v.dstat;
+    if (!st) return;
+    var k = v.k;
+    if (dir > 0) {   // start of the next run of differences
+      var i = k + 1;
+      while (i < v.m.N && st[i] && i > 0 && st[i - 1]) i++;
+      while (i < v.m.N && !st[i]) i++;
+      if (i < v.m.N) onJump(v, v.m.firstStepOfInst(i));
+    } else {
+      var i2 = k - 1;
+      while (i2 >= 0 && st[i2]) i2--;
+      while (i2 >= 0 && !st[i2]) i2--;
+      while (i2 > 0 && st[i2 - 1]) i2--;
+      if (i2 >= 0) onJump(v, v.m.firstStepOfInst(i2));
+    }
+  }
   // ================================================================== views, split view, controller
   var views = [];
   var splitState = { loading: false, msg: null, model: null, name: "" };
@@ -1251,7 +1397,7 @@ footer summary { cursor: pointer; }
   function follower() { var d = driver(); return views.length > 1 ? (d === views[0] ? views[1] : views[0]) : null; }
   function syncFollower(animate) {
     var d = driver(), f = follower();
-    if (f) f.setCursor(f.m.kAt(d.m.progressOf(d.s)), animate);
+    if (f) f.setCursor(mapStep(d, f, d.s), animate);
   }
   function setCursor(ns, animate) {   // ns = step of the driving view
     var d = driver();
@@ -1263,7 +1409,7 @@ footer summary { cursor: pointer; }
     setPlaying(false);
     view.setCursor(s, false);
     var other = views.filter(function (x) { return x !== view; })[0];
-    if (other) other.setCursor(other.m.kAt(view.m.progressOf(view.s)), false);
+    if (other) other.setCursor(mapStep(view, other, view.s), false);
     afterCursor();
   }
   var statsDirty = true;
@@ -1307,7 +1453,9 @@ footer summary { cursor: pointer; }
         (m.ERR ? '<span class="badge sm bad">' + esc(m.ERR.stage) + "</span>" : '<span class="badge sm ok">VALID</span>') +
         '<span class="sub mono">D ' + fmt(T.move_distance, 1) + pct(T.partial ? null : T.move_distance, nv ? nv.move_distance : null) +
         " · P " + (T.depth === undefined ? "–" : T.depth) + pct(T.partial ? null : T.depth, nv ? nv.depth : null) + " · " + m.N + " instr · " + m.M + " moves</span>" +
-        (idx === 1 ? '<span class="spacer" style="flex:1"></span><button data-act="swap" title="Open ' + esc(nm) + "'s page with " + esc(NAME) + ' on the right">⇆ swap</button><button data-act="close" title="Close the split view (C)">✕</button>' : "");
+        (idx === 1 ? '<span class="spacer" style="flex:1"></span>' +
+          '<button data-act="diff" title="Diff mode: align both compilations (gates by diff, moves inside aligned segments); red = only in 1, green = only in 2; D / Shift+D: next / previous difference">' +
+          (DIFF.on ? (DIFF.al ? "◐ diff on" : "◐ diff (too different)") : "◑ diff off") + '</button><button data-act="swap" title="Open ' + esc(nm) + "'s page with " + esc(NAME) + ' on the right">⇆ swap</button><button data-act="close" title="Close the split view (C)">✕</button>' : "");
     });
   }
   function renderDiff() {
@@ -1329,6 +1477,12 @@ footer summary { cursor: pointer; }
       var ratio = (r[1] && r[2] !== undefined) ? (r[2] / r[1] * 100).toFixed(1) + "%" : "–";
       h += "<tr><td>" + r[0] + "</td><td>" + fmt(r[1], r[3]) + "</td><td>" + fmt(r[2], r[3]) + '</td><td class="' + cls + '">' + signed(d, r[3]) + "</td><td>" + ratio + "</td></tr>";
     });
+    if (DIFF.al) {
+      var al = DIFF.al;
+      h += '<tr><td>diff (aligned)</td><td class="bad">only in 1: ' + al.onlyA.moves[0] + " moves (Σ " + fmt(al.onlyA.moves[1], 2) + "), " + al.onlyA.gates[0] +
+        ' gates</td><td class="good">only in 2: ' + al.onlyB.moves[0] + " moves (Σ " + fmt(al.onlyB.moves[1], 2) + "), " + al.onlyB.gates[0] +
+        " gates</td><td colspan=2>" + al.commonGates + " common gates · <kbd>D</kbd>/<kbd>Shift</kbd>+<kbd>D</kbd> next/prev difference</td></tr>";
+    }
     $("diff").innerHTML = h + "</table>";
   }
   function arrange() {
@@ -1368,7 +1522,7 @@ footer summary { cursor: pointer; }
     CMP = name || "";
     writeHashSoon();
     if (!CMP) {
-      G.split = false; views.length = 1; splitState.msg = null; arrange(); renderSidebar(); return;
+      G.split = false; views.length = 1; splitState.msg = null; applyDiff(); arrange(); renderSidebar(); return;
     }
     G.split = true; views.length = 1; splitState.msg = null;
     var e = (MAN.pages || []).filter(function (x) { return x.name === CMP && x.label === LABEL; })[0];
@@ -1386,6 +1540,8 @@ footer summary { cursor: pointer; }
       vb.cw = views[0].cw;
       views[1] = vb;
       arrange();
+      applyDiff();
+      renderHeads();
       syncFollower(false);
       afterCursor();
     }).catch(function (err) {
@@ -1527,6 +1683,7 @@ footer summary { cursor: pointer; }
       var b = ev.target.closest("[data-act]");
       if (!b) return;
       if (b.getAttribute("data-act") === "close") setCompare("");
+      else if (b.getAttribute("data-act") === "diff") { DIFF.on = !DIFF.on; applyDiff(); renderHeads(); syncFollower(false); writeHashSoon(); afterCursor(); }
       else if (b.getAttribute("data-act") === "swap") {
         var e = compilationsOfCircuit().filter(function (x) { return x.name === CMP; })[0];
         if (e) location.href = pageUrl(e.page) + buildHash({ cmp: NAME });
@@ -1549,6 +1706,7 @@ footer summary { cursor: pointer; }
         case "g": case "G": setGran(G.gran === "inst" ? "frame" : "inst"); break;
         case "l": case "L": setLabels(!G.showLabels); break;
         case "e": case "E": jumpError(); break;
+        case "d": case "D": setPlaying(false); fol(); jumpDiff(e.shiftKey ? -1 : 1); break;
         case "+": case "=": setSpeed(G.speed * 1.5); break;
         case "-": case "_": setSpeed(G.speed / 1.5); break;
         case "}": zoomAll(1.4); break;
@@ -1601,6 +1759,10 @@ footer summary { cursor: pointer; }
         distB: views[1] ? views[1].m.cumDist[views[1].m.movesAtStep(views[1].s)] : null, manifestLive: MAN_LIVE,
         name: NAME, label: LABEL, splitMsg: splitState.msg };
     },
+    diff: function () { var a = views[0], b = views[1]; return { on: DIFF.on, al: !!DIFF.al, kA: a.k, kB: b ? b.k : null,
+      uniqA: a.dstat ? Array.prototype.reduce.call(a.dstat, function (x, y) { return x + y; }, 0) : null,
+      firstUniqA: a.dstat ? Array.prototype.indexOf.call(a.dstat, 1) : null, atA: a.dstat && a.k >= 0 ? a.dstat[a.k] : null }; },
+    nextDiff: function (d) { jumpDiff(d); },
     set: function (i) { setCursor(driver().m.stepOfInst(i), false); },          // instruction i (a move: its step B)
     setA: function (i) { setCursor(driver().m.firstStepOfInst(i), false); },     // a move's step A
     setStep: function (st) { setCursor(st, false); },
