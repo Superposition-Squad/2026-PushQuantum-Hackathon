@@ -188,3 +188,13 @@ headroom is in sorting atoms into the working row, not in the hub stream.
 | portfolio (solo, systolic_po, rectbatch) | +91.25 (solo wins all 20; others are fallbacks) | full 20/20, slowest compile 53 s | this commit |
 
 Submission candidates: `submission/portfolio.py` (with fallbacks) and `submission/solo.py` (solo alone, faster).
+
+## relay (fork of solo2, relayed hub fan-out), 2026-11-22 ~04:00 CET
+
+| compiler | v5 leaderboard set | validity | commit |
+|---|---|---|---|
+| relay (hub fan-out relayed over partner pairs / paths of four, shorter Euler sequences, hub-site DP) | **+92.01** (distance 92.80 %, depth 88.88 %) | full 20/20, sanity 13/13, strict 20q 6/6, Clifford tableaux 50q 12/12 as compiled and 12/12 generic; notebook `submission/relay.py` scores the same | idea/relay |
+
+The gain over solo2 (+91.56) is depth (1 856 → 1 486); distance is flat (11 568 → 11 770). The hub
+term of `docs/bounds.md` (two sequential hub pulses per hub block) no longer holds: see
+`docs/ideas/relay.md`. Slowest compile 97 s.
