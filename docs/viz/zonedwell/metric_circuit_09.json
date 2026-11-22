@@ -1,0 +1,37 @@
+{
+ "name": "zonedwell",
+ "label": "metric_circuit_09",
+ "family": "ihva",
+ "qubits": 12,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/zonedwell/compiler.py",
+ "ok": false,
+ "stage": "movement",
+ "error": "Instruction 35 (move on [6, 10, 2]): Move drops off atoms in more than one zone ('entangling': qubits [2, 10]; 'storage': qubits [6]); each end of a move must lie in one zone.",
+ "metrics": null,
+ "cz": 58,
+ "naive": {
+  "num_moves": 192,
+  "move_steps": 192,
+  "move_distance": 1956.520221,
+  "move_time": 1956.520221,
+  "depth": 175,
+  "num_operations": 541,
+  "spacing_warnings": 0
+ },
+ "equivalence": "skipped (fast)",
+ "compile_s": 0.983,
+ "page": "metric_circuit_09.html",
+ "page_bytes": 208526,
+ "generated": "2026-11-22T16:03:43Z",
+ "partial": {
+  "num_moves": 45,
+  "move_steps": 45,
+  "move_distance": 117.010761,
+  "move_time": 202.574851,
+  "depth": 69,
+  "num_operations": 299,
+  "spacing_warnings": 72,
+  "cz": 58,
+  "partial": true
+ }
+}

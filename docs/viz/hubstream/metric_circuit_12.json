@@ -1,0 +1,34 @@
+{
+ "name": "hubstream",
+ "label": "metric_circuit_12",
+ "family": "ihva",
+ "qubits": 12,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/hubstream/compiler.py",
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 44,
+  "move_steps": 44,
+  "move_distance": 91.347502,
+  "move_time": 95.292119,
+  "depth": 19,
+  "num_operations": 81,
+  "spacing_warnings": 4
+ },
+ "cz": 22,
+ "naive": {
+  "num_moves": 576,
+  "move_steps": 576,
+  "move_distance": 5869.560663,
+  "move_time": 5869.560663,
+  "depth": 528,
+  "num_operations": 1527,
+  "spacing_warnings": 0
+ },
+ "equivalence": "skipped (fast)",
+ "compile_s": 0.974,
+ "page": "metric_circuit_12.html",
+ "page_bytes": 136548,
+ "generated": "2026-11-22T16:04:05Z"
+}

@@ -1,0 +1,37 @@
+{
+ "name": "hubstream",
+ "label": "metric_circuit_07",
+ "family": "ihva",
+ "qubits": 12,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/hubstream/compiler.py",
+ "ok": false,
+ "stage": "movement",
+ "error": "Instructions 47-50 (two-qubit gates in the 'entangling' zone): qubits 11 at (7, 10) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first.",
+ "metrics": null,
+ "cz": 58,
+ "naive": {
+  "num_moves": 192,
+  "move_steps": 192,
+  "move_distance": 1956.520221,
+  "move_time": 1956.520221,
+  "depth": 191,
+  "num_operations": 541,
+  "spacing_warnings": 0
+ },
+ "equivalence": "skipped (fast)",
+ "compile_s": 1.129,
+ "page": "metric_circuit_07.html",
+ "page_bytes": 151942,
+ "generated": "2026-11-22T16:04:02Z",
+ "partial": {
+  "num_moves": 94,
+  "move_steps": 94,
+  "move_distance": 196.819288,
+  "move_time": 221.530119,
+  "depth": 45,
+  "num_operations": 195,
+  "spacing_warnings": 18,
+  "cz": 58,
+  "partial": true
+ }
+}

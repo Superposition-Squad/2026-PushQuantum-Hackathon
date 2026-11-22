@@ -1,0 +1,37 @@
+{
+ "name": "hubwalk",
+ "label": "metric_circuit_10",
+ "family": "ihva",
+ "qubits": 12,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/hubwalk/compiler.py",
+ "ok": false,
+ "stage": "movement",
+ "error": "Instructions 45 (two-qubit gates in the 'entangling' zone): qubits 0 at (4, 10), 1 at (6, 10), 2 at (4, 11), 3 at (0, 11), 4 at (0, 12), 5 at (2, 11), 6 at (2, 10), 7 at (6, 11), 8 at (8, 11), 9 at (2, 12) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be m",
+ "metrics": null,
+ "cz": 212,
+ "naive": {
+  "num_moves": 576,
+  "move_steps": 576,
+  "move_distance": 5869.560663,
+  "move_time": 5869.560663,
+  "depth": 528,
+  "num_operations": 1527,
+  "spacing_warnings": 0
+ },
+ "equivalence": "skipped (fast)",
+ "compile_s": 4.295,
+ "page": "metric_circuit_10.html",
+ "page_bytes": 290549,
+ "generated": "2026-11-22T16:05:17Z",
+ "partial": {
+  "num_moves": 282,
+  "move_steps": 282,
+  "move_distance": 707.120511,
+  "move_time": 964.745081,
+  "depth": 213,
+  "num_operations": 615,
+  "spacing_warnings": 122,
+  "cz": 212,
+  "partial": true
+ }
+}

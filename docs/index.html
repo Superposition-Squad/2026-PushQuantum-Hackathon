@@ -58,12 +58,12 @@
   <p class="sub" style="margin-bottom:8px">Score on the 20 scored circuits for each compiler we built, oldest to newest. The first ones were early tries; each later idea built on what the earlier ones taught us. Click a name to see its pages.</p>
   <div class="prog">
     <div class="grp">First tries <em>(first tries: simple ideas, each tried on its own)</em></div>
-    gates<div class="bar"><i style="width:73.2%"></i><span>+73.2% · commutation-aware rounds, hub as control</span></div>
-    rectbatch<div class="bar"><i style="width:79.8%"></i><span>+79.8% · batch each round into rectangle moves</span></div>
-    hubstream<div class="bar"><i style="width:84.4%"></i><span>+84.4% · park the hub in the zone, stream partners</span></div>
-    zonedwell<div class="bar"><i style="width:87.0%"></i><span>+87.0% · keep atoms in the zone, conveyor</span></div>
+    <a href="viz/index.html#gates">gates</a><div class="bar"><i style="width:73.2%"></i><span>+73.2% · commutation-aware rounds, hub as control</span></div>
+    <a href="viz/index.html#rectbatch">rectbatch</a><div class="bar"><i style="width:79.8%"></i><span>+79.8% · batch each round into rectangle moves</span></div>
+    <a href="viz/index.html#hubstream">hubstream</a><div class="bar"><i style="width:84.4%"></i><span>+84.4% · park the hub in the zone, stream partners</span></div>
+    <a href="viz/index.html#zonedwell">zonedwell</a><div class="bar"><i style="width:87.0%"></i><span>+87.0% · keep atoms in the zone, conveyor</span></div>
     <div class="grp">Second round</div>
-    hubwalk<div class="bar"><i style="width:89.5%"></i><span>+89.5% · hub walks past its partners</span></div>
+    <a href="viz/index.html#hubwalk">hubwalk</a><div class="bar"><i style="width:89.5%"></i><span>+89.5% · hub walks past its partners</span></div>
     <a href="viz/index.html#systolic">systolic</a><div class="bar"><i style="width:85.3%"></i><span>+85.3% · systolic schedule</span></div>
     <a href="viz/index.html#optimizer-optimizer">optimizer-optimizer</a><div class="bar"><i style="width:81.8%"></i><span>+81.8% · optimiser over moves</span></div>
     <div class="grp">Relay line</div>
@@ -71,7 +71,7 @@
     <a href="viz/index.html#relay">relay</a><div class="bar"><i style="width:92.0%"></i><span>+92.0% · relayed hub fan-out</span></div>
     <a href="viz/index.html#relay_best_l3">relay_best_l3 (best)</a><div class="bar top"><i style="width:92.45%"></i><span>+92.45% · relay + movement layer L3</span></div>
   </div>
-  <p class="sub" style="font-size:13px;margin-top:10px">Early scores were measured before the final validator rule that every atom in the entangling zone must take part in a gate (the <code>idle</code> rule); they are shown to illustrate progress, not as final numbers.</p>
+  <p class="sub" style="font-size:13px;margin-top:10px">Early scores were measured before the final validator rule that every atom in the entangling zone must take part in a gate (the <code>idle</code> rule); they are shown to illustrate progress, not as final numbers. Their visualiser pages may show FAIL for exactly that reason.</p>
 
   <h2>How it works (animation)</h2>
   <p class="sub" style="margin-bottom:12px">One real compiled plan: a 20-qubit iHVA circuit, 106 moves, 30 CZ pulses. Space plays or pauses, keys 1–6 jump to a chapter. <a href="anim/relay_anim.html">Full screen</a> · <a href="anim/relay_anim.mp4">MP4</a></p>
