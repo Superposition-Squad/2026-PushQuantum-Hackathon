@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay Compiler Animation</title>
+<style>
+  :root { --ink:#1d2733; --muted:#6b7684; --hub:#e0a100; --atom:#2f6db5; --cz:#e8762d; --g1:#2f8fd8; --zone:#fbe9dc; --sto:#e6eef8; --bg:#ffffff; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #wrap { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  #cv { width:min(100vw, calc((100vh - 64px) * 16 / 9)); aspect-ratio:16/9; display:block; }
+  #ctl { height:56px; width:min(100vw, calc((100vh - 64px) * 16 / 9)); display:flex; align-items:center; gap:10px; padding:0 16px; box-sizing:border-box; }
+  #ctl button { font:600 13px system-ui; border:1px solid #cfd5dc; background:#fff; border-radius:7px; padding:6px 10px; cursor:pointer; color:var(--ink); }
+  #ctl button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  #ctl input[type=range] { flex:1; }
+  #chap { display:flex; gap:6px; }
+  body.export #ctl { display:none; }
+  body.export #cv { width:100vw; height:100vh; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="1920" height="1080"></canvas>
+  <div id="ctl">
+    <button id="play">▶ play</button>
+    <input id="scrub" type="range" min="0" max="1000" value="0" step="1">
+    <span id="time" style="font:600 13px ui-monospace,monospace;color:#6b7684;width:92px;text-align:right">0:00</span>
+    <div id="chap"></div>
+    <button id="speed" title="playback speed">1×</button>
+  </div>
+</div>
+<script id="anim-data" type="application/json">__DATA__</script>
+<script>
+(function () {
+  "use strict";
+  var D = JSON.parse(document.getElementById("anim-data").textContent);
+  var cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+  var W = 1920, H = 1080;
+  var EXPORT = /[?&]export/.test(location.search);
+  if (EXPORT) document.body.classList.add("export");
+
+  // ---------------------------------------------------------------- timeline
+  var DUR = { m: 0.42, cz: 0.55, g: 0.2 }, INTRO = 2.6, OUTRO = 4.0;
+  var ev = D.events, starts = [], chapAt = {}, t = 0.6;
+  D.chapters.forEach(function (c, i) { chapAt[c.ev] = i; });
+  var chapStart = [];
+  for (var i = 0; i < ev.length; i++) {
+    if (chapAt.hasOwnProperty(i)) { chapStart[chapAt[i]] = t; t += INTRO; }
+    starts.push(t);
+    t += DUR[ev[i].t];
+  }
+  var T_END = t, TOTAL = t + OUTRO;
+
+  // ---------------------------------------------------------------- geometry
+  // display space: zone pairs are 0.3 apart physically (atoms would overlap); draw them 0.62 apart
+  function disp(x, y) {
+    if (y > 9.5) { var p = Math.floor((x + 0.01) / 2), s = Math.round((x - 2 * p) / 0.3); return [2 * p + 0.62 * s, y]; }
+    return [x, y];
+  }
+  D.load = D.load.map(function (p) { return disp(p[0], p[1]); });
+  D.sites = D.sites.map(function (p) { return disp(p[0], p[1]); });
+  D.events.forEach(function (e) { if (e.t === "m") e.a = e.a.map(function (a) { var f = disp(a[1], a[2]), t2 = disp(a[3], a[4]); return [a[0], f[0], f[1], t2[0], t2[1]]; }); });
+  var ys = [], xs = [];
+  D.load.forEach(function (p) { ys.push(p[1]); });
+  ev.forEach(function (e) { if (e.t === "m") e.a.forEach(function (a) { ys.push(a[2], a[4]); }); });
+  var yMin = Math.min.apply(null, ys) - 0.7, yMax = Math.max.apply(null, ys) + 0.7;
+  yMin = Math.min(yMin, 8.3); yMax = Math.max(yMax, 10.7);
+  var VX0 = 80, VX1 = 1170, VY0 = 150, VY1 = 1000;
+  var sc = Math.min((VX1 - VX0) / 10.0, (VY1 - VY0) / (yMax - yMin));
+  var ox = VX0 + ((VX1 - VX0) - sc * 9.6) / 2, oy = VY0 + ((VY1 - VY0) - sc * (yMax - yMin)) / 2;
+  function sx(x) { return ox + (x + 0.3) * sc; }
+  function sy(y) { return oy + (yMax - y) * sc; }
+  var R = Math.min(22, sc * 0.27);
+
+  // positions after k completed moves (checkpoints)
+  var NQ = D.n, pos = [], base = D.load.map(function (p) { return [p[0], p[1]]; });
+  pos.push(base.map(function (p) { return p.slice(); }));
+  var cur = base.map(function (p) { return p.slice(); });
+  for (var e2 = 0; e2 < ev.length; e2++) {
+    if (ev[e2].t === "m") ev[e2].a.forEach(function (a) { cur[a[0]] = [a[3], a[4]]; });
+    pos.push(cur.map(function (p) { return p.slice(); }));   // pos[i+1] = after event i
+  }
+  var cumD = [0], cumM = [0], cumK = [0];
+  ev.forEach(function (e, i) {
+    cumD.push(cumD[i] + (e.t === "m" ? e.d : 0));
+    cumM.push(cumM[i] + (e.t === "m" ? 1 : 0));
+    cumK.push(cumK[i] + (e.t === "cz" ? 1 : 0));
+  });
+  var NMOVES = cumM[ev.length], NPULSES = cumK[ev.length];
+
+  function evAt(time) {   // index of the event running at `time` (or -1 before, ev.length after)
+    if (time < starts[0]) return -1;
+    var lo = 0, hi = ev.length - 1;
+    while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (starts[mid] <= time) lo = mid; else hi = mid - 1; }
+    return lo;
+  }
+  function chapOf(time) { var c = -1; for (var i = 0; i < chapStart.length; i++) if (time >= chapStart[i]) c = i; return c; }
+  function ease(u) { return u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2; }
+
+  // ---------------------------------------------------------------- drawing helpers
+  function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+  function wrap(text, x, y, maxW, lh) {
+    var words = text.split(" "), line = "";
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + " " + words[i] : words[i];
+      if (ctx.measureText(test).width > maxW && line) { ctx.fillText(line, x, y); line = words[i]; y += lh; } else line = test;
+    }
+    if (line) ctx.fillText(line, x, y);
+    return y + lh;
+  }
+
+  function drawMachine(P, active) {
+    // zones
+    var zTop = sy(Math.min(yMax, 19.5)), zBot = sy(9.55), sTop = sy(9.45), sBot = sy(Math.max(yMin, -0.5));
+    ctx.fillStyle = "#fdf1e7"; rr(ox - 14, zTop, sc * 9.6 + 28, zBot - zTop, 14); ctx.fill();
+    ctx.fillStyle = "#eef4fb"; rr(ox - 14, sTop, sc * 9.6 + 28, sBot - sTop, 14); ctx.fill();
+    ctx.font = "600 20px Inter, system-ui"; ctx.fillStyle = "#b8662a"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillText("ENTANGLING ZONE  ·  cz on pairs", ox - 4, zTop + 10);
+    ctx.fillStyle = "#3d6ea8"; ctx.textBaseline = "bottom";
+    ctx.fillText("STORAGE  ·  rx, rz", ox - 4, sBot - 10);
+    // trap sites
+    ctx.fillStyle = "#c9d1da";
+    D.sites.forEach(function (s) { if (s[1] >= yMin && s[1] <= yMax) { ctx.beginPath(); ctx.arc(sx(s[0]), sy(s[1]), 3.2, 0, 7); ctx.fill(); } });
+    // CZ pairs
+    if (active && active.cz) {
+      var a = active.alpha;
+      active.cz.forEach(function (pr) {
+        var p = P[pr[0]], q = P[pr[1]], mx = (sx(p[0]) + sx(q[0])) / 2, my = (sy(p[1]) + sy(q[1])) / 2;
+        ctx.fillStyle = "rgba(232,118,45," + (0.28 * a) + ")"; ctx.beginPath(); ctx.ellipse(mx, my, R * 2.6, R * 1.9, 0, 0, 7); ctx.fill();
+        ctx.strokeStyle = "rgba(232,118,45," + (0.95 * a) + ")"; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(sx(p[0]), sy(p[1])); ctx.lineTo(sx(q[0]), sy(q[1])); ctx.stroke();
+      });
+    }
+    // move trails
+    if (active && active.move) {
+      ctx.save(); ctx.setLineDash([8, 7]); ctx.strokeStyle = "rgba(124,77,196,0.55)"; ctx.lineWidth = 2.5;
+      active.move.a.forEach(function (m) { ctx.beginPath(); ctx.moveTo(sx(m[1]), sy(m[2])); ctx.lineTo(sx(m[3]), sy(m[4])); ctx.stroke(); });
+      ctx.restore();
+      ctx.fillStyle = "rgba(124,77,196,0.10)";
+      active.move.a.forEach(function (m) { ctx.beginPath(); ctx.arc(sx(m[1]), sy(m[2]), R * 0.95, 0, 7); ctx.fill(); });
+    }
+    // atoms
+    var g1 = active && active.g ? active.g : null, czset = {};
+    if (active && active.cz) active.cz.forEach(function (pr) { czset[pr[0]] = czset[pr[1]] = 1; });
+    var movers = {};
+    if (active && active.move) active.move.a.forEach(function (m) { movers[m[0]] = 1; });
+    for (var q = 0; q < NQ; q++) {
+      var x = sx(P[q][0]), y = sy(P[q][1]), hub = q === D.hub;
+      if (movers[q]) { ctx.fillStyle = "rgba(124,77,196,0.22)"; ctx.beginPath(); ctx.arc(x, y, R * 1.55, 0, 7); ctx.fill(); }
+      if (czset[q]) { ctx.fillStyle = "rgba(232,118,45,0.30)"; ctx.beginPath(); ctx.arc(x, y, R * 1.6, 0, 7); ctx.fill(); }
+      ctx.fillStyle = hub ? "#e0a100" : "#2f6db5";
+      ctx.beginPath(); ctx.arc(x, y, hub ? R * 1.15 : R, 0, 7); ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
+      if (g1 && g1[q]) { ctx.strokeStyle = "rgba(47,143,216," + g1[q] + ")"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(x, y, R * 1.45, 0, 7); ctx.stroke(); }
+      ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.font = "700 " + Math.round(R * (hub ? 0.95 : 0.85)) + "px Inter, system-ui";
+      ctx.fillText(hub ? "H" : String(q), x, y + 1);
+    }
+  }
+
+  function chip(x, y, label, sub, on) {
+    ctx.font = "700 22px Inter, system-ui"; var w = 70;
+    rr(x, y, w, 44, 10); ctx.fillStyle = on ? "#1d2733" : "#eef1f4"; ctx.fill();
+    ctx.fillStyle = on ? "#fff" : "#9aa4b0"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(label, x + w / 2, y + 23);
+    ctx.font = "600 15px Inter, system-ui"; ctx.fillStyle = on ? "#1d2733" : "#9aa4b0"; ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.fillText(sub, x + w / 2, y + 52);
+  }
+
+  function render(time) {
+    time = Math.max(0, Math.min(TOTAL, time));
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+    var i = evAt(time), c = chapOf(time);
+    // positions
+    var P, active = null;
+    if (i < 0) P = pos[0];
+    else if (i >= ev.length) P = pos[ev.length];
+    else {
+      var e = ev[i], u = Math.min(1, (time - starts[i]) / DUR[e.t]);
+      P = pos[i].map(function (p) { return p.slice(); });
+      if (e.t === "m") {
+        var k = ease(u);
+        e.a.forEach(function (m) { P[m[0]] = [m[1] + (m[3] - m[1]) * k, m[2] + (m[4] - m[2]) * k]; });
+        active = { move: e };
+        if (u >= 1) P = pos[i + 1];
+      } else if (e.t === "cz") {
+        active = { cz: e.pairs, alpha: 0.35 + 0.65 * Math.sin(Math.PI * Math.min(1, u * 1.1)) };
+      } else {
+        var g = {}; e.q.forEach(function (q) { g[q] = 0.9 * Math.sin(Math.PI * u); }); active = { g: g };
+      }
+    }
+    // in a chapter intro hold, show the state but no highlight
+    if (i + 1 < ev.length && time < starts[i + 1] && i >= 0 && time > starts[i] + DUR[ev[i].t]) active = null;
+    drawMachine(P, active);
+
+    // header
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#1d2733"; ctx.font = "800 40px Inter, system-ui"; ctx.fillText("How the compiler executes a circuit", 80, 72);
+    ctx.fillStyle = "#6b7684"; ctx.font = "500 22px Inter, system-ui"; ctx.fillText(D.title + "  ·  " + NMOVES + " moves  ·  " + NPULSES + " CZ pulses", 80, 108);
+
+    // right panel
+    var X = 1250, Y = 150, PW = 600;
+    ctx.fillStyle = "#f6f8fa"; rr(X - 30, Y - 20, PW + 50, 860, 18); ctx.fill();
+    var ch = c >= 0 ? D.chapters[c] : null;
+    ctx.fillStyle = "#9aa4b0"; ctx.font = "700 18px Inter, system-ui"; ctx.textBaseline = "alphabetic";
+    ctx.fillText(ch ? "CHAPTER " + (c + 1) + " / " + D.chapters.length : "START", X, Y + 18);
+    ctx.fillStyle = "#1d2733"; ctx.font = "800 42px Inter, system-ui";
+    ctx.fillText(ch ? ch.title : "Initial loading", X, Y + 72);
+    ctx.fillStyle = "#3a4552"; ctx.font = "500 25px Inter, system-ui";
+    var yy = wrap(ch ? ch.text : "All atoms start in storage. The hub (gold) interacts with every other qubit.", X, Y + 120, PW - 10, 36);
+    // layer chips
+    var layers = ch ? ch.layers : [];
+    ctx.fillStyle = "#9aa4b0"; ctx.font = "700 16px Inter, system-ui"; ctx.textAlign = "left"; ctx.fillText("ACTIVE LAYERS", X, Y + 375);
+    chip(X, Y + 392, "L1", "gate form", layers.indexOf("L1") >= 0);
+    chip(X + 120, Y + 392, "L2", "schedule", layers.indexOf("L2") >= 0);
+    chip(X + 240, Y + 392, "L3", "movement", layers.indexOf("L3") >= 0);
+    // counters
+    var done = i < 0 ? 0 : (i >= ev.length ? ev.length : i + ((time - starts[i]) >= DUR[ev[i].t] ? 1 : 0));
+    var dist = cumD[done], mv = cumM[done], pk = cumK[done];
+    ctx.textAlign = "left"; ctx.fillStyle = "#9aa4b0"; ctx.font = "700 16px Inter, system-ui"; ctx.fillText("PROGRESS", X, Y + 520);
+    ctx.fillStyle = "#1d2733"; ctx.font = "700 30px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.fillText("pulses " + pk + " / " + NPULSES, X, Y + 562);
+    ctx.fillText("moves  " + mv + " / " + NMOVES, X, Y + 602);
+    ctx.fillText("Σ dist " + dist.toFixed(1), X, Y + 642);
+    // distance vs naive
+    if (D.naive_dist) {
+      var bw = PW - 20, by = Y + 722;
+      ctx.fillStyle = "#9aa4b0"; ctx.font = "700 16px Inter, system-ui"; ctx.fillText("MOVE DISTANCE VS NAIVE COMPILER", X, by - 12);
+      rr(X, by, bw, 26, 8); ctx.fillStyle = "#e6e9ed"; ctx.fill();
+      var fw = Math.max(4, bw * dist / D.naive_dist);
+      rr(X, by, fw, 26, 8); ctx.fillStyle = "#2f6db5"; ctx.fill();
+      ctx.fillStyle = "#6b7684"; ctx.font = "600 18px Inter, system-ui"; ctx.textAlign = "right";
+      ctx.fillText("naive " + D.naive_dist.toFixed(0), X + bw, by + 52);
+      ctx.textAlign = "left"; ctx.fillStyle = "#2f6db5";
+      ctx.fillText("ours " + D.total_dist.toFixed(0) + "  (−" + (100 * (1 - D.total_dist / D.naive_dist)).toFixed(1) + " %)", X, by + 52);
+    }
+    // legend
+    var ly = 1040;
+    ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.font = "600 19px Inter, system-ui";
+    function dot(x, col, label) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, ly, 10, 0, 7); ctx.fill(); ctx.fillStyle = "#3a4552"; ctx.fillText(label, x + 18, ly); return x + 26 + ctx.measureText(label).width + 30; }
+    var lx = 80;
+    lx = dot(lx, "#e0a100", "hub"); lx = dot(lx, "#2f6db5", "atom");
+    ctx.strokeStyle = "#e8762d"; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(lx - 10, ly); ctx.lineTo(lx + 18, ly); ctx.stroke(); ctx.fillStyle = "#3a4552"; ctx.fillText("CZ pulse", lx + 28, ly); lx += 150;
+    ctx.strokeStyle = "#2f8fd8"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(lx, ly, 10, 0, 7); ctx.stroke(); ctx.fillText("rx / rz (storage)", lx + 20, ly); lx += 210;
+    ctx.save(); ctx.setLineDash([8, 7]); ctx.strokeStyle = "rgba(124,77,196,0.8)"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(lx - 10, ly); ctx.lineTo(lx + 22, ly); ctx.stroke(); ctx.restore(); ctx.fillText("move (rigid rectangle)", lx + 32, ly);
+    // chapter intro overlay
+    if (c >= 0 && time >= chapStart[c] && time < chapStart[c] + INTRO) {
+      var a = Math.min(1, (time - chapStart[c]) / 0.35, (chapStart[c] + INTRO - time) / 0.35);
+      ctx.fillStyle = "rgba(255,255,255," + (0.72 * a) + ")"; ctx.fillRect(VX0 - 40, VY0 - 20, VX1 - VX0 + 80, VY1 - VY0 + 40);
+      ctx.globalAlpha = a; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "#9aa4b0"; ctx.font = "700 22px Inter, system-ui"; ctx.fillText("CHAPTER " + (c + 1), (VX0 + VX1) / 2, (VY0 + VY1) / 2 - 50);
+      ctx.fillStyle = "#1d2733"; ctx.font = "800 58px Inter, system-ui"; ctx.fillText(D.chapters[c].title, (VX0 + VX1) / 2, (VY0 + VY1) / 2 + 10);
+      ctx.globalAlpha = 1;
+    }
+    // end card
+    if (time > T_END + 0.4 && D.naive_dist) {
+      var a2 = Math.min(1, (time - T_END - 0.4) / 0.5);
+      ctx.fillStyle = "rgba(255,255,255," + (0.85 * a2) + ")"; ctx.fillRect(VX0 - 40, VY0 - 20, VX1 - VX0 + 80, VY1 - VY0 + 40);
+      ctx.globalAlpha = a2; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#1d2733";
+      ctx.font = "800 56px Inter, system-ui"; ctx.fillText("Σ distance " + D.total_dist.toFixed(1) + "  vs  naive " + D.naive_dist.toFixed(0), (VX0 + VX1) / 2, (VY0 + VY1) / 2 - 30);
+      ctx.font = "600 30px Inter, system-ui"; ctx.fillStyle = "#3a4552";
+      ctx.fillText("−" + (100 * (1 - D.total_dist / D.naive_dist)).toFixed(1) + " % on this circuit · +92.45 % score on all 20 scored circuits", (VX0 + VX1) / 2, (VY0 + VY1) / 2 + 35);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // ---------------------------------------------------------------- playback
+  var now = 0, playing = !EXPORT, speed = 1, last = null;
+  var scrub = document.getElementById("scrub"), playB = document.getElementById("play"), timeL = document.getElementById("time");
+  function fmtT(s) { var m = Math.floor(s / 60), r = Math.floor(s % 60); return m + ":" + (r < 10 ? "0" : "") + r; }
+  function show() { render(now); scrub.value = Math.round(1000 * now / TOTAL); timeL.textContent = fmtT(now) + " / " + fmtT(TOTAL); playB.textContent = playing ? "‖ pause" : "▶ play"; }
+  function tick(ts) {
+    if (playing) { if (last !== null) now += (ts - last) / 1000 * speed; if (now >= TOTAL) { now = TOTAL; playing = false; } }
+    last = ts; show(); requestAnimationFrame(tick);
+  }
+  playB.onclick = function () { if (now >= TOTAL) now = 0; playing = !playing; last = null; };
+  scrub.oninput = function () { now = TOTAL * scrub.value / 1000; playing = false; };
+  var cb = document.getElementById("chap");
+  D.chapters.forEach(function (c, k) { var b = document.createElement("button"); b.textContent = (k + 1) + " " + c.title; b.title = c.text; b.onclick = function () { now = chapStart[k] + 0.01; playing = true; last = null; }; cb.appendChild(b); });
+  var sp = document.getElementById("speed");
+  sp.onclick = function () { speed = speed === 1 ? 0.5 : speed === 0.5 ? 2 : 1; sp.textContent = speed + "×"; };
+  document.addEventListener("keydown", function (e) {
+    if (e.key === " ") { playB.onclick(); e.preventDefault(); }
+    if (e.key === "ArrowRight") { now = Math.min(TOTAL, now + 2); }
+    if (e.key === "ArrowLeft") { now = Math.max(0, now - 2); }
+    if (/^[1-9]$/.test(e.key) && D.chapters[+e.key - 1]) { now = chapStart[+e.key - 1] + 0.01; playing = true; last = null; }
+  });
+  window.renderAt = function (s) { now = s; render(s); };
+  window.animTotal = TOTAL;
+  window.animChapters = chapStart.slice();
+  window.animEvStart = function (i) { return starts[i]; };
+  if (!EXPORT) requestAnimationFrame(tick); else render(0);
+})();
+</script>
+</body>
+</html>
