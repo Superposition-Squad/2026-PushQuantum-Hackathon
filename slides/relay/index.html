@@ -151,6 +151,7 @@ svg text{font-family:inherit;fill:var(--fg)}
 .bar.old{fill:var(--old)} .bar.new{fill:var(--green)}
 .bv{font-size:12px;text-anchor:middle;fill:var(--mut);font-variant-numeric:tabular-nums;paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
 .bv.new{fill:var(--green);font-weight:700}
+.bv.big{font-size:15px;fill:#06281a;stroke:none}
 .bound{stroke:#fff;stroke-width:2;stroke-dasharray:5 4}
 .bnote{font-size:13px;fill:#fff;font-weight:600}
 .delta{font-size:15px;color:var(--mut);margin-top:6px}
@@ -166,6 +167,10 @@ body.notes #notes{display:flex;gap:28px}
 #clock.over{color:#ff6b6b}
 #clock small{display:block;font-size:11px;font-weight:500;color:var(--mut);letter-spacing:.08em}
 aside.notes{display:none}
+/* capture mode (make_pptx.py): flat background so exported images blend into the slide */
+body.cap #stage{background:var(--bg);border-radius:0}
+body.cap .slide{transition:none}
+body.cap #page,body.cap #hud{display:none}
 
 @media print{
   @page{size:1280px 720px;margin:0}
@@ -192,27 +197,29 @@ aside.notes{display:none}
       <p class="lead" style="margin-top:14px;max-width:620px">A parity trick that takes the busiest qubit of the circuit
         out of the queue on a zoned neutral-atom machine.</p>
     </div>
-    <svg class="hero" id="hero" width="400" height="400" viewBox="0 0 400 400"></svg>
+    <svg class="hero" id="hero" data-gif="hero" data-gif-ms="7000" width="400" height="400" viewBox="0 0 400 400"></svg>
   </div>
   <div class="tiles">
-    <div class="tile"><div class="big gold">+92.01<small> %</small></div>
-      <div class="lbl">score vs. the naive compiler (official validator v5, run locally)</div></div>
-    <div class="tile"><div class="big green">−20<small> % depth</small></div>
-      <div class="lbl">vs. our own previous best compiler, on the same 20 circuits</div></div>
+    <div class="tile"><div class="big gold">+92.45<small> %</small></div>
+      <div class="lbl">score against the baseline compiler (official validator v5, run locally)</div></div>
+    <div class="tile"><div class="big green">−93.2<small> %</small></div>
+      <div class="lbl">atom travel: 163 364 → 11 113</div></div>
+    <div class="tile"><div class="big green">−89.4<small> %</small></div>
+      <div class="lbl">circuit depth: 13 364 → 1 411</div></div>
     <div class="tile"><div class="big">20 / 20</div>
-      <div class="lbl">scored circuits valid; equivalence checked at 12, 20 and 50 qubits</div></div>
+      <div class="lbl">scored circuits valid</div></div>
   </div>
-  <aside class="notes">We compiled circuits for planqc's zoned neutral-atom machine. Against the baseline our compiler removes
-    92.8 % of the atom travel and 88.9 % of the circuit depth: a score of 92.01. I want to use
-    these minutes for the one idea in it we are proudest of. We call it relay, and it broke something we had written down as
-    a hard limit.</aside>
+  <aside class="notes">We compiled circuits for planqc's zoned neutral-atom machine. Against the baseline compiler ours removes
+    93.2 % of the atom travel and 89.4 % of the circuit depth: a score of 92.45. I want to use these
+    minutes for the one idea in it we are proudest of. We call it relay, and it broke something we had written down as a
+    hard limit.</aside>
 </section>
 
 <!-- 2 ─────────────────────────────────────────────────────────── bottleneck -->
 <section class="slide" data-scene="queue">
   <p class="kicker">The bottleneck</p>
   <h2>One hub qubit, and <em>everyone</em> has to visit it</h2>
-  <div class="row">
+  <div class="row" style="flex:none" data-gif="queue">
     <div class="col" style="width:330px;align-items:center">
       <svg id="star" width="300" height="300" viewBox="0 0 300 300"></svg>
       <div class="counter"><b id="qcount">0</b> / 20 hub pulses</div>
@@ -220,11 +227,11 @@ aside.notes{display:none}
     <div class="col grow">
       <svg id="scene-queue" width="100%"></svg>
       <div class="caption" id="qcap">&nbsp;</div>
-      <p class="lead" style="font-size:20px;margin-top:8px">A two-qubit gate means bringing two atoms side by side in the
-        entangling zone. The hub is <b>one atom</b>, so its partners queue: up, pulse, down, next.
-        And every gate block needs that <b>twice</b>.</p>
     </div>
   </div>
+  <p class="lead" style="font-size:21px;margin-top:14px">A two-qubit gate means bringing two atoms side by side in the
+    entangling zone. The hub is <b>one atom</b>, so its partners queue: up, pulse, down, next.
+    And every gate block needs that <b>twice</b>.</p>
   <p class="punch">At 50 qubits: 49 partners × 2 passes = <b>98 pulses in a row on one wire, per layer</b>.
     We had 294 written down as a hard floor for the depth of the 3-layer circuits.</p>
   <aside class="notes">The benchmark circuits are Max-Cut ansätze. They have one reference qubit that interacts with every
@@ -245,15 +252,15 @@ aside.notes{display:none}
       <svg id="circ-a" width="290" height="225" viewBox="0 0 290 225"></svg>
       <div class="tally">hub pulses: <b class="orange">2</b></div>
     </div>
-    <div class="eq frag">=</div>
-    <div class="col frag">
+    <div class="eq frag" data-g="1">=</div>
+    <div class="col frag" data-g="1">
       <svg id="circ-b" width="700" height="225" viewBox="0 0 700 225"></svg>
       <div class="tally">hub pulses: <b class="orange">1</b> &nbsp;·&nbsp; partner pulses: <b class="green">2</b>
         <span class="mut">(off the hub’s wire)</span></div>
     </div>
   </div>
-  <div class="frag" style="margin-top:14px">
-    <div class="panel formula">cz(hub, L) · cz(hub, R) &nbsp;=&nbsp; P · cz(hub, R) · P
+  <div class="frag" data-g="2" style="margin-top:14px">
+    <div class="panel formula" data-img>cz(hub, L) · cz(hub, R) &nbsp;=&nbsp; P · cz(hub, R) · P
       <span class="mut">&nbsp;&nbsp;with&nbsp; P = rx<sub>R</sub>(−π/2) · cz(L, R) · rx<sub>R</sub>(π/2)</span></div>
     <div class="chips">
       <div class="chip"><b>Exact</b>An identity, not an approximation. P is a controlled-Y between two partners.</div>
@@ -272,7 +279,7 @@ aside.notes{display:none}
 <section class="slide" data-scene="relay">
   <p class="kicker">The mechanism</p>
   <h2>All handovers at once. The hub meets only <em>roots</em>.</h2>
-  <div class="row">
+  <div class="row" style="flex:none" data-gif="relay">
     <div class="col" style="width:650px">
       <svg id="scene-relay" width="100%"></svg>
       <div class="legend">
@@ -307,7 +314,7 @@ aside.notes{display:none}
 <!-- 5 ─────────────────────────────────────────────────────────── validity -->
 <section class="slide">
   <p class="kicker">Keeping it honest</p>
-  <h2>Same circuit? We <em>checked</em>, at every size</h2>
+  <h2>Same circuit? We <em>checked</em>.</h2>
   <div class="row">
     <div class="col" style="width:520px">
       <p class="lead" style="font-size:19px">Above 19 qubits the validator wants every input pair to interact, and a
@@ -320,20 +327,22 @@ aside.notes{display:none}
     </div>
     <div class="col grow">
       <ul class="checks">
+        <li><b>The identity is exact</b><small>checked numerically against the original gate blocks before any compiler work</small></li>
         <li><b>12 qubits: full equivalence</b><small>QCEC on all eight circuits, up to global phase</small></li>
-        <li><b>20 qubits: state vectors</b><small>6 / 6 circuits, three random product inputs each</small></li>
-        <li><b>50 qubits: exact Clifford tableaux</b><small>12 / 12 as compiled, 12 / 12 with the generic two-pass path forced</small></li>
-        <li><b>Sanity set 13 / 13, scored set 20 / 20</b><small>official validator, full mode, idle rule on</small></li>
+        <li><b>All 20 scored circuits pass the official validator</b><small>full mode, idle rule on; the 13 sanity circuits pass too</small></li>
+        <li><b>The relay path at scale</b><small>state vectors at 20 qubits and exact Clifford tableaux at 50, run on the relay core before the final tuning</small></li>
+        <li><b>The move clean-up cannot change the circuit</b><small>every qubit keeps exactly its gate sequence; only moves are rewritten</small></li>
         <li><b>Physically meaningful pulses</b><small>a pulse hits every occupied pair in the zone, never a subset</small></li>
       </ul>
     </div>
   </div>
-  <p class="punch">The validator only compares interaction pairs above 19 qubits. <b>We never relied on that gap.</b></p>
+  <p class="punch">The validator only compares interaction pairs above 19 qubits. <b>We built for true equivalence.</b></p>
   <aside class="notes">Is that still the same circuit? Two things. First, for large circuits the organisers' validator checks
     that every pair that interacts in the input also interacts in the output. A relay leaf never touches the hub, and our
     first version failed five of eighteen circuits. The fix: a block needs two passes anyway, so the roots swap between the
-    passes, and the compiler keeps a ledger of who has met the hub. Second, we never relied on that weak check. Full
-    equivalence at 12 qubits, state vectors at 20, and exact Clifford tableaux at 50.</aside>
+    passes, and the compiler keeps a ledger of who has met the hub. Second, we did not build for that weak check. The
+    identity is exact, the 12-qubit circuits pass full equivalence checking, and we tested the relay path with state
+    vectors at 20 qubits and exact Clifford tableaux at 50.</aside>
 </section>
 
 <!-- 6 ─────────────────────────────────────────────────────────── results -->
@@ -341,30 +350,29 @@ aside.notes{display:none}
   <p class="kicker">Results</p>
   <h2>Below the floor we had <em>assumed</em></h2>
   <div class="row">
-    <div class="col" style="width:730px">
-      <svg id="chart" width="730" height="400" viewBox="0 0 730 400"></svg>
-      <div class="legend" style="margin-top:2px">
-        <span><i class="bar" style="background:var(--old)"></i>our previous best (solo2)</span>
-        <span><i class="bar" style="background:var(--green)"></i>relay</span>
+    <div class="col" style="width:700px">
+      <svg id="chart" width="700" height="410" viewBox="0 0 700 410"></svg>
+      <div class="legend" data-img style="margin-top:4px;padding:2px 0">
+        <span><i class="bar" style="background:var(--green)"></i>Relay</span>
         <span><svg width="26" height="8" style="display:inline-block;vertical-align:1px;margin-right:6px"><line x1="0" x2="26" y1="4" y2="4" class="bound"/></svg>assumed floor: 2 pulses per hub gate</span>
       </div>
     </div>
     <div class="col grow" style="gap:12px">
-      <div class="tile" style="flex:none"><div class="big gold nw">91.56 → 92.01</div>
-        <div class="lbl">score, scored set of 20 circuits</div></div>
-      <div class="tile" style="flex:none"><div class="big green nw">1 856 → 1 486</div>
-        <div class="lbl">total depth: −20 %. Largest circuit 337 → 194 (−42 %)</div></div>
-      <div class="tile" style="flex:none"><div class="big nw">11 568 → 11 770</div>
-        <div class="lbl">total atom travel: +1.7 %, about flat. Relays save hub trips but pay for band lifts</div></div>
-      <p class="mut" style="font-size:15px;line-height:1.4">Pays off from ≈ 15 partners per batch: the 12-qubit circuits
-        never use it. The compiler simulates both options per batch and keeps the cheaper one.</p>
+      <div class="tile" style="flex:none"><div class="big gold">+92.45<small> %</small></div>
+        <div class="lbl">score on the 20 scored circuits, all valid</div></div>
+      <div class="tile" style="flex:none"><div class="big green nw">163 364 → 11 113</div>
+        <div class="lbl">atom travel: −93.2 % against the baseline compiler</div></div>
+      <div class="tile" style="flex:none"><div class="big green nw">13 364 → 1 411</div>
+        <div class="lbl">circuit depth: −89.4 %. Largest circuit 2 139 → 192</div></div>
+      <p class="mut" style="font-size:15px;line-height:1.4">Relays only pay off for large batches, so the compiler
+        simulates each batch with and without the relay and keeps the cheaper plan.</p>
     </div>
   </div>
-  <aside class="notes">Results. Depth on the scored set drops by 20 percent against our own previous best. The largest
-    circuit goes from 337 to 194; the dashed line is what we had written down as the lower bound,
-    294. Atom travel stays about flat: relays save hub trips but pay for band lifts. The score goes from
-    91.56 to 92.01. It is not magic. It pays off from about fifteen partners per batch, so the 12-qubit
-    circuits never use it, and the compiler decides per batch by simulating both options.</aside>
+  <aside class="notes">Results. Against the baseline compiler, atom travel drops by 93.2 percent and circuit depth by
+    89.4 percent, a score of 92.45 with all 20 circuits valid. The chart shows the six 50-qubit circuits.
+    The dashed lines are the floor we had written down, two pulses per hub gate. Every one of them lands below it; the
+    largest circuit goes from 2 139 to 192, where we thought 294 was the limit. It is not magic:
+    relays only pay off for large batches, so the compiler simulates each batch both ways and keeps the cheaper plan.</aside>
 </section>
 
 <!-- 7 ─────────────────────────────────────────────────────────── takeaway -->
@@ -376,24 +384,27 @@ aside.notes{display:none}
       <div class="lbl" style="font-size:18px;color:#cdd5ec">“Two pulses per hub gate” was a property of our gate sequence,
         not of the machine. One identity removes ½ to ¾ of the hub’s pulses in a relayed batch.</div></div>
     <div class="tile"><div class="big green" style="font-size:30px">Exact and native</div>
-      <div class="lbl" style="font-size:18px;color:#cdd5ec">Only rx, rz and cz. Every pulse is a real global pulse.
-        Verified at 12, 20 and 50 qubits.</div></div>
+      <div class="lbl" style="font-size:18px;color:#cdd5ec">Only rx, rz and cz. Every pulse is a real global pulse on
+        every pair in the zone. No approximation anywhere.</div></div>
     <div class="tile"><div class="big gold" style="font-size:30px">Not just these circuits</div>
       <div class="lbl" style="font-size:18px;color:#cdd5ec">Any qubit that fans out to many others queues the same way
         on a zoned machine. Parity relays apply wherever that happens.</div></div>
   </div>
-  <div class="row" style="align-items:center;gap:40px;margin-top:26px">
-    <div style="font-size:92px;font-weight:800;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums">
-      <span style="color:var(--old)">337</span><span class="mut" style="font-weight:300"> → </span><span class="green">194</span></div>
+  <div class="row" style="align-items:center;gap:36px;margin-top:24px;flex:none">
+    <div style="font-size:84px;font-weight:800;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap">
+      <span class="mut">2 139</span><span class="mut" style="font-weight:300"> → </span><span class="green">192</span></div>
     <p class="lead" style="font-size:21px">depth of the largest circuit (50 qubits, 3 layers),<br>
       under the 294 we believed was the floor.<br>
-      <span class="mut">Overall score <b>+92.01 %</b>, 20 / 20 circuits valid.</span></p>
+      <span class="mut">Overall score <b>+92.45 %</b>, 20 / 20 circuits valid.</span></p>
   </div>
-  <p class="punch"><b>Next:</b> carrying atoms into the band is still 43–50 % of the travel at 50 qubits.</p>
+  <p class="mut" style="font-size:18px;line-height:1.4;margin-top:18px">Around the relay: partners travel as one rigid band,
+    and a final pass shortens the move plan with patterns we found using an exact solver.</p>
+  <p class="punch"><b>Next:</b> the open problem is rearranging atoms in storage before each lift.</p>
   <aside class="notes">Three things to take away. The limit we assumed was a property of our gate sequence, not of the machine:
     rewriting the math beat moving atoms faster. It is exact, and it uses only the machine's own gates. And it is not tied to
-    these circuits: any qubit that fans out to many others queues the same way on a zoned machine. What is left to do:
-    carrying atoms into the band is still about half of the travel at 50 qubits. Thank you.</aside>
+    these circuits: any qubit that fans out to many others queues the same way on a zoned machine. Around the relay, partners
+    travel as one rigid band, and a final pass shortens the moves. The open problem is rearranging atoms in storage before
+    each lift. Thank you.</aside>
 </section>
 
 </div>
@@ -401,7 +412,7 @@ aside.notes{display:none}
 <div id="notes"><div id="clock">0:00<small>N notes · T reset</small></div><div id="notetext"></div></div>
 <div id="hud"><div id="bar"></div></div>
 
-<script id="deck-data" type="application/json">{"circuits":[{"label":"metric_circuit_01","n":12,"family":"hea","variant":"linear","p":1,"bound":2,"naive":[243.95645,19],"solo2":[10.124274,10],"relay":[10.124274,9],"compile_s":0.67},{"label":"metric_circuit_02","n":12,"family":"hea","variant":"linear","p":3,"bound":6,"naive":[731.869351,43],"solo2":[33.201248,22],"relay":[33.201248,21],"compile_s":0.88},{"label":"metric_circuit_07","n":12,"family":"ihva","variant":"stagger","p":1,"bound":22,"naive":[1956.520221,191],"solo2":[114.106607,37],"relay":[119.123029,37],"compile_s":11.37},{"label":"metric_circuit_08","n":12,"family":"ihva","variant":"stagger","p":3,"bound":66,"naive":[5869.560663,501],"solo2":[380.065772,103],"relay":[401.614502,95],"compile_s":43.15},{"label":"metric_circuit_09","n":12,"family":"ihva","variant":"tree","p":1,"bound":22,"naive":[1956.520221,175],"solo2":[138.089795,37],"relay":[138.089795,39],"compile_s":7.68},{"label":"metric_circuit_10","n":12,"family":"ihva","variant":"tree","p":3,"bound":66,"naive":[5869.560663,528],"solo2":[402.889945,103],"relay":[408.117913,105],"compile_s":42.6},{"label":"metric_circuit_11","n":12,"family":"ihva","variant":"tree_warm","p":1,"bound":8,"naive":[1956.520221,175],"solo2":[42.359361,15],"relay":[42.359361,13],"compile_s":4.03},{"label":"metric_circuit_12","n":12,"family":"ihva","variant":"tree_warm","p":3,"bound":8,"naive":[5869.560663,528],"solo2":[42.359361,15],"relay":[42.359361,13],"compile_s":3.27},{"label":"metric_circuit_13","n":20,"family":"ihva","variant":"stagger","p":1,"bound":38,"naive":[3273.549206,327],"solo2":[208.513523,54],"relay":[205.939487,43],"compile_s":16.34},{"label":"metric_circuit_14","n":20,"family":"ihva","variant":"stagger","p":3,"bound":114,"naive":[9820.647618,841],"solo2":[750.711592,151],"relay":[762.829368,117],"compile_s":38.34},{"label":"metric_circuit_15","n":20,"family":"ihva","variant":"tree","p":1,"bound":38,"naive":[3273.549206,247],"solo2":[249.407357,58],"relay":[249.003644,54],"compile_s":21.7},{"label":"metric_circuit_16","n":20,"family":"ihva","variant":"tree","p":3,"bound":114,"naive":[9820.647618,795],"solo2":[812.323309,181],"relay":[850.159991,152],"compile_s":52.41},{"label":"metric_circuit_17","n":20,"family":"ihva","variant":"tree_warm","p":1,"bound":22,"naive":[3273.549206,247],"solo2":[80.847553,21],"relay":[80.357028,20],"compile_s":9.08},{"label":"metric_circuit_18","n":20,"family":"ihva","variant":"tree_warm","p":3,"bound":22,"naive":[9820.647618,795],"solo2":[80.847553,21],"relay":[80.357028,20],"compile_s":8.54},{"label":"metric_circuit_19","n":50,"family":"ihva","variant":"stagger","p":1,"bound":98,"naive":[8302.303239,837],"solo2":[734.912791,115],"relay":[736.17168,84],"compile_s":62.08},{"label":"metric_circuit_20","n":50,"family":"ihva","variant":"stagger","p":3,"bound":294,"naive":[24906.909717,2139],"solo2":[2631.931217,337],"relay":[2646.820442,194],"compile_s":96.64},{"label":"metric_circuit_21","n":50,"family":"ihva","variant":"tree","p":1,"bound":98,"naive":[8302.303239,555],"solo2":[1071.327409,125],"relay":[1124.8685,95],"compile_s":55.86},{"label":"metric_circuit_22","n":50,"family":"ihva","variant":"tree","p":3,"bound":294,"naive":[24906.909717,1933],"solo2":[3265.614483,369],"relay":[3327.273709,295],"compile_s":78.07},{"label":"metric_circuit_23","n":50,"family":"ihva","variant":"tree_warm","p":1,"bound":62,"naive":[8302.303239,555],"solo2":[259.362256,41],"relay":[255.436055,40],"compile_s":20.26},{"label":"metric_circuit_24","n":50,"family":"ihva","variant":"tree_warm","p":3,"bound":62,"naive":[24906.909717,1933],"solo2":[259.362256,41],"relay":[255.436055,40],"compile_s":20.06}],"summary":{"relay":{"n":20,"valid":true,"distance":11769.642,"naive_distance":163364.298,"distance_improvement":92.795,"depth":1486,"naive_depth":13364,"depth_improvement":88.881,"score":92.0125,"official":true,"scored_set":"leaderboard20","families":{"hea":{"distance_improvement":95.56,"depth_improvement":51.61},"ihva":{"distance_improvement":92.78,"depth_improvement":89.05}}},"solo2":{"n":20,"valid":true,"distance":11568.358,"naive_distance":163364.298,"distance_improvement":92.919,"depth":1856,"naive_depth":13364,"depth_improvement":86.112,"score":91.5573,"official":true,"scored_set":"leaderboard20","families":{"hea":{"distance_improvement":95.56,"depth_improvement":48.39},"ihva":{"distance_improvement":92.9,"depth_improvement":86.29}}}}}</script>
+<script id="deck-data" type="application/json">{"compiler":"relay_best_l3","circuits":[{"label":"metric_circuit_01","n":12,"family":"hea","variant":"linear","p":1,"bound":2,"naive":[243.95645,19],"best":[9.754091,9]},{"label":"metric_circuit_02","n":12,"family":"hea","variant":"linear","p":3,"bound":6,"naive":[731.869351,43],"best":[32.090699,21]},{"label":"metric_circuit_07","n":12,"family":"ihva","variant":"stagger","p":1,"bound":22,"naive":[1956.520221,191],"best":[114.027538,36]},{"label":"metric_circuit_08","n":12,"family":"ihva","variant":"stagger","p":3,"bound":66,"naive":[5869.560663,501],"best":[373.554057,94]},{"label":"metric_circuit_09","n":12,"family":"ihva","variant":"tree","p":1,"bound":22,"naive":[1956.520221,175],"best":[123.565489,37]},{"label":"metric_circuit_10","n":12,"family":"ihva","variant":"tree","p":3,"bound":66,"naive":[5869.560663,528],"best":[384.852234,104]},{"label":"metric_circuit_11","n":12,"family":"ihva","variant":"tree_warm","p":1,"bound":8,"naive":[1956.520221,175],"best":[39.834254,10]},{"label":"metric_circuit_12","n":12,"family":"ihva","variant":"tree_warm","p":3,"bound":8,"naive":[5869.560663,528],"best":[39.834254,10]},{"label":"metric_circuit_13","n":20,"family":"ihva","variant":"stagger","p":1,"bound":38,"naive":[3273.549206,327],"best":[199.334032,43]},{"label":"metric_circuit_14","n":20,"family":"ihva","variant":"stagger","p":3,"bound":114,"naive":[9820.647618,841],"best":[724.485232,114]},{"label":"metric_circuit_15","n":20,"family":"ihva","variant":"tree","p":1,"bound":38,"naive":[3273.549206,247],"best":[252.92191,43]},{"label":"metric_circuit_16","n":20,"family":"ihva","variant":"tree","p":3,"bound":114,"naive":[9820.647618,795],"best":[785.431091,139]},{"label":"metric_circuit_17","n":20,"family":"ihva","variant":"tree_warm","p":1,"bound":22,"naive":[3273.549206,247],"best":[76.528601,16]},{"label":"metric_circuit_18","n":20,"family":"ihva","variant":"tree_warm","p":3,"bound":22,"naive":[9820.647618,795],"best":[76.528601,16]},{"label":"metric_circuit_19","n":50,"family":"ihva","variant":"stagger","p":1,"bound":98,"naive":[8302.303239,837],"best":[720.112803,80]},{"label":"metric_circuit_20","n":50,"family":"ihva","variant":"stagger","p":3,"bound":294,"naive":[24906.909717,2139],"best":[2547.038509,192]},{"label":"metric_circuit_21","n":50,"family":"ihva","variant":"tree","p":1,"bound":98,"naive":[8302.303239,555],"best":[1008.128718,95]},{"label":"metric_circuit_22","n":50,"family":"ihva","variant":"tree","p":3,"bound":294,"naive":[24906.909717,1933],"best":[3133.870042,280]},{"label":"metric_circuit_23","n":50,"family":"ihva","variant":"tree_warm","p":1,"bound":62,"naive":[8302.303239,555],"best":[235.686425,36]},{"label":"metric_circuit_24","n":50,"family":"ihva","variant":"tree_warm","p":3,"bound":62,"naive":[24906.909717,1933],"best":[235.686425,36]}]}</script>
 <script>
 "use strict";
 const DATA = JSON.parse(document.getElementById("deck-data").textContent);
@@ -495,19 +506,19 @@ class Scene {
 // Runs an async loop while its slide is shown; stop() cancels at the next sleep.
 const STOP = Symbol("stop");
 class Runner {
-  constructor(reset, loop) { this.gen = 0; this.reset = reset; this.loop = loop; }
+  constructor(reset, loop) { this.gen = 0; this.loops = 0; this.reset = reset; this.loop = loop; }
   start() {
     const g = ++this.gen;
     const sleep = (ms) => new Promise((res, rej) => setTimeout(() => (g === this.gen ? res() : rej(STOP)), ms));
     (async () => {
       try {
-        while (g === this.gen) { this.reset(); await this.loop(sleep); }
+        while (g === this.gen) { this.reset(); await this.loop(sleep); this.loops++; }
       } catch (e) { if (e !== STOP) throw e; }
     })();
   }
   stop() { this.gen++; this.reset(); }
 }
-const scenes = {};
+const scenes = (window.__scenes = {});   // also used by make_pptx.py to record the animations
 
 /* ------------------------------------------------------------------ slide 1: hero */
 (function hero() {
@@ -684,26 +695,26 @@ drawTree($("tree-b"), 1);
 
 /* ------------------------------------------------------------------ slide 6: chart */
 (function chart() {
-  const svg = $("chart"), W = 730, H = 400, L = 40, B = 52, T = 22;
-  const order = { stagger: 0, tree: 1 };
-  const cs = DATA.circuits.filter((c) => c.family === "ihva" && c.variant in order && c.n >= 20)
-    .sort((a, b) => a.n - b.n || order[a.variant] - order[b.variant] || a.p - b.p);
-  const top = Math.ceil(Math.max(...cs.map((c) => Math.max(c.solo2[1], c.bound))) / 100) * 100;
-  const y = (v) => H - B - (v / top) * (H - B - T), gw = (W - L - 6) / cs.length, bw = 27;
+  const svg = $("chart"), W = 700, H = 410, L = 40, B = 72, T = 34;
+  const order = { stagger: 0, tree: 1, tree_warm: 2 };
+  const cs = DATA.circuits.filter((c) => c.family === "ihva" && c.n === 50)
+    .sort((a, b) => order[a.variant] - order[b.variant] || a.p - b.p);
+  const top = Math.ceil(Math.max(...cs.map((c) => Math.max(c.best[1], c.bound))) / 100) * 100;
+  const y = (v) => H - B - (v / top) * (H - B - T), gw = (W - L - 6) / cs.length, bw = 46;
+  el("text", { class: "axl", x: L, y: 12 }, svg, "circuit depth of the six 50-qubit circuits (lower is better)");
   for (let v = 0; v <= top; v += 100) {
     el("line", { class: "grid", x1: L, x2: W, y1: y(v), y2: y(v) }, svg);
     el("text", { class: "axl", x: L - 8, y: y(v) + 4, "text-anchor": "end" }, svg, v);
   }
-  el("text", { class: "axl", x: L, y: 12 }, svg, "circuit depth (lower is better)");
   cs.forEach((c, i) => {
-    const gx = L + i * gw + gw / 2, big = c.n === 50 && c.variant === "stagger" && c.p === 3;
-    const bars = [["old", c.solo2[1], gx - bw - 2], ["new", c.relay[1], gx + 2]];
-    bars.forEach(([cls, v, x]) => el("rect", { class: "bar " + cls, x, y: y(v), width: bw, height: y(0) - y(v), rx: 3 }, svg));
-    el("line", { class: "bound", x1: gx - bw - 8, x2: gx + bw + 8, y1: y(c.bound), y2: y(c.bound) }, svg);
-    bars.forEach(([cls, v, x]) => el("text", { class: "bv " + cls, x: x + bw / 2, y: y(v) - 6 }, svg, v));
-    if (big) el("text", { class: "bnote", x: gx + bw + 12, y: y(c.bound) + 4 }, svg, "floor " + c.bound);
-    el("text", { class: "xl", x: gx, y: H - B + 20 }, svg, `${c.n}q ${c.variant}`);
+    const gx = L + i * gw + gw / 2, v = c.best[1];
+    el("rect", { class: "bar new", x: gx - bw / 2, y: y(v), width: bw, height: y(0) - y(v), rx: 4 }, svg);
+    el("line", { class: "bound", x1: gx - bw / 2 - 14, x2: gx + bw / 2 + 14, y1: y(c.bound), y2: y(c.bound) }, svg);
+    el("text", { class: "bnote", x: gx, y: y(c.bound) - 8, "text-anchor": "middle" }, svg, "floor " + c.bound);
+    el("text", { class: "bv new big", x: gx, y: y(v) + 20 }, svg, v);
+    el("text", { class: "xl", x: gx, y: H - B + 20 }, svg, c.variant.replace("_", " "));
     el("text", { class: "xl2", x: gx, y: H - B + 37 }, svg, `${c.p} layer${c.p > 1 ? "s" : ""}`);
+    el("text", { class: "xl2", x: gx, y: H - B + 54 }, svg, "baseline " + c.naive[1].toLocaleString("en").replace(",", "\u202f"));
   });
 })();
 
@@ -730,15 +741,17 @@ function show(i, dir) {
   $("notetext").textContent = slides[i].querySelector("aside.notes").textContent.replace(/\s+/g, " ").trim();
   history.replaceState(null, "", "#" + (i + 1));
 }
+// fragments with the same data-g are revealed together
+const group = (f) => (f.dataset.g ? [...slides[cur].querySelectorAll(`.frag[data-g="${f.dataset.g}"]`)] : [f]);
 function next() {
   if (t0 === null) t0 = Date.now();
   const f = slides[cur].querySelector(".frag:not(.on)");
-  if (f) f.classList.add("on");
+  if (f) group(f).forEach((e) => e.classList.add("on"));
   else show(cur + 1, 1);
 }
 function prev() {
   const on = slides[cur].querySelectorAll(".frag.on");
-  if (on.length) on[on.length - 1].classList.remove("on");
+  if (on.length) group(on[on.length - 1]).forEach((e) => e.classList.remove("on"));
   else show(cur - 1, -1);
 }
 addEventListener("keydown", (e) => {
@@ -763,6 +776,7 @@ setInterval(() => {
 }, 500);
 const hash = new URLSearchParams(location.hash.slice(1).replace(/^(\d+)/, "s=$1"));
 if (hash.get("notes")) document.body.classList.add("notes");
+if (hash.get("cap")) document.body.classList.add("cap");
 fit();
 show((parseInt(hash.get("s"), 10) || 1) - 1, hash.get("all") ? -1 : 1);
 </script>
