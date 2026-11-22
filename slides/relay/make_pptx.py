@@ -55,7 +55,8 @@ EXTRACT = r"""
     if (node.nodeType === 3) {
       let t = node.textContent.replace(/[ \t\n\r]+/g, ' ');
       if (st.upper) t = t.toUpperCase();
-      if (t) out.push(Object.assign({ t }, st));
+      const link = node.parentElement.closest('a[href]');
+      if (t) out.push({ t, ...st, href: link?.href });
     } else if (node.nodeType === 1) {
       if (node.tagName === 'BR') out.push({ br: true });
       else if (node.tagName !== 'svg') { const s2 = style(node); for (const ch of node.childNodes) runs(ch, s2, out); }
@@ -272,6 +273,9 @@ def add_text(slide, it):
             continue
         run = para.add_run()
         run.text = r["t"]
+        if r.get("href"):
+            run.hyperlink.address = r["href"]
+            run.font.underline = True
         f = run.font
         f.size = Pt(round(0.75 * r["size"] * 2) / 2)
         f.bold = bool(r["bold"])

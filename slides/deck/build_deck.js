@@ -4,6 +4,8 @@ const path = require("path");
 const pptxgen = require("pptxgenjs");
 const HERE = __dirname;
 const IMG = (f) => path.join(HERE, "img", f);
+const ANIMATION_URL = "https://ss-pres.bertel313.de/animation";
+const VISUALISER_URL = "https://ss-pres.bertel313.de/viz";
 
 const THEME = {
   name: "Relay",
@@ -79,6 +81,12 @@ function caption(slide, text, x, y, w) {
 function picture(slide, file, x, y, w, aspect, alt) {
   slide.addImage({ path: IMG(file), x, y, w, h: w / aspect, altText: alt, objectName: nm("picture") });
   slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h: w / aspect, rectRadius: 0.06, fill: { type: "none" }, line: { color: "D5DBE2", width: 1 }, objectName: nm("frame") });
+}
+function webLink(slide, url, x, y, w) {
+  slide.addText(url.replace("https://", ""), {
+    x, y, w, h: 0.34, fontSize: 15, bold: true, color: HEX.blue, margin: 0,
+    hyperlink: { url }, isTextBox: true, objectName: nm("webLink"),
+  });
 }
 const FRAME_ASPECT = 1110 / 830, VIZ_ASPECT = 1600 / 950;
 
@@ -175,6 +183,7 @@ s.addText("cz(hub, l) · cz(hub, r) = P · cz(hub, r) · P,   P = rx_r(−π/2) 
 stat(s, 0.6, 5.85, 6.4, "depth 1 856 → 1 486", "solo2 → relay on the scored set (+91.56 → +92.01)", HEX.gold, 26);
 picture(s, "relay_parity.png", 7.35, 1.45, 5.35, FRAME_ASPECT, "Seven partner pairs pulse in parallel in the entangling zone while the hub waits in storage");
 caption(s, "Animation 0:19 · 7 partner pairs collect parity in parallel; the hub (gold) waits in storage. Next: 8 hub pulses instead of 16.", 7.35, 5.5, 5.35);
+webLink(s, ANIMATION_URL, 7.35, 6.05, 5.35);
 s.addNotes("This is the step from solo2 (+91.56) to relay (+92.01): total depth 1 856 → 1 486 on the scored set. A hub batch is F · ∏ rx(θ_p) · F with F = ∏ cz(hub, p). Partner pairs (or paths of four) fold their parity into one root; roots alternate between the two passes so every input pair still interacts (validator rule above 19 qubits). The identity was checked numerically on 6 qubits before any compiler work, and every compiled circuit passes the official equivalence check.");
 
 // ------------------------------------------------------------------ 5 L2 + L3
@@ -300,6 +309,16 @@ bullets(s, [
 ], 0.6, 2.7, 6.2, 4.0, 14);
 picture(s, "viz_diff_split.png", 7.1, 1.45, 5.6, VIZ_ASPECT, "Visualiser split view in diff mode comparing two compilations");
 caption(s, "Split view, diff mode: relay_best_l3 (left) vs relay_l3 (right); red = only left, green = only right.", 7.1, 4.85, 5.6);
+s.addImage({
+  path: IMG("visualiser_qr.png"), x: 7.1, y: 5.35, w: 1.4, h: 1.4,
+  altText: "QR code for the interactive visualiser", hyperlink: { url: VISUALISER_URL },
+  objectName: nm("visualiserQr"),
+});
+s.addText("Try the visualiser", {
+  x: 8.7, y: 5.63, w: 4.0, h: 0.35, fontSize: 17, bold: true, color: C.text1,
+  margin: 0, isTextBox: true, objectName: nm("visualiserLabel"),
+});
+webLink(s, VISUALISER_URL, 8.7, 6.05, 4.0);
 s.addNotes("Most ideas were judged by watching both plans side by side, for example the tall storage bands at 50 qubits (5 rows, so at least 5 per band move) and dips that took whole rows down when one atom needed storage. Those observations turned into the band-width search option and the dip-trim operator.");
 
 // ------------------------------------------------------------------ 9 results

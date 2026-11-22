@@ -46,3 +46,7 @@ honest), 9 (takeaway), the 6 draft identity slides; ours slides 4 (three layers)
    slides 4, 6, 8, 9, 11) → Import; put 7 and 10 between their mechanism and results slides.
 3. Move their slides 2, 3, 4, 7, 9 and the draft slides behind a "Backup" title slide.
 4. Optional: Insert → Video → Drive → `relay_anim.mp4` on the mechanism slide (start at 0:19).
+   The slide also links to `https://ss-pres.bertel313.de/animation`. Point that redirect at the current
+   animation (`slides/anim/relay_anim.html` is the initial standalone version).
+5. Point `https://ss-pres.bertel313.de/viz` at the public visualiser. Its URL and QR code appear beside
+   the screenshot on the workflow slide. Check both redirects before presenting.
