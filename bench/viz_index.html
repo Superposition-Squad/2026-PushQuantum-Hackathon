@@ -35,6 +35,26 @@ tr.sep td { background: #fafbfc; color: var(--muted); font-weight: 600; text-ali
 .pill { display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 700; color: #fff; }
 .pill.ok { background: var(--ok); } .pill.fail { background: var(--bad); }
 a { color: #1f5fbf; }
+section .path { display: none; }
+section table { display: block; overflow-x: auto; }
+td:first-child, th:first-child { position: sticky; left: 0; background: #fff; }
+th:first-child { background: #f3f5f8; z-index: 1; }
+@media (max-width: 760px) {
+  body { font-size: 14px; }
+  header { padding: 8px 12px; }
+  #toc { padding: 8px 12px 0; }
+  section { margin: 10px 8px; padding: 8px 10px; }
+  .summary { gap: 6px 14px; }
+  .summary .score { font-size: 18px; }
+  .earlynote { margin: 24px 8px 8px; }
+  #toc { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
+  #toc a, #toc span { white-space: nowrap; flex: 0 0 auto; }
+  table { font-size: 12px; }
+  /* keep: circuit, status, distance, delta dist, delta depth */
+  table th:nth-child(2), table td:nth-child(2), table th:nth-child(3), table td:nth-child(3), table th:nth-child(8), table td:nth-child(8), table th:nth-child(6), table td:nth-child(6),
+  table th:nth-child(9), table td:nth-child(9), table th:nth-child(n+11), table td:nth-child(n+11) { display: none; }
+  th, td { padding: 6px 4px; }
+}
 .empty { padding: 30px 18px; color: var(--muted); }
 </style>
 </head>

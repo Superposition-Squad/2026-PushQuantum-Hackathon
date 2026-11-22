@@ -114,6 +114,30 @@ footer summary { cursor: pointer; }
 #legend canvas { width: 22px; height: 16px; }
 #keys kbd { background: #fff; border: 1px solid #c4ccd6; border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; font-size: 11px; color: var(--ink); }
 #metaWarn { color: #b25e00; }
+/* phones and narrow windows: stack everything, let the page scroll */
+@media (max-width: 760px) {
+  html, body { height: auto; }
+  body { overflow: auto; }
+  header { flex-wrap: wrap; row-gap: 4px; }
+  header h1 { white-space: normal; font-size: 14px; }
+  header .sub { white-space: normal; }
+  main { flex-direction: column; flex: 0 0 auto; padding: 6px 8px; }
+  #stage, .view, #pair { flex: 0 0 auto; }
+  #pair { flex-direction: column; }
+  .vbody { flex-direction: column; flex: 0 0 auto; }
+  .atomPane { width: 100% !important; height: 72vw; min-height: 240px; max-height: 420px; }
+  .rightPane { flex: 0 0 auto; }
+  .circWrap { flex: 0 0 auto; height: 220px; }
+  .vstats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .c.w2, .c.w3, .c.w4 { grid-column: span 3; }
+  #controls { gap: 8px; }
+  #controls button { padding: 6px 12px; }
+  #scrub { flex: 1 1 100%; }
+  aside#side { flex: 0 0 auto; max-height: 55vh; }
+  footer { flex-direction: column; gap: 4px; }
+  #diff { overflow-x: auto; }
+}
 </style>
 </head>
 <body>
@@ -1756,6 +1780,7 @@ footer summary { cursor: pointer; }
   bindSidebar();
   initRegen();
   if (HASH.side === "0") document.body.classList.add("side-off");
+  else if (window.innerWidth <= 760 && HASH.side === undefined) document.body.classList.add("side-off");
   if (HASH.ov === "1") $("onlyValid").checked = true;
   if (HASH.lbl === "0") setLabels(false);
   setSpeed(HASH.sp ? parseFloat(HASH.sp) || 2 : 2);

@@ -34,6 +34,19 @@
   .card p { margin:0; color:var(--muted); font-size:14px; }
   a { color: var(--accent); }
   h2 { font-size:18px; margin:32px 0 12px; }
+  @media (max-width: 640px) {
+    main { padding: 20px 16px 40px; }
+    h1 { font-size: 24px; }
+    .hero { padding: 16px; }
+    .hero .big { font-size: 34px; }
+    .btns { margin-left: 0; width: 100%; }
+    .btn { width: 100%; text-align: center; }
+    .prog { grid-template-columns: 1fr; gap: 2px 0; }
+    .prog > a, .prog > span { margin-top: 8px; font-weight: 600; }
+    .prog .bar { height: auto; min-height: 26px; }
+    .prog .bar span { white-space: normal; display: block; padding: 3px 8px; }
+    .gh { font-size: 12px; }
+  }
 </style>
 </head>
 <body>
@@ -57,7 +70,7 @@
   <h2>How we got here</h2>
   <p class="sub" style="margin-bottom:8px">Score on the 20 scored circuits for each compiler we built, oldest to newest. The first ones were early tries; each later idea built on what the earlier ones taught us. Click a name to see its pages.</p>
   <div class="prog">
-    <div class="grp">First tries <em>(first tries: simple ideas, each tried on its own)</em></div>
+    <div class="grp">First tries <em>(simple ideas, each tried on its own)</em></div>
     <a href="viz/index.html#gates">gates</a><div class="bar"><i style="width:73.2%"></i><span>+73.2% · commutation-aware rounds, hub as control</span></div>
     <a href="viz/index.html#rectbatch">rectbatch</a><div class="bar"><i style="width:79.8%"></i><span>+79.8% · batch each round into rectangle moves</span></div>
     <a href="viz/index.html#hubstream">hubstream</a><div class="bar"><i style="width:84.4%"></i><span>+84.4% · park the hub in the zone, stream partners</span></div>
