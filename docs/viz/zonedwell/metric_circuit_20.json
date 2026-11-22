@@ -4,10 +4,18 @@
  "family": "ihva",
  "qubits": 50,
  "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/zonedwell/compiler.py",
- "ok": false,
- "stage": "movement",
- "error": "Instruction 146 (move on [32, 19, 38, 23, 34, 36, 0, 48, 37, 35]): Move drops off atoms in more than one zone ('entangling': qubits [0, 19, 23, 34, 35, 36, 37, 38, 48]; 'storage': qubits [32]); each end of a move must lie in one zone.",
- "metrics": null,
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 1403,
+  "move_steps": 1403,
+  "move_distance": 4135.547795,
+  "move_time": 5344.914185,
+  "depth": 382,
+  "num_operations": 3784,
+  "spacing_warnings": 316
+ },
  "cz": 882,
  "naive": {
   "num_moves": 2988,
@@ -19,19 +27,8 @@
   "spacing_warnings": 0
  },
  "equivalence": "skipped (fast)",
- "compile_s": 10.752,
+ "compile_s": 12.877,
  "page": "metric_circuit_20.html",
- "page_bytes": 575506,
- "generated": "2026-11-22T16:03:48Z",
- "partial": {
-  "num_moves": 679,
-  "move_steps": 679,
-  "move_distance": 2664.964448,
-  "move_time": 2985.74749,
-  "depth": 382,
-  "num_operations": 3784,
-  "spacing_warnings": 32,
-  "cz": 882,
-  "partial": true
- }
+ "page_bytes": 1109796,
+ "generated": "2026-11-22T16:25:24Z"
 }

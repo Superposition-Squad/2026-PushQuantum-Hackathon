@@ -4,10 +4,18 @@
  "family": "hea",
  "qubits": 12,
  "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/zonedwell/compiler.py",
- "ok": false,
- "stage": "movement",
- "error": "Instructions 43 (two-qubit gates in the 'entangling' zone): qubits 0 at (0, 10), 1 at (0, 11), 2 at (0, 12), 3 at (2, 12), 4 at (2, 11), 5 at (2, 10), 6 at (4, 11), 7 at (4, 10), 8 at (6, 10), 9 at (6, 11) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be m",
- "metrics": null,
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 30,
+  "move_steps": 30,
+  "move_distance": 59.862276,
+  "move_time": 84.506951,
+  "depth": 15,
+  "num_operations": 143,
+  "spacing_warnings": 16
+ },
  "cz": 11,
  "naive": {
   "num_moves": 24,
@@ -19,19 +27,8 @@
   "spacing_warnings": 0
  },
  "equivalence": "skipped (fast)",
- "compile_s": 0.885,
+ "compile_s": 1.13,
  "page": "metric_circuit_01.html",
- "page_bytes": 138008,
- "generated": "2026-11-22T16:03:43Z",
- "partial": {
-  "num_moves": 30,
-  "move_steps": 30,
-  "move_distance": 59.862276,
-  "move_time": 84.506951,
-  "depth": 15,
-  "num_operations": 143,
-  "spacing_warnings": 16,
-  "cz": 11,
-  "partial": true
- }
+ "page_bytes": 146857,
+ "generated": "2026-11-22T16:25:17Z"
 }

@@ -4,10 +4,18 @@
  "family": "ihva",
  "qubits": 20,
  "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/hubstream/compiler.py",
- "ok": false,
- "stage": "movement",
- "error": "Instructions 86-89 (two-qubit gates in the 'entangling' zone): qubits 19 at (1, 10) sit in that zone without taking part in a two-qubit gate; every atom in the zone must, or be moved out first.",
- "metrics": null,
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 549,
+  "move_steps": 549,
+  "move_distance": 1477.375273,
+  "move_time": 1613.550777,
+  "depth": 197,
+  "num_operations": 834,
+  "spacing_warnings": 85
+ },
  "cz": 300,
  "naive": {
   "num_moves": 984,
@@ -19,19 +27,8 @@
   "spacing_warnings": 0
  },
  "equivalence": "skipped (fast)",
- "compile_s": 4.697,
+ "compile_s": 1.689,
  "page": "metric_circuit_16.html",
- "page_bytes": 289690,
- "generated": "2026-11-22T16:04:05Z",
- "partial": {
-  "num_moves": 549,
-  "move_steps": 549,
-  "move_distance": 1477.375273,
-  "move_time": 1613.550777,
-  "depth": 197,
-  "num_operations": 834,
-  "spacing_warnings": 85,
-  "cz": 300,
-  "partial": true
- }
+ "page_bytes": 294897,
+ "generated": "2026-11-22T16:23:11Z"
 }

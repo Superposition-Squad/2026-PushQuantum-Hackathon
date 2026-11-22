@@ -468,6 +468,9 @@ def build(compiler_path: str | Path, qasm_path: str | Path, name: str, mode: str
     """Compile `qasm_path`, replay it and return `(data, summary)` (see docs/viz.md)."""
     compiler_path = Path(compiler_path).resolve()
     qasm_path = Path(qasm_path).resolve()
+    if name in EARLY_COMPILERS:  # built for the earlier rules: atoms may wait in the entangling zone
+        ValidationArchitecture._close_layer = lambda self, layer, violations, log: None
+        ValidationArchitecture._check_single_zone = lambda self, sites, action: None  # one-zone rule of v5
     bench_label = benchmark_label(qasm_path)
     label = bench_label or qasm_path.stem
     family = bench._family(qasm_path) if bench_label else "other"
@@ -602,7 +605,7 @@ def build(compiler_path: str | Path, qasm_path: str | Path, name: str, mode: str
         totals = _partial_totals(trace, depth, num_operations, cz_count)
     data["totals"] = totals
 
-    if movement is not None and data["error"] is None and hasattr(bench, "zonespan_check"):
+    if movement is not None and data["error"] is None and name not in EARLY_COMPILERS and hasattr(bench, "zonespan_check"):
         try:
             bench.zonespan_check(movement.trace)
         except bench.ZoneSpanError as error:
@@ -843,7 +846,7 @@ def collect_index(out: Path) -> list[dict]:
     for g in result:  # first tries, from before the final `idle` rule (atoms waited in the entangling zone)
         g["early"] = g["name"] in EARLY_COMPILERS
     result.sort(key=lambda g: g["early"])
-    scored = [g for g in result if g["summary"] and g["summary"].get("valid") and g["summary"].get("official")]
+    scored = [g for g in result if not g["early"] and g["summary"] and g["summary"].get("valid") and g["summary"].get("official")]
     if scored:
         top = max(scored, key=lambda g: g["summary"]["score"])
         top["best"] = True

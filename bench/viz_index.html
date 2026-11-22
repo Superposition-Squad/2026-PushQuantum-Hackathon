@@ -77,7 +77,7 @@ a { color: #1f5fbf; }
     if (g.early && !seenEarly) {
       seenEarly = true;
       toc += '<span class="s" style="margin-left:12px">early attempts:</span>';
-      out += '<div class="earlynote"><h2>Early attempts (before the idle rule)</h2><p>These first tries were built under the earlier rules, where atoms could wait in the entangling zone while other atoms did their gates. The final validator forbids that (the <code>idle</code> rule: every atom in the entangling zone must take part in a two-qubit gate in each layer), so their pages may show FAIL. They are kept to show our progress.</p></div>';
+      out += '<div class="earlynote"><h2>Early attempts (before the idle rule)</h2><p>These first tries were built under the earlier rules, where atoms could wait in the entangling zone while other atoms did their gates. The final validator forbids that (the <code>idle</code> rule: every atom in the entangling zone must take part in a two-qubit gate in each layer), so they are shown here under the earlier rules (no <code>idle</code> check). They are kept to show our progress and are not comparable with the final scores.</p></div>';
     }
     var nok = rows.filter(function (r) { return r.ok; }).length;
     var badge = s && s.valid ? (s.official ? "score " : "partial ") + (s.score >= 0 ? "+" : "") + fmt(s.score, 2) + "%" : "";

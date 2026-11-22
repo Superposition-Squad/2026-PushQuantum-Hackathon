@@ -27,8 +27,8 @@
   "spacing_warnings": 0
  },
  "equivalence": "skipped (fast)",
- "compile_s": 0.876,
+ "compile_s": 1.13,
  "page": "metric_circuit_01.html",
- "page_bytes": 129988,
- "generated": "2026-11-22T16:05:02Z"
+ "page_bytes": 138453,
+ "generated": "2026-11-22T16:24:12Z"
 }

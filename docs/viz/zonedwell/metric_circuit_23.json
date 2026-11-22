@@ -4,10 +4,18 @@
  "family": "ihva",
  "qubits": 50,
  "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/zonedwell/compiler.py",
- "ok": false,
- "stage": "movement",
- "error": "Instructions 149 (two-qubit gates in the 'entangling' zone): qubits 0 at (0, 11), 1 at (0, 12), 2 at (6, 17), 3 at (6, 14), 4 at (0, 13), 5 at (0, 14), 6 at (0, 15), 7 at (8, 16), 8 at (0, 16), 9 at (8, 17), 10 at (8, 12), 11 at (6, 19), 12 at (0, 17), 13 at (0, 18), 14 at (0, 19), 15 at (2, 10), 16",
- "metrics": null,
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 139,
+  "move_steps": 139,
+  "move_distance": 319.082677,
+  "move_time": 432.323126,
+  "depth": 75,
+  "num_operations": 591,
+  "spacing_warnings": 68
+ },
  "cz": 98,
  "naive": {
   "num_moves": 996,
@@ -19,19 +27,8 @@
   "spacing_warnings": 0
  },
  "equivalence": "skipped (fast)",
- "compile_s": 2.538,
+ "compile_s": 1.844,
  "page": "metric_circuit_23.html",
- "page_bytes": 252117,
- "generated": "2026-11-22T16:03:50Z",
- "partial": {
-  "num_moves": 45,
-  "move_steps": 45,
-  "move_distance": 183.940108,
-  "move_time": 224.037989,
-  "depth": 75,
-  "num_operations": 591,
-  "spacing_warnings": 4,
-  "cz": 98,
-  "partial": true
- }
+ "page_bytes": 268719,
+ "generated": "2026-11-22T16:25:26Z"
 }
