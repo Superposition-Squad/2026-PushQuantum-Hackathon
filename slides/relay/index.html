@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Relay — let the partners pass the message</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- Generated from template.html by build.py. Edit the template, not index.html. -->
+<style>
+:root{
+  --bg:#0a0f1e; --panel:#121a31; --line:#26324f; --fg:#eaeefa; --mut:#93a0c2;
+  --blue:#4ea1ff; --leaf:#9fcbff; --orange:#ff9f43; --gold:#ffd166; --green:#3ddc97; --mag:#ff5ec4; --old:#5a6a95;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#04060d;color:var(--fg);overflow:hidden;
+  font-family:Inter,"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif}
+#stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;margin:-360px 0 0 -640px;overflow:hidden;
+  background:radial-gradient(900px 520px at 78% 8%,#17234a 0%,transparent 70%),var(--bg);border-radius:8px}
+.slide{position:absolute;inset:0;padding:50px 72px 54px;opacity:0;visibility:hidden;transition:opacity .35s,visibility .35s;
+  display:flex;flex-direction:column}
+.slide.active{opacity:1;visibility:visible}
+.kicker{font-size:15px;letter-spacing:.16em;text-transform:uppercase;color:var(--orange);font-weight:700;margin:0 0 10px}
+h1{font-size:132px;line-height:1;margin:0;letter-spacing:-.03em;font-weight:800;
+  background:linear-gradient(90deg,var(--gold),var(--orange) 55%,var(--mag));-webkit-background-clip:text;background-clip:text;color:transparent}
+h2{font-size:42px;line-height:1.12;margin:0 0 22px;font-weight:750;letter-spacing:-.015em}
+h2 em{font-style:normal;color:var(--gold)}
+p{margin:0}
+.lead{font-size:23px;line-height:1.45;color:#cdd5ec}
+.lead b,.punch b{color:var(--fg)}
+.mut{color:var(--mut)}
+.row{display:flex;gap:36px;flex:1;min-height:0}
+.col{display:flex;flex-direction:column;min-width:0}
+.grow{flex:1}
+.punch{margin-top:auto;font-size:22px;line-height:1.4;color:#cdd5ec;border-left:4px solid var(--orange);padding:4px 0 4px 18px}
+.tiles{display:flex;gap:18px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 20px;flex:1}
+.tile .big{font-size:44px;font-weight:800;letter-spacing:-.02em;line-height:1.05;font-variant-numeric:tabular-nums}
+.tile .big small{font-size:22px;font-weight:600;color:var(--mut)}
+.tile .lbl{font-size:15px;color:var(--mut);margin-top:6px;line-height:1.35}
+.tile .big.nw{font-size:36px;white-space:nowrap}
+.legend span{white-space:nowrap}
+.gold{color:var(--gold)} .green{color:var(--green)} .orange{color:var(--orange)}
+.frag{opacity:0;transition:opacity .45s}
+.frag.on{opacity:1}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px}
+svg{display:block;overflow:visible}
+svg text{font-family:inherit;fill:var(--fg)}
+
+/* machine scenes */
+.zone{stroke-width:1.5}
+.zone.sto{fill:#0f1a35;stroke:#22335e}
+.zone.ent{fill:#1d1626;stroke:#4a3140}
+.zone.ent.flash{animation:zflash .45s ease-out}
+@keyframes zflash{0%{fill:#4a2c18;stroke:var(--orange)}100%{fill:#1d1626;stroke:#4a3140}}
+.zlabel{font-size:12px;letter-spacing:.14em;text-transform:uppercase;fill:#6f7ca3}
+.trap{fill:none;stroke:#34426a;stroke-width:1.3}
+.atom{transition:transform .3s ease-in-out}
+.atom circle{fill:var(--blue);stroke:#0a0f1e;stroke-width:1.5}
+.atom.leaf circle{fill:var(--leaf)}
+.atom.root circle{stroke:var(--gold);stroke-width:3.5}
+.atom.hub circle{fill:var(--gold)}
+.atom.other circle{fill:#313d5e}
+.atom.spin circle{animation:spin .7s ease-out}
+@keyframes spin{0%{stroke:#fff;stroke-width:5}100%{stroke:#0a0f1e;stroke-width:1.5}}
+.atom text{font-size:11px;font-weight:800;fill:#3a2a00;text-anchor:middle;dominant-baseline:central}
+.pulse{fill:var(--orange);opacity:0;animation:pulse .42s ease-out;transform-box:fill-box;transform-origin:center;
+  filter:drop-shadow(0 0 7px var(--orange))}
+.pulse.rel{fill:var(--green);filter:drop-shadow(0 0 7px var(--green))}
+@keyframes pulse{0%{opacity:0;transform:scale(.7)}25%{opacity:.95;transform:scale(1.08)}100%{opacity:0;transform:scale(1.25)}}
+.caption{font-size:19px;color:var(--mut);height:28px;margin-top:10px}
+.caption b{color:var(--fg)}
+.legend{display:flex;gap:20px;font-size:14px;color:var(--mut);margin-top:6px;align-items:center}
+.legend i{display:inline-block;width:13px;height:13px;border-radius:50%;margin-right:7px;vertical-align:-2px;background:var(--blue)}
+.legend i.leaf{background:var(--leaf)} .legend i.hub{background:var(--gold)}
+.legend i.root{box-shadow:0 0 0 3px var(--gold)} .legend i.bar{border-radius:3px;width:18px}
+
+/* star graph */
+.edge{stroke:#2c3a63;stroke-width:2.5;transition:stroke .2s,stroke-width .2s}
+.edge.half{stroke:#5c79b8}
+.edge.done{stroke:var(--green)}
+.edge.hot{stroke:var(--orange);stroke-width:6}
+.node{fill:var(--blue);stroke:#0a0f1e;stroke-width:2}
+.node.hubn{fill:var(--gold)}
+.counter{font-size:19px;color:var(--mut);text-align:center;margin-top:6px}
+.counter b{font-size:46px;color:var(--orange);font-variant-numeric:tabular-nums;font-weight:800;display:inline-block;min-width:1.3em;text-align:right}
+
+/* hero */
+.hero .star line{stroke:var(--orange);stroke-width:3;animation:xfadeA 7s ease-in-out infinite}
+.hero .tree line{stroke-width:4;animation:xfadeB 7s ease-in-out infinite}
+.hero .tree .pp{stroke:var(--green)} .hero .tree .hp{stroke:var(--orange);stroke-width:5}
+@keyframes xfadeA{0%,38%{opacity:1}50%,88%{opacity:0}100%{opacity:1}}
+@keyframes xfadeB{0%,38%{opacity:0}50%,88%{opacity:1}100%{opacity:0}}
+
+/* circuits */
+.wire{stroke:#46557f;stroke-width:2}
+.wlabel{font-size:17px;font-weight:700}
+.cz line{stroke-width:3} .cz circle{stroke:none}
+.cz.hubp line{stroke:var(--orange)} .cz.hubp circle{fill:var(--orange)}
+.cz.rel line{stroke:var(--green)} .cz.rel circle{fill:var(--green)}
+.gbox rect{fill:#18305c;stroke:var(--blue);stroke-width:1.5}
+.gbox text{font-size:14px;text-anchor:middle;font-weight:600}
+.gbox .gn{font-size:11px;fill:#9fb9e8;font-weight:500}
+.brace{stroke:var(--green);stroke-width:1.5;fill:none;opacity:.8}
+.btext{font-size:14px;fill:var(--green);text-anchor:middle}
+.eq{font-size:70px;font-weight:300;color:var(--mut);align-self:center;padding:0 6px 26px}
+.tally{font-size:17px;color:var(--mut);margin-top:4px}
+.tally b{font-size:22px}
+.formula{font-family:"JetBrains Mono","Fira Code",ui-monospace,Menlo,Consolas,monospace;font-size:19px;color:#d7def4;
+  padding:12px 18px;display:inline-block}
+.chips{display:flex;gap:14px;margin-top:16px}
+.chip{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;font-size:17px;line-height:1.35;color:#cdd5ec}
+.chip b{display:block;color:var(--fg);font-size:19px;margin-bottom:2px}
+
+/* phases */
+.phases{list-style:none;margin:0;padding:0;counter-reset:ph}
+.phases li{counter-increment:ph;position:relative;padding:10px 14px 10px 54px;border-radius:12px;border:1px solid transparent;
+  font-size:19px;line-height:1.3;color:var(--mut);transition:all .25s;margin-bottom:6px}
+.phases li::before{content:counter(ph);position:absolute;left:14px;top:11px;width:28px;height:28px;border-radius:50%;
+  border:2px solid #3a4870;text-align:center;line-height:25px;font-size:15px;font-weight:700}
+.phases li b{color:#cdd5ec}
+.phases li small{display:block;font-size:15px;margin-top:1px}
+.phases li.now{background:var(--panel);border-color:var(--line);color:#cdd5ec}
+.phases li.now b{color:var(--fg)}
+.phases li.now::before{border-color:var(--gold);color:var(--gold)}
+.phases li.done::before{border-color:var(--green);color:var(--green);content:"✓"}
+.phases li.now.g::before{border-color:var(--green);color:var(--green)}
+.dots{display:grid;grid-template-columns:76px 1fr 34px;gap:6px 10px;align-items:center;font-size:16px;color:var(--mut);padding:14px 18px}
+.dots span.d{display:inline-block;width:17px;height:17px;border-radius:50%;margin-right:5px;background:#27324f;transition:background .2s}
+.dots span.d.on{background:var(--orange);box-shadow:0 0 8px rgba(255,159,67,.6)}
+.dots b{font-size:24px;color:var(--fg);font-variant-numeric:tabular-nums;text-align:right}
+
+/* relay trees */
+.tnode{fill:var(--blue);stroke:#0a0f1e;stroke-width:2}
+.tnode.leaf{fill:var(--leaf)} .tnode.root{stroke:var(--gold);stroke-width:4} .tnode.hubn{fill:var(--gold)}
+.tedge{stroke:var(--green);stroke-width:3;fill:none}
+.tedge.l2{stroke-width:5}
+.thub{stroke:var(--orange);stroke-width:4}
+.tlabel{font-size:13px;fill:var(--mut);text-anchor:middle}
+.ttitle{font-size:16px;font-weight:700;fill:#cdd5ec}
+.checks{list-style:none;margin:0;padding:0;font-size:19px;line-height:1.35;color:#cdd5ec}
+.checks li{padding:9px 0 9px 40px;position:relative;border-bottom:1px solid #1b2542}
+.checks li:last-child{border-bottom:0}
+.checks li::before{content:"✓";position:absolute;left:4px;top:8px;color:var(--green);font-weight:800;font-size:21px}
+.checks b{color:var(--fg)} .checks small{display:block;color:var(--mut);font-size:15px}
+
+/* chart */
+.grid{stroke:#1f2a48;stroke-width:1}
+.axl{font-size:12px;fill:var(--mut)}
+.xl{font-size:13px;fill:#cdd5ec;text-anchor:middle} .xl2{font-size:12px;fill:var(--mut);text-anchor:middle}
+.bar{transform-box:fill-box;transform-origin:50% 100%;transform:scaleY(0);transition:transform .9s cubic-bezier(.2,.8,.2,1)}
+.slide.active .bar{transform:scaleY(1)}
+.bar.old{fill:var(--old)} .bar.new{fill:var(--green)}
+.bv{font-size:12px;text-anchor:middle;fill:var(--mut);font-variant-numeric:tabular-nums;paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
+.bv.new{fill:var(--green);font-weight:700}
+.bound{stroke:#fff;stroke-width:2;stroke-dasharray:5 4}
+.bnote{font-size:13px;fill:#fff;font-weight:600}
+.delta{font-size:15px;color:var(--mut);margin-top:6px}
+
+/* hud + notes */
+#hud{position:fixed;left:0;right:0;bottom:0;height:3px;background:#101831;z-index:5}
+#bar{height:100%;width:0;background:linear-gradient(90deg,var(--gold),var(--orange));transition:width .3s}
+#page{position:absolute;right:22px;bottom:16px;font-size:13px;color:#5d6a90;font-variant-numeric:tabular-nums}
+#notes{display:none;position:fixed;left:0;right:0;bottom:3px;height:188px;background:#0b1124;border-top:1px solid var(--line);
+  padding:14px 28px;font-size:18px;line-height:1.45;color:#cdd5ec;overflow:auto;z-index:4}
+body.notes #notes{display:flex;gap:28px}
+#clock{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--green);min-width:96px}
+#clock.over{color:#ff6b6b}
+#clock small{display:block;font-size:11px;font-weight:500;color:var(--mut);letter-spacing:.08em}
+aside.notes{display:none}
+
+@media print{
+  @page{size:1280px 720px;margin:0}
+  html,body{height:auto;overflow:visible;background:var(--bg)}
+  #stage{position:static;margin:0;transform:none!important;height:auto;overflow:visible;border-radius:0;background:var(--bg)}
+  .slide{position:relative;height:720px;opacity:1;visibility:visible;page-break-after:always;break-after:page;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .slide:last-of-type{page-break-after:auto;break-after:auto}
+  .frag{opacity:1} .bar{transform:none} #hud,#notes,#page{display:none!important}
+  .hero .star line{animation:none;opacity:.25} .hero .tree line{animation:none;opacity:1}
+}
+</style>
+</head>
+<body>
+<div id="stage">
+
+<!-- 1 ─────────────────────────────────────────────────────────── title -->
+<section class="slide">
+  <p class="kicker">PushQuantum Hackathon 2026 · planqc neutral-atom compiler track</p>
+  <div class="row" style="align-items:center">
+    <div class="col grow">
+      <h1>Relay</h1>
+      <p class="lead" style="font-size:34px;color:var(--fg);font-weight:650;margin-top:10px">Let the partners pass the message.</p>
+      <p class="lead" style="margin-top:14px;max-width:620px">A parity trick that takes the busiest qubit of the circuit
+        out of the queue on a zoned neutral-atom machine.</p>
+    </div>
+    <svg class="hero" id="hero" width="400" height="400" viewBox="0 0 400 400"></svg>
+  </div>
+  <div class="tiles">
+    <div class="tile"><div class="big gold">+92.01<small> %</small></div>
+      <div class="lbl">score vs. the naive compiler (official validator v5, run locally)</div></div>
+    <div class="tile"><div class="big green">−20<small> % depth</small></div>
+      <div class="lbl">vs. our own previous best compiler, on the same 20 circuits</div></div>
+    <div class="tile"><div class="big">20 / 20</div>
+      <div class="lbl">scored circuits valid; equivalence checked at 12, 20 and 50 qubits</div></div>
+  </div>
+  <aside class="notes">We compiled circuits for planqc's zoned neutral-atom machine. Against the baseline our compiler removes
+    92.8 % of the atom travel and 88.9 % of the circuit depth: a score of 92.01. I want to use
+    these minutes for the one idea in it we are proudest of. We call it relay, and it broke something we had written down as
+    a hard limit.</aside>
+</section>
+
+<!-- 2 ─────────────────────────────────────────────────────────── bottleneck -->
+<section class="slide" data-scene="queue">
+  <p class="kicker">The bottleneck</p>
+  <h2>One hub qubit, and <em>everyone</em> has to visit it</h2>
+  <div class="row">
+    <div class="col" style="width:330px;align-items:center">
+      <svg id="star" width="300" height="300" viewBox="0 0 300 300"></svg>
+      <div class="counter"><b id="qcount">0</b> / 20 hub pulses</div>
+    </div>
+    <div class="col grow">
+      <svg id="scene-queue" width="100%"></svg>
+      <div class="caption" id="qcap">&nbsp;</div>
+      <p class="lead" style="font-size:20px;margin-top:8px">A two-qubit gate means bringing two atoms side by side in the
+        entangling zone. The hub is <b>one atom</b>, so its partners queue: up, pulse, down, next.
+        And every gate block needs that <b>twice</b>.</p>
+    </div>
+  </div>
+  <p class="punch">At 50 qubits: 49 partners × 2 passes = <b>98 pulses in a row on one wire, per layer</b>.
+    We had 294 written down as a hard floor for the depth of the 3-layer circuits.</p>
+  <aside class="notes">The benchmark circuits are Max-Cut ansätze. They have one reference qubit that interacts with every
+    other qubit: a hub. On this machine a two-qubit gate means physically carrying two atoms next to each other in the
+    entangling zone. The hub is a single atom, so the partners queue: one comes up, pulse, goes back down, next. And each
+    gate block needs that twice, with a rotation in between. At 50 qubits that is 98 pulses in a row on one wire,
+    per layer. We wrote that down as a lower bound for depth, and every schedule we built was stuck on it.</aside>
+</section>
+
+<!-- 3 ─────────────────────────────────────────────────────────── insight -->
+<section class="slide">
+  <p class="kicker">The insight</p>
+  <h2>The hub only needs the <em>parity</em> of its partners</h2>
+  <p class="lead">Talking to all partners means: <b>“flip the sign if I am 1 and an odd number of you are 1.”</b>
+    Parity is something the partners can work out among themselves.</p>
+  <div class="row" style="flex:none;gap:10px;margin-top:22px;align-items:flex-start">
+    <div class="col">
+      <svg id="circ-a" width="290" height="225" viewBox="0 0 290 225"></svg>
+      <div class="tally">hub pulses: <b class="orange">2</b></div>
+    </div>
+    <div class="eq frag">=</div>
+    <div class="col frag">
+      <svg id="circ-b" width="700" height="225" viewBox="0 0 700 225"></svg>
+      <div class="tally">hub pulses: <b class="orange">1</b> &nbsp;·&nbsp; partner pulses: <b class="green">2</b>
+        <span class="mut">(off the hub’s wire)</span></div>
+    </div>
+  </div>
+  <div class="frag" style="margin-top:14px">
+    <div class="panel formula">cz(hub, L) · cz(hub, R) &nbsp;=&nbsp; P · cz(hub, R) · P
+      <span class="mut">&nbsp;&nbsp;with&nbsp; P = rx<sub>R</sub>(−π/2) · cz(L, R) · rx<sub>R</sub>(π/2)</span></div>
+    <div class="chips">
+      <div class="chip"><b>Exact</b>An identity, not an approximation. P is a controlled-Y between two partners.</div>
+      <div class="chip"><b>Native gates only</b>rx in storage and cz in the zone. Nothing the machine does not have.</div>
+      <div class="chip"><b>Chains up</b>L hands to R, R hands on: any tree of partners funnels its parity into one root.</div>
+    </div>
+  </div>
+  <aside class="notes">Here is the observation. What the hub does with all its partners is: flip a sign if the hub is one and
+    an odd number of partners are one. It only cares about their parity, and parity is something the partners can work out
+    among themselves. On the left the hub talks to L, then to R. [next] On the right, L first hands its bit to R with one gate
+    between the two partners, the hub talks to R only, and then we undo the handover. [next] It is exactly the same
+    operation, built only from the machine's own gates. The hub's wire went from two pulses to one.</aside>
+</section>
+
+<!-- 4 ─────────────────────────────────────────────────────────── trees -->
+<section class="slide" data-scene="relay">
+  <p class="kicker">The mechanism</p>
+  <h2>All handovers at once. The hub meets only <em>roots</em>.</h2>
+  <div class="row">
+    <div class="col" style="width:650px">
+      <svg id="scene-relay" width="100%"></svg>
+      <div class="legend">
+        <span><i class="hub"></i>hub</span><span><i class="leaf"></i>leaf</span><span><i></i>inner</span>
+        <span><i class="root"></i>root (holds the parity)</span>
+        <span><i class="bar" style="background:var(--green)"></i>partner pulse</span>
+        <span><i class="bar" style="background:var(--orange)"></i>hub pulse</span>
+      </div>
+    </div>
+    <div class="col grow">
+      <ol class="phases" id="phases">
+        <li class="g"><b>Level 1: neighbours pair up</b><small>the whole band in one rigid lift, one pulse for every pair</small></li>
+        <li class="g"><b>Level 2: pairs merge into fours</b><small>inner atoms only, shifted by one slot</small></li>
+        <li><b>The hub meets the roots</b><small>3 visits instead of 10</small></li>
+        <li class="g"><b>Undo the relay</b><small>the same lifts in reverse</small></li>
+      </ol>
+      <div class="panel dots" style="margin-top:6px">
+        <span>direct</span><span id="dots-a"></span><b>10</b>
+        <span>relay</span><span id="dots-b"></span><b id="rcount">0</b>
+      </div>
+    </div>
+  </div>
+  <p class="punch">Pairs leave the hub <b>½</b> of its pulses, paths of four <b>¼</b>.
+    The rest runs in parallel, off its wire.</p>
+  <aside class="notes">One pair alone saves nothing. The win is that all handovers happen at once. We line the partners up in
+    a band in storage, lift the whole band in one move, and one pulse does every pair. A second level, shifted by one slot,
+    merges pairs into paths of four. Now each group has one root that holds the parity, and the hub meets only the roots:
+    here three visits instead of ten. Then the same lifts run in reverse to undo the relay. That is half or a quarter of the
+    hub's pulses, and what remains is parallel work.</aside>
+</section>
+
+<!-- 5 ─────────────────────────────────────────────────────────── validity -->
+<section class="slide">
+  <p class="kicker">Keeping it honest</p>
+  <h2>Same circuit? We <em>checked</em>, at every size</h2>
+  <div class="row">
+    <div class="col" style="width:520px">
+      <p class="lead" style="font-size:19px">Above 19 qubits the validator wants every input pair to interact, and a
+        relay leaf never touches the hub: our first version <b>failed 5 of 18</b> circuits. The fix: a block needs two
+        passes anyway, so the <b>roots swap between the passes</b>, and a ledger tracks who has met the hub.</p>
+      <div class="panel" style="padding:10px 16px 6px;margin-top:14px">
+        <svg id="tree-a" width="488" height="128" viewBox="0 0 488 128"></svg>
+        <svg id="tree-b" width="488" height="128" viewBox="0 0 488 128" style="margin-top:2px"></svg>
+      </div>
+    </div>
+    <div class="col grow">
+      <ul class="checks">
+        <li><b>12 qubits: full equivalence</b><small>QCEC on all eight circuits, up to global phase</small></li>
+        <li><b>20 qubits: state vectors</b><small>6 / 6 circuits, three random product inputs each</small></li>
+        <li><b>50 qubits: exact Clifford tableaux</b><small>12 / 12 as compiled, 12 / 12 with the generic two-pass path forced</small></li>
+        <li><b>Sanity set 13 / 13, scored set 20 / 20</b><small>official validator, full mode, idle rule on</small></li>
+        <li><b>Physically meaningful pulses</b><small>a pulse hits every occupied pair in the zone, never a subset</small></li>
+      </ul>
+    </div>
+  </div>
+  <p class="punch">The validator only compares interaction pairs above 19 qubits. <b>We never relied on that gap.</b></p>
+  <aside class="notes">Is that still the same circuit? Two things. First, for large circuits the organisers' validator checks
+    that every pair that interacts in the input also interacts in the output. A relay leaf never touches the hub, and our
+    first version failed five of eighteen circuits. The fix: a block needs two passes anyway, so the roots swap between the
+    passes, and the compiler keeps a ledger of who has met the hub. Second, we never relied on that weak check. Full
+    equivalence at 12 qubits, state vectors at 20, and exact Clifford tableaux at 50.</aside>
+</section>
+
+<!-- 6 ─────────────────────────────────────────────────────────── results -->
+<section class="slide">
+  <p class="kicker">Results</p>
+  <h2>Below the floor we had <em>assumed</em></h2>
+  <div class="row">
+    <div class="col" style="width:730px">
+      <svg id="chart" width="730" height="400" viewBox="0 0 730 400"></svg>
+      <div class="legend" style="margin-top:2px">
+        <span><i class="bar" style="background:var(--old)"></i>our previous best (solo2)</span>
+        <span><i class="bar" style="background:var(--green)"></i>relay</span>
+        <span><svg width="26" height="8" style="display:inline-block;vertical-align:1px;margin-right:6px"><line x1="0" x2="26" y1="4" y2="4" class="bound"/></svg>assumed floor: 2 pulses per hub gate</span>
+      </div>
+    </div>
+    <div class="col grow" style="gap:12px">
+      <div class="tile" style="flex:none"><div class="big gold nw">91.56 → 92.01</div>
+        <div class="lbl">score, scored set of 20 circuits</div></div>
+      <div class="tile" style="flex:none"><div class="big green nw">1 856 → 1 486</div>
+        <div class="lbl">total depth: −20 %. Largest circuit 337 → 194 (−42 %)</div></div>
+      <div class="tile" style="flex:none"><div class="big nw">11 568 → 11 770</div>
+        <div class="lbl">total atom travel: +1.7 %, about flat. Relays save hub trips but pay for band lifts</div></div>
+      <p class="mut" style="font-size:15px;line-height:1.4">Pays off from ≈ 15 partners per batch: the 12-qubit circuits
+        never use it. The compiler simulates both options per batch and keeps the cheaper one.</p>
+    </div>
+  </div>
+  <aside class="notes">Results. Depth on the scored set drops by 20 percent against our own previous best. The largest
+    circuit goes from 337 to 194; the dashed line is what we had written down as the lower bound,
+    294. Atom travel stays about flat: relays save hub trips but pay for band lifts. The score goes from
+    91.56 to 92.01. It is not magic. It pays off from about fifteen partners per batch, so the 12-qubit
+    circuits never use it, and the compiler decides per batch by simulating both options.</aside>
+</section>
+
+<!-- 7 ─────────────────────────────────────────────────────────── takeaway -->
+<section class="slide">
+  <p class="kicker">Takeaway</p>
+  <h2>Rewriting the math beat <em>moving atoms faster</em></h2>
+  <div class="row" style="gap:20px;flex:none;margin-top:6px">
+    <div class="tile"><div class="big orange" style="font-size:30px">The limit was ours</div>
+      <div class="lbl" style="font-size:18px;color:#cdd5ec">“Two pulses per hub gate” was a property of our gate sequence,
+        not of the machine. One identity removes ½ to ¾ of the hub’s pulses in a relayed batch.</div></div>
+    <div class="tile"><div class="big green" style="font-size:30px">Exact and native</div>
+      <div class="lbl" style="font-size:18px;color:#cdd5ec">Only rx, rz and cz. Every pulse is a real global pulse.
+        Verified at 12, 20 and 50 qubits.</div></div>
+    <div class="tile"><div class="big gold" style="font-size:30px">Not just these circuits</div>
+      <div class="lbl" style="font-size:18px;color:#cdd5ec">Any qubit that fans out to many others queues the same way
+        on a zoned machine. Parity relays apply wherever that happens.</div></div>
+  </div>
+  <div class="row" style="align-items:center;gap:40px;margin-top:26px">
+    <div style="font-size:92px;font-weight:800;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums">
+      <span style="color:var(--old)">337</span><span class="mut" style="font-weight:300"> → </span><span class="green">194</span></div>
+    <p class="lead" style="font-size:21px">depth of the largest circuit (50 qubits, 3 layers),<br>
+      under the 294 we believed was the floor.<br>
+      <span class="mut">Overall score <b>+92.01 %</b>, 20 / 20 circuits valid.</span></p>
+  </div>
+  <p class="punch"><b>Next:</b> carrying atoms into the band is still 43–50 % of the travel at 50 qubits.</p>
+  <aside class="notes">Three things to take away. The limit we assumed was a property of our gate sequence, not of the machine:
+    rewriting the math beat moving atoms faster. It is exact, and it uses only the machine's own gates. And it is not tied to
+    these circuits: any qubit that fans out to many others queues the same way on a zoned machine. What is left to do:
+    carrying atoms into the band is still about half of the travel at 50 qubits. Thank you.</aside>
+</section>
+
+</div>
+<div id="page"></div>
+<div id="notes"><div id="clock">0:00<small>N notes · T reset</small></div><div id="notetext"></div></div>
+<div id="hud"><div id="bar"></div></div>
+
+<script id="deck-data" type="application/json">{"circuits":[{"label":"metric_circuit_01","n":12,"family":"hea","variant":"linear","p":1,"bound":2,"naive":[243.95645,19],"solo2":[10.124274,10],"relay":[10.124274,9],"compile_s":0.67},{"label":"metric_circuit_02","n":12,"family":"hea","variant":"linear","p":3,"bound":6,"naive":[731.869351,43],"solo2":[33.201248,22],"relay":[33.201248,21],"compile_s":0.88},{"label":"metric_circuit_07","n":12,"family":"ihva","variant":"stagger","p":1,"bound":22,"naive":[1956.520221,191],"solo2":[114.106607,37],"relay":[119.123029,37],"compile_s":11.37},{"label":"metric_circuit_08","n":12,"family":"ihva","variant":"stagger","p":3,"bound":66,"naive":[5869.560663,501],"solo2":[380.065772,103],"relay":[401.614502,95],"compile_s":43.15},{"label":"metric_circuit_09","n":12,"family":"ihva","variant":"tree","p":1,"bound":22,"naive":[1956.520221,175],"solo2":[138.089795,37],"relay":[138.089795,39],"compile_s":7.68},{"label":"metric_circuit_10","n":12,"family":"ihva","variant":"tree","p":3,"bound":66,"naive":[5869.560663,528],"solo2":[402.889945,103],"relay":[408.117913,105],"compile_s":42.6},{"label":"metric_circuit_11","n":12,"family":"ihva","variant":"tree_warm","p":1,"bound":8,"naive":[1956.520221,175],"solo2":[42.359361,15],"relay":[42.359361,13],"compile_s":4.03},{"label":"metric_circuit_12","n":12,"family":"ihva","variant":"tree_warm","p":3,"bound":8,"naive":[5869.560663,528],"solo2":[42.359361,15],"relay":[42.359361,13],"compile_s":3.27},{"label":"metric_circuit_13","n":20,"family":"ihva","variant":"stagger","p":1,"bound":38,"naive":[3273.549206,327],"solo2":[208.513523,54],"relay":[205.939487,43],"compile_s":16.34},{"label":"metric_circuit_14","n":20,"family":"ihva","variant":"stagger","p":3,"bound":114,"naive":[9820.647618,841],"solo2":[750.711592,151],"relay":[762.829368,117],"compile_s":38.34},{"label":"metric_circuit_15","n":20,"family":"ihva","variant":"tree","p":1,"bound":38,"naive":[3273.549206,247],"solo2":[249.407357,58],"relay":[249.003644,54],"compile_s":21.7},{"label":"metric_circuit_16","n":20,"family":"ihva","variant":"tree","p":3,"bound":114,"naive":[9820.647618,795],"solo2":[812.323309,181],"relay":[850.159991,152],"compile_s":52.41},{"label":"metric_circuit_17","n":20,"family":"ihva","variant":"tree_warm","p":1,"bound":22,"naive":[3273.549206,247],"solo2":[80.847553,21],"relay":[80.357028,20],"compile_s":9.08},{"label":"metric_circuit_18","n":20,"family":"ihva","variant":"tree_warm","p":3,"bound":22,"naive":[9820.647618,795],"solo2":[80.847553,21],"relay":[80.357028,20],"compile_s":8.54},{"label":"metric_circuit_19","n":50,"family":"ihva","variant":"stagger","p":1,"bound":98,"naive":[8302.303239,837],"solo2":[734.912791,115],"relay":[736.17168,84],"compile_s":62.08},{"label":"metric_circuit_20","n":50,"family":"ihva","variant":"stagger","p":3,"bound":294,"naive":[24906.909717,2139],"solo2":[2631.931217,337],"relay":[2646.820442,194],"compile_s":96.64},{"label":"metric_circuit_21","n":50,"family":"ihva","variant":"tree","p":1,"bound":98,"naive":[8302.303239,555],"solo2":[1071.327409,125],"relay":[1124.8685,95],"compile_s":55.86},{"label":"metric_circuit_22","n":50,"family":"ihva","variant":"tree","p":3,"bound":294,"naive":[24906.909717,1933],"solo2":[3265.614483,369],"relay":[3327.273709,295],"compile_s":78.07},{"label":"metric_circuit_23","n":50,"family":"ihva","variant":"tree_warm","p":1,"bound":62,"naive":[8302.303239,555],"solo2":[259.362256,41],"relay":[255.436055,40],"compile_s":20.26},{"label":"metric_circuit_24","n":50,"family":"ihva","variant":"tree_warm","p":3,"bound":62,"naive":[24906.909717,1933],"solo2":[259.362256,41],"relay":[255.436055,40],"compile_s":20.06}],"summary":{"relay":{"n":20,"valid":true,"distance":11769.642,"naive_distance":163364.298,"distance_improvement":92.795,"depth":1486,"naive_depth":13364,"depth_improvement":88.881,"score":92.0125,"official":true,"scored_set":"leaderboard20","families":{"hea":{"distance_improvement":95.56,"depth_improvement":51.61},"ihva":{"distance_improvement":92.78,"depth_improvement":89.05}}},"solo2":{"n":20,"valid":true,"distance":11568.358,"naive_distance":163364.298,"distance_improvement":92.919,"depth":1856,"naive_depth":13364,"depth_improvement":86.112,"score":91.5573,"official":true,"scored_set":"leaderboard20","families":{"hea":{"distance_improvement":95.56,"depth_improvement":48.39},"ihva":{"distance_improvement":92.9,"depth_improvement":86.29}}}}}</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById("deck-data").textContent);
+const NS = "http://www.w3.org/2000/svg";
+const $ = (id) => document.getElementById(id);
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+/* ------------------------------------------------------------------ machine scene */
+// Physical coordinates as in the validator: storage (col, row); entangling x = 2*(col//2) + 0.3*(col%2).
+class Scene {
+  constructor(svg, { r0 = 7, r1 = 11, U = 62, padX = 44, padY = 40 } = {}) {
+    Object.assign(this, { svg, r0, r1, U, padX, padY, R: 10, atoms: {} });
+    const W = 2 * padX + 9 * U, H = 2 * padY + (r1 - r0) * U, h = U / 2;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    const y9 = this.xy(0, 9)[1], yb = this.xy(0, r0)[1], yt = this.xy(0, r1)[1], y10 = this.xy(0, 10)[1];
+    this.zone = el("rect", { class: "zone ent", x: padX - h, y: yt - h, width: 9 * U + 2 * h, height: y10 - yt + 2 * h - 3, rx: 14 }, svg);
+    el("rect", { class: "zone sto", x: padX - h, y: y9 - h + 3, width: 9 * U + 2 * h, height: yb - y9 + 2 * h - 3, rx: 14 }, svg);
+    el("text", { class: "zlabel", x: W - padX + h - 12, y: yt - h + 20, "text-anchor": "end" }, svg, "entangling zone · cz");
+    el("text", { class: "zlabel", x: W - padX + h - 12, y: yb + h - 10, "text-anchor": "end" }, svg, "storage · rx, rz");
+    for (let r = r0; r <= r1; r++)
+      for (let c = 0; c < 10; c++) {
+        const [x, y] = this.xy(c, r);
+        el("circle", { class: "trap", cx: x, cy: y, r: 4 }, svg);
+      }
+    this.fx = el("g", {}, svg);
+    this.layer = el("g", {}, svg);
+  }
+  xy(c, r) {
+    const x = r >= 10 ? 2 * Math.floor(c / 2) + 0.3 * (c % 2) : c;
+    return [this.padX + x * this.U, this.padY + (this.r1 - r) * this.U];
+  }
+  add(id, c, r, cls, label) {
+    const g = el("g", { class: "atom " + (cls || "") }, this.layer);
+    el("circle", { r: this.R }, g);
+    if (label) el("text", {}, g, label);
+    this.atoms[id] = { g, c, r, home: [c, r] };
+    this.place(id, c, r);
+  }
+  place(id, c, r) {
+    const a = this.atoms[id];
+    a.c = c; a.r = r;
+    const [x, y] = this.xy(c, r);
+    a.g.style.transition = "none";
+    a.g.style.transform = `translate(${x}px,${y}px)`;
+    void a.g.getBoundingClientRect();
+    a.g.style.transition = "";
+  }
+  reset() {
+    this.fx.replaceChildren();
+    for (const id in this.atoms) this.place(id, ...this.atoms[id].home);
+  }
+  go(map, ms) {
+    for (const id in map) {
+      const a = this.atoms[id];
+      [a.c, a.r] = map[id];
+      const [x, y] = this.xy(a.c, a.r);
+      a.g.style.transitionDuration = ms + "ms";
+      a.g.style.transform = `translate(${x}px,${y}px)`;
+    }
+    return ms + 30;
+  }
+  pulse(pairs, cls, ms = 420) {
+    this.zone.classList.remove("flash");
+    void this.zone.getBoundingClientRect();
+    this.zone.classList.add("flash");
+    for (const [a, b] of pairs) {
+      const A = this.atoms[a], B = this.atoms[b], m = this.R + 5;
+      const [x1, y] = this.xy(A.c, A.r), [x2] = this.xy(B.c, B.r);
+      const r = el("rect", { class: "pulse " + (cls || ""), x: Math.min(x1, x2) - m, y: y - m, width: Math.abs(x2 - x1) + 2 * m, height: 2 * m, rx: m }, this.fx);
+      r.style.animationDuration = ms + "ms";
+      setTimeout(() => r.remove(), ms + 60);
+    }
+    return ms;
+  }
+  spin(ids) {
+    for (const id of ids) {
+      const g = this.atoms[id].g;
+      g.classList.remove("spin");
+      void g.getBoundingClientRect();
+      g.classList.add("spin");
+    }
+  }
+}
+
+// Runs an async loop while its slide is shown; stop() cancels at the next sleep.
+const STOP = Symbol("stop");
+class Runner {
+  constructor(reset, loop) { this.gen = 0; this.reset = reset; this.loop = loop; }
+  start() {
+    const g = ++this.gen;
+    const sleep = (ms) => new Promise((res, rej) => setTimeout(() => (g === this.gen ? res() : rej(STOP)), ms));
+    (async () => {
+      try {
+        while (g === this.gen) { this.reset(); await this.loop(sleep); }
+      } catch (e) { if (e !== STOP) throw e; }
+    })();
+  }
+  stop() { this.gen++; this.reset(); }
+}
+const scenes = {};
+
+/* ------------------------------------------------------------------ slide 1: hero */
+(function hero() {
+  const svg = $("hero"), cx = 200, cy = 200, rad = 150, n = 8, pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (i + 0.5) * 2 * Math.PI / n;
+    pts.push([cx + rad * Math.cos(a), cy + rad * Math.sin(a)]);
+  }
+  const star = el("g", { class: "star" }, svg), tree = el("g", { class: "tree" }, svg);
+  const ln = (g, p, q, cls) => el("line", { x1: p[0], y1: p[1], x2: q[0], y2: q[1], class: cls || "" }, g);
+  pts.forEach((p) => ln(star, [cx, cy], p));
+  for (const q of [0, 4]) {                      // two paths of four: l0-r0-R-l1, root R
+    ln(tree, pts[q], pts[q + 1], "pp"); ln(tree, pts[q + 3], pts[q + 2], "pp"); ln(tree, pts[q + 1], pts[q + 2], "pp");
+    ln(tree, [cx, cy], pts[q + 2], "hp");
+  }
+  pts.forEach((p, i) => el("circle", { cx: p[0], cy: p[1], r: 15, class: "node" + (i % 4 === 2 ? " tnode root" : "") }, svg));
+  el("circle", { cx, cy, r: 24, class: "node hubn" }, svg);
+  el("text", { x: cx, y: cy, "text-anchor": "middle", "dominant-baseline": "central", style: "fill:#3a2a00;font-weight:800;font-size:14px" }, svg, "hub");
+})();
+
+/* ------------------------------------------------------------------ slide 2: the queue */
+(function queue() {
+  const N = 10, sc = new Scene($("scene-queue"), { r0: 8, r1: 10 });
+  for (let c = 0; c < N; c++) sc.add("p" + c, c, 9);
+  for (const c of [1, 2, 4, 5, 6, 8]) sc.add("o" + c, c, 8, "other");
+  sc.add("hub", 1, 10, "hub", "H");
+  const star = $("star"), cx = 150, cy = 150, edges = [];
+  for (let i = 0; i < N; i++) {
+    const a = Math.PI - (i + 0.5) * Math.PI * 2 / N;
+    const x = cx + 118 * Math.cos(a), y = cy - 118 * Math.sin(a);
+    edges.push(el("line", { class: "edge", x1: cx, y1: cy, x2: x, y2: y }, star));
+    star.appendChild(el("circle", { class: "node", cx: x, cy: y, r: 12 }));
+  }
+  edges.forEach((e) => star.insertBefore(e, star.firstChild));
+  el("circle", { class: "node hubn", cx, cy, r: 20 }, star);
+  el("text", { x: cx, y: cy, "text-anchor": "middle", "dominant-baseline": "central", style: "fill:#3a2a00;font-weight:800;font-size:13px" }, star, "hub");
+  const cap = $("qcap"), cnt = $("qcount");
+  const reset = () => { sc.reset(); cnt.textContent = "0"; cap.innerHTML = "&nbsp;"; edges.forEach((e) => (e.className.baseVal = "edge")); };
+  scenes.queue = new Runner(reset, async (sleep) => {
+    let k = 0;
+    await sleep(500);
+    for (let pass = 0; pass < 2; pass++) {
+      cap.innerHTML = pass ? "<b>Pass 2</b>: the same queue again, in reverse" : "<b>Pass 1</b>: one partner per pulse";
+      for (let j = 0; j < N; j++) {
+        const c = pass ? N - 1 - j : j, id = "p" + c;
+        if (sc.atoms.hub.c !== (c ^ 1)) await sleep(sc.go({ hub: [c ^ 1, 10] }, 130));
+        await sleep(sc.go({ [id]: [c, 10] }, 190));
+        edges[c].className.baseVal = "edge hot";
+        cnt.textContent = ++k;
+        await sleep(sc.pulse([["hub", id]], "", 300) - 90);
+        await sleep(sc.go({ [id]: [c, 9] }, 190));
+        edges[c].className.baseVal = "edge " + (pass ? "done" : "half");
+      }
+      if (!pass) {
+        cap.innerHTML = "Rotate every partner in storage: <b>rx(θ)</b>";
+        sc.spin(Array.from({ length: N }, (_, c) => "p" + c));
+        await sleep(1100);
+      }
+    }
+    cap.innerHTML = "<b>20 pulses</b> for 10 partners, all on the hub’s wire";
+    await sleep(3200);
+  });
+})();
+
+/* ------------------------------------------------------------------ slide 3: circuits */
+function drawCircuit(svg, x1, gates) {
+  const Y = { hub: 44, L: 104, R: 164 };
+  for (const w in Y) {
+    el("line", { class: "wire", x1: 58, x2: x1, y1: Y[w], y2: Y[w] }, svg);
+    el("text", { class: "wlabel", x: 8, y: Y[w] + 6, style: w === "hub" ? "fill:var(--gold)" : "" }, svg, w);
+  }
+  for (const g of gates) {
+    if (g.cz) {
+      const grp = el("g", { class: "cz " + g.cls }, svg), [a, b] = g.cz;
+      el("line", { x1: g.x, x2: g.x, y1: Y[a], y2: Y[b] }, grp);
+      el("circle", { cx: g.x, cy: Y[a], r: 8 }, grp);
+      el("circle", { cx: g.x, cy: Y[b], r: 8 }, grp);
+    } else if (g.rx) {
+      const grp = el("g", { class: "gbox" }, svg);
+      el("rect", { x: g.x - 31, y: Y.R - 21, width: 62, height: 42, rx: 7 }, grp);
+      el("text", { class: "gn", x: g.x, y: Y.R - 5 }, grp, "rx");
+      el("text", { x: g.x, y: Y.R + 13 }, grp, g.rx);
+    } else if (g.brace) {
+      const [a, b] = g.brace, y = Y.R + 32;
+      el("path", { class: "brace", d: `M${a} ${y} v8 H${b} v-8` }, svg);
+      el("text", { class: "btext", x: (a + b) / 2, y: y + 27 }, svg, g.text);
+    }
+  }
+}
+drawCircuit($("circ-a"), 282, [{ cz: ["hub", "L"], x: 120, cls: "hubp" }, { cz: ["hub", "R"], x: 215, cls: "hubp" }]);
+drawCircuit($("circ-b"), 692, [
+  { rx: "+π/2", x: 105 }, { cz: ["L", "R"], x: 172, cls: "rel" }, { rx: "−π/2", x: 239 },
+  { cz: ["hub", "R"], x: 375, cls: "hubp" },
+  { rx: "+π/2", x: 511 }, { cz: ["L", "R"], x: 578, cls: "rel" }, { rx: "−π/2", x: 645 },
+  { brace: [72, 272], text: "P: L hands its bit to R" }, { brace: [478, 678], text: "P again: hand it back" },
+]);
+
+/* ------------------------------------------------------------------ slide 4: the relay band */
+(function relay() {
+  const sc = new Scene($("scene-relay"), { r0: 7, r1: 11 });
+  // row 9 template as in the compiler: two paths of four (l0 r0 R l1) and one pair (l r)
+  const role = ["leaf", "", "root", "leaf", "leaf", "", "root", "leaf", "leaf", "root"];
+  role.forEach((cls, c) => sc.add("p" + c, c, 9, cls));
+  for (const [c, r] of [[0, 8], [1, 8], [2, 8], [3, 8], [7, 8], [8, 8], [0, 7], [1, 7], [4, 7], [5, 7], [6, 7]]) sc.add(`o${c}_${r}`, c, r, "other");
+  sc.add("hub", 5, 8, "hub", "H");
+  const lis = [...$("phases").children], cnt = $("rcount"), da = $("dots-a"), db = $("dots-b");
+  for (let i = 0; i < 10; i++) {
+    da.insertAdjacentHTML("beforeend", '<span class="d on"></span>');
+    db.insertAdjacentHTML("beforeend", '<span class="d"></span>');
+  }
+  const phase = (k) => lis.forEach((li, i) => { li.classList.toggle("now", i === k); li.classList.toggle("done", i < k); });
+  const setCount = (k) => { cnt.textContent = k; [...db.children].forEach((d, i) => d.classList.toggle("on", i < k)); };
+  const reset = () => { sc.reset(); phase(-1); setCount(0); };
+  const all = [...role.keys()];
+  const level1 = async (sleep, ms) => {
+    await sleep(sc.go(Object.fromEntries(all.map((c) => ["p" + c, [c, 10]])), ms));
+    await sleep(sc.pulse([[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]].map(([a, b]) => ["p" + a, "p" + b]), "rel", 480));
+    await sleep(sc.go(Object.fromEntries(all.map((c) => ["p" + c, [c, 9]])), ms));
+  };
+  const inner = [1, 2, 5, 6];
+  const level2 = async (sleep, ms) => {
+    await sleep(sc.go(Object.fromEntries(inner.map((c) => ["p" + c, [c + 1, 10]])), ms));
+    await sleep(sc.pulse([["p1", "p2"], ["p5", "p6"]], "rel", 480));
+    await sleep(sc.go(Object.fromEntries(inner.map((c) => ["p" + c, [c, 9]])), ms));
+  };
+  scenes.relay = new Runner(reset, async (sleep) => {
+    await sleep(900);
+    phase(0); await sleep(500); await level1(sleep, 520); await sleep(500);
+    phase(1); await sleep(500); await level2(sleep, 520); await sleep(500);
+    phase(2); await sleep(400);
+    let k = 0;
+    for (const c of [2, 6, 9]) {
+      await sleep(sc.go({ hub: [c ^ 1, 10] }, 420));
+      await sleep(sc.go({ ["p" + c]: [c, 10] }, 300));
+      setCount(++k);
+      await sleep(sc.pulse([["hub", "p" + c]], "", 460));
+      await sleep(sc.go({ ["p" + c]: [c, 9] }, 300));
+    }
+    await sleep(sc.go({ hub: [5, 8] }, 480) + 300);
+    phase(3); await sleep(400); await level2(sleep, 380); await sleep(150); await level1(sleep, 380);
+    phase(4);
+    await sleep(3200);
+  });
+})();
+
+/* ------------------------------------------------------------------ slide 5: roots swap */
+function drawTree(svg, alt) {
+  const X = [150, 215, 280, 345, 415, 470], y = 90, hub = [300, 22];
+  const name = ["l0", "r0", "R", "l1", "l", "r"];
+  // relay edges child -> parent; level 2 is the inner edge of the path
+  const e1 = [[0, 1], [3, 2], alt ? [5, 4] : [4, 5]], e2 = alt ? [2, 1] : [1, 2];
+  const roots = alt ? [1, 4] : [2, 5];
+  el("text", { class: "ttitle", x: 0, y: 28 }, svg, alt ? "Pass 2" : "Pass 1");
+  el("text", { class: "tlabel", x: 0, y: 50, style: "text-anchor:start" }, svg, alt ? "roots: r0 and l" : "roots: R and r");
+  const defs = el("defs", {}, svg), mid = "arr" + alt;
+  const mk = el("marker", { id: mid, viewBox: "0 0 10 10", refX: 8, refY: 5, markerWidth: 4.5, markerHeight: 4.5, orient: "auto" }, defs);
+  el("path", { d: "M0 0 L10 5 L0 10 z", fill: "var(--green)" }, mk);
+  for (const r of roots) el("line", { class: "thub", x1: hub[0], y1: hub[1], x2: X[r], y2: y }, svg);
+  const arrow = ([a, b], cls) => {
+    const d = Math.sign(X[b] - X[a]);
+    el("line", { class: "tedge " + cls, x1: X[a] + d * 15, x2: X[b] - d * 19, y1: y, y2: y, "marker-end": `url(#${mid})` }, svg);
+  };
+  e1.forEach((e) => arrow(e, ""));
+  arrow(e2, "l2");
+  X.forEach((x, i) => {
+    el("circle", { class: "tnode" + ([0, 3].includes(i) ? " leaf" : "") + (roots.includes(i) ? " root" : ""), cx: x, cy: y, r: 13 }, svg);
+    el("text", { class: "tlabel", x, y: y + 32 }, svg, name[i]);
+  });
+  el("circle", { class: "tnode hubn", cx: hub[0], cy: hub[1], r: 17 }, svg);
+  el("text", { x: hub[0], y: hub[1], "text-anchor": "middle", "dominant-baseline": "central", style: "fill:#3a2a00;font-weight:800;font-size:11px" }, svg, "hub");
+}
+drawTree($("tree-a"), 0);
+drawTree($("tree-b"), 1);
+
+/* ------------------------------------------------------------------ slide 6: chart */
+(function chart() {
+  const svg = $("chart"), W = 730, H = 400, L = 40, B = 52, T = 22;
+  const order = { stagger: 0, tree: 1 };
+  const cs = DATA.circuits.filter((c) => c.family === "ihva" && c.variant in order && c.n >= 20)
+    .sort((a, b) => a.n - b.n || order[a.variant] - order[b.variant] || a.p - b.p);
+  const top = Math.ceil(Math.max(...cs.map((c) => Math.max(c.solo2[1], c.bound))) / 100) * 100;
+  const y = (v) => H - B - (v / top) * (H - B - T), gw = (W - L - 6) / cs.length, bw = 27;
+  for (let v = 0; v <= top; v += 100) {
+    el("line", { class: "grid", x1: L, x2: W, y1: y(v), y2: y(v) }, svg);
+    el("text", { class: "axl", x: L - 8, y: y(v) + 4, "text-anchor": "end" }, svg, v);
+  }
+  el("text", { class: "axl", x: L, y: 12 }, svg, "circuit depth (lower is better)");
+  cs.forEach((c, i) => {
+    const gx = L + i * gw + gw / 2, big = c.n === 50 && c.variant === "stagger" && c.p === 3;
+    const bars = [["old", c.solo2[1], gx - bw - 2], ["new", c.relay[1], gx + 2]];
+    bars.forEach(([cls, v, x]) => el("rect", { class: "bar " + cls, x, y: y(v), width: bw, height: y(0) - y(v), rx: 3 }, svg));
+    el("line", { class: "bound", x1: gx - bw - 8, x2: gx + bw + 8, y1: y(c.bound), y2: y(c.bound) }, svg);
+    bars.forEach(([cls, v, x]) => el("text", { class: "bv " + cls, x: x + bw / 2, y: y(v) - 6 }, svg, v));
+    if (big) el("text", { class: "bnote", x: gx + bw + 12, y: y(c.bound) + 4 }, svg, "floor " + c.bound);
+    el("text", { class: "xl", x: gx, y: H - B + 20 }, svg, `${c.n}q ${c.variant}`);
+    el("text", { class: "xl2", x: gx, y: H - B + 37 }, svg, `${c.p} layer${c.p > 1 ? "s" : ""}`);
+  });
+})();
+
+/* ------------------------------------------------------------------ deck */
+const slides = [...document.querySelectorAll(".slide")];
+let cur = -1, t0 = null;
+function fit() {
+  const h = innerHeight - (document.body.classList.contains("notes") ? 196 : 0);
+  const s = Math.min(innerWidth / 1280, h / 720);
+  const st = $("stage").style;
+  st.transform = `translateY(${(h - innerHeight) / 2}px) scale(${s})`;
+}
+function show(i, dir) {
+  i = Math.max(0, Math.min(slides.length - 1, i));
+  if (i === cur) return;
+  const old = slides[cur];
+  if (old && old.dataset.scene) scenes[old.dataset.scene].stop();
+  cur = i;
+  slides.forEach((s, k) => s.classList.toggle("active", k === i));
+  slides[i].querySelectorAll(".frag").forEach((f) => f.classList.toggle("on", dir < 0));
+  if (slides[i].dataset.scene) scenes[slides[i].dataset.scene].start();
+  $("bar").style.width = ((i + 1) / slides.length) * 100 + "%";
+  $("page").textContent = `${i + 1} / ${slides.length}`;
+  $("notetext").textContent = slides[i].querySelector("aside.notes").textContent.replace(/\s+/g, " ").trim();
+  history.replaceState(null, "", "#" + (i + 1));
+}
+function next() {
+  if (t0 === null) t0 = Date.now();
+  const f = slides[cur].querySelector(".frag:not(.on)");
+  if (f) f.classList.add("on");
+  else show(cur + 1, 1);
+}
+function prev() {
+  const on = slides[cur].querySelectorAll(".frag.on");
+  if (on.length) on[on.length - 1].classList.remove("on");
+  else show(cur - 1, -1);
+}
+addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key;
+  if (k === "ArrowRight" || k === " " || k === "PageDown" || k === "Enter") next();
+  else if (k === "ArrowLeft" || k === "PageUp" || k === "Backspace") prev();
+  else if (k === "Home") show(0, 1);
+  else if (k === "End") show(slides.length - 1, -1);
+  else if (k === "n" || k === "N") { document.body.classList.toggle("notes"); fit(); }
+  else if (k === "t" || k === "T") t0 = null;
+  else if (k === "f" || k === "F") (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
+  else return;
+  e.preventDefault();
+});
+$("stage").addEventListener("click", (e) => (e.clientX < innerWidth * 0.2 ? prev() : next()));
+addEventListener("resize", fit);
+setInterval(() => {
+  const s = t0 === null ? 0 : Math.floor((Date.now() - t0) / 1000), c = $("clock");
+  c.firstChild.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  c.classList.toggle("over", s >= 300);
+}, 500);
+const hash = new URLSearchParams(location.hash.slice(1).replace(/^(\d+)/, "s=$1"));
+if (hash.get("notes")) document.body.classList.add("notes");
+fit();
+show((parseInt(hash.get("s"), 10) || 1) - 1, hash.get("all") ? -1 : 1);
+</script>
+</body>
+</html>
