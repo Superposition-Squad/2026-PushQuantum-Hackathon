@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>planqc compiler track · Superposition Squad</title>
+<style>
+  :root { --bg:#fff; --fg:#1b1f24; --muted:#59636e; --card:#f6f8fa; --line:#d0d7de; --accent:#0969da; --gold:#d4a017; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --fg:#e6edf3; --muted:#8d96a0; --card:#161b22; --line:#30363d; --accent:#58a6ff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 48px 16px 64px; }
+  h1 { font-size: 30px; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  .hero { display:flex; flex-wrap:wrap; gap:16px; align-items:center; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--gold); border-radius:10px; padding:20px; margin-bottom:28px; }
+  .hero .big { font-size: 40px; font-weight: 700; line-height: 1; }
+  .hero .lbl { color: var(--muted); font-size: 14px; }
+  .btn { display:inline-block; background:var(--accent); color:#fff; text-decoration:none; padding:10px 18px; border-radius:8px; font-weight:600; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h3 { margin:0 0 4px; font-size:16px; }
+  .card p { margin:0; color:var(--muted); font-size:14px; }
+  a { color: var(--accent); }
+  h2 { font-size:18px; margin:32px 0 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>planqc compiler track</h1>
+  <p class="sub">PushQuantum Hackathon 2026 · quantum circuits compiled for a zoned neutral-atom machine</p>
+
+  <div class="hero">
+    <div><div class="big">+92.45%</div><div class="lbl">local leaderboard score of the best compiler, <code>relay_best_l3</code></div></div>
+    <div style="margin-left:auto"><a class="btn" href="viz/index.html">Open the step-by-step visualiser →</a></div>
+  </div>
+
+  <h2>What you can look at</h2>
+  <div class="grid">
+    <div class="card"><h3><a href="viz/index.html">Visualiser index</a></h3><p>Every compiler × circuit page. The best compiler is on top, marked with a star. Each page replays atom positions and the compiled circuit in sync.</p></div>
+    <div class="card"><h3><a href="https://github.com/Superposition-Squad/2026-PushQuantum-Hackathon/blob/main/docs/overview.md">Overview</a></h3><p>How the machine, scoring and compilers fit together.</p></div>
+    <div class="card"><h3><a href="https://github.com/Superposition-Squad/2026-PushQuantum-Hackathon/blob/main/docs/results-log.md">Results log</a></h3><p>Scores of every compiler idea over time.</p></div>
+    <div class="card"><h3><a href="https://github.com/Superposition-Squad/2026-PushQuantum-Hackathon">Repository</a></h3><p>Compilers in <code>compilers/</code>, harness in <code>bench/</code>, notes in <code>docs/</code>.</p></div>
+  </div>
+</main>
+</body>
+</html>

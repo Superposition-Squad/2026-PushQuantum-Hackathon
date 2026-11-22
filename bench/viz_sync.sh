@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Keep a viz server in sync with origin/main (run next to `bench/viz.py serve`, e.g. in tmux):
 #   every INTERVAL seconds: git pull --ff-only, then regenerate the pages of every listed compiler
-#   whose compiler.py changed since its last generation (sha1 stamp in viz/.stamp-<name>).
+#   whose compiler.py changed since its last generation (sha1 stamp in docs/viz/.stamp-<name>).
 # Env: COMPILERS (space separated), INTERVAL (s, default 300), PYTHON (default .venv/bin/python),
 #      JOBS (default 2), SET (metric|sanity|all, default metric).
 set -uo pipefail
@@ -18,13 +18,13 @@ while true; do
     f="compilers/$c/compiler.py"
     [ -f "$f" ] || continue
     h=$(sha1sum "$f" | cut -c1-12)
-    stamp="viz/.stamp-$c"
+    stamp="docs/viz/.stamp-$c"
     if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$h" ]; then
       echo "viz_sync: $(date +%H:%M:%S) regenerating $c ($h)"
-      if "$PYTHON" bench/viz.py all "$f" --set "$SET" --jobs "$JOBS" > "viz/.log-$c" 2>&1; then
+      if "$PYTHON" bench/viz.py all "$f" --set "$SET" --jobs "$JOBS" > "docs/viz/.log-$c" 2>&1; then
         echo "$h" > "$stamp"
       else
-        echo "viz_sync: $c failed, see viz/.log-$c"
+        echo "viz_sync: $c failed, see docs/viz/.log-$c"
       fi
     fi
   done

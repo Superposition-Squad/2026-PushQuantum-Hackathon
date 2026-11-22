@@ -1,5 +1,7 @@
 # planqc compiler track (PushQuantum Hackathon 2026)
 
+**Live visualiser and results: https://superposition-squad.github.io/2026-PushQuantum-Hackathon/** (GitHub Pages, served from `docs/`)
+
 Compilers for planqc's zoned neutral-atom machine: map a circuit to `rx`/`rz` (storage zone), `cz`
 (entangling zone) and AOD `move`s, minimising total move distance (80 %) and depth (20 %).
 

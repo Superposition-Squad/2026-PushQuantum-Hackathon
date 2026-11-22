@@ -31,8 +31,8 @@ python bench/viz.py rewrap       # re-embed existing pages into the current temp
 python bench/viz.py serve        # http://<host>:9000/ serving viz/ (default host 0.0.0.0)
 ```
 
-- Output: `viz/<name>/<label>.html` (one self-contained page, no external assets) plus
-  `viz/<name>/<label>.json` (sidecar with metrics, used by the index). `viz/` is committed so the pages can be opened straight from the repo.
+- Output: `docs/viz/<name>/<label>.html` (one self-contained page, no external assets) plus
+  `docs/viz/<name>/<label>.json` (sidecar with metrics, used by the index). `docs/viz/` is committed and served by GitHub Pages (`docs/index.html` is the landing page, `docs/.nojekyll` skips the Jekyll build). Pages over about 2 MB are left out.
   `--out DIR` changes the output directory for every subcommand.
 - `<name>`: the idea folder for compilers under `compilers/` of this checkout or of the main repo
   (`naive`, `gates`), `<worktree>-<idea>` for `/home/hackathon/challenge-wt/<wt>/compilers/<idea>/`
@@ -184,7 +184,7 @@ edits fall back to relative progress ("diff (too different)").
 
 ## Handoff: pages for the relay family (diff mode)
 
-Generated pages are not committed (`viz/` is gitignored); build them on the server from the code:
+Generated pages live in `docs/viz/` (committed, served by GitHub Pages); to rebuild them from the code:
 
 ```sh
 # the 20 scored circuits for the current leader and the compilers it is compared with
@@ -350,7 +350,7 @@ failed); `score` is `bench.score()` when all 36 metric pages exist.
 
 ## Keeping a hosted viz in sync with `main`
 
-The pages are not in git (`viz/` is ignored): every machine generates its own. To keep a server
+The pages are committed under `docs/viz/`; every machine can also regenerate its own. To keep a server
 current, run next to `bench/viz.py serve` (e.g. in tmux):
 
 ```sh

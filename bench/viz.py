@@ -150,7 +150,7 @@ def resolve_circuit(value: str) -> tuple[Path, str | None]:
 
 
 def output_dir(value: str | None) -> Path:
-    out = Path(value) if value else ROOT / "viz"
+    out = Path(value) if value else ROOT / "docs" / "viz"
     return out.resolve()
 
 
@@ -839,6 +839,12 @@ def collect_index(out: Path) -> list[dict]:
                 "rows": rows,
             }
         )
+    scored = [g for g in result if g["summary"] and g["summary"].get("valid") and g["summary"].get("official")]
+    if scored:
+        top = max(scored, key=lambda g: g["summary"]["score"])
+        top["best"] = True
+        result.remove(top)
+        result.insert(0, top)  # the best compiler leads the index
     return result
 
 
