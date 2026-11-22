@@ -195,7 +195,7 @@ aside.notes{display:none}
     <svg class="hero" id="hero" width="400" height="400" viewBox="0 0 400 400"></svg>
   </div>
   <div class="tiles">
-    <div class="tile"><div class="big gold">+{{relay_score}}<small> %</small></div>
+    <div class="tile"><div class="big gold">+{{final_score}}<small> %</small></div>
       <div class="lbl">score vs. the naive compiler (official validator v5, run locally)</div></div>
     <div class="tile"><div class="big green">−{{depth_cut}}<small> % depth</small></div>
       <div class="lbl">vs. our own previous best compiler, on the same 20 circuits</div></div>
@@ -203,7 +203,7 @@ aside.notes{display:none}
       <div class="lbl">scored circuits valid; equivalence checked at 12, 20 and 50 qubits</div></div>
   </div>
   <aside class="notes">We compiled circuits for planqc's zoned neutral-atom machine. Against the baseline our compiler removes
-    {{dist_impr}} % of the atom travel and {{depth_impr}} % of the circuit depth: a score of {{relay_score}}. I want to use
+    {{dist_impr}} % of the atom travel and {{depth_impr}} % of the circuit depth: a score of {{final_score}} (relay alone: {{relay_score}}). I want to use
     these minutes for the one idea in it we are proudest of. We call it relay, and it broke something we had written down as
     a hard limit.</aside>
 </section>
@@ -367,6 +367,35 @@ aside.notes{display:none}
     circuits never use it, and the compiler decides per batch by simulating both options.</aside>
 </section>
 
+<!-- 6b ───────────────────────────────────────────────────────── polish -->
+<section class="slide">
+  <p class="kicker">Then: polish the movement</p>
+  <h2>Movement as an optimisation problem: <em>+{{relay_score}} → +{{final_score}}</em></h2>
+  <div class="row" style="gap:20px;flex:none;margin-top:6px">
+    <div class="tile"><div class="big orange" style="font-size:30px">Exact solver finds patterns</div>
+      <div class="lbl" style="font-size:18px;color:#cdd5ec">We fixed gates and order and re-solved small windows of atom moves
+        exactly (MILP). What it found, we turned into fast local rules.</div></div>
+    <div class="tile"><div class="big green" style="font-size:30px">Example</div>
+      <div class="lbl" style="font-size:18px;color:#cdd5ec">Two diagonal single-atom moves that together form one rigid move:
+        1.41 + 1.41 → 1.41. Ten such rules (a “peephole” pass), no solver at compile time.</div></div>
+    <div class="tile"><div class="big gold" style="font-size:30px">Works on any compiler</div>
+      <div class="lbl" style="font-size:18px;color:#cdd5ec">On relay alone: −3.5 % atom travel at unchanged depth,
+        18 of 20 circuits improved.</div></div>
+  </div>
+  <div class="row" style="align-items:center;gap:40px;margin-top:26px">
+    <div style="font-size:52px;white-space:nowrap;font-weight:800;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums">
+      <span style="color:var(--old)">{{relay_dist}}</span><span class="mut" style="font-weight:300"> → </span><span class="green">{{final_dist}}</span></div>
+    <p class="lead" style="font-size:21px">total atom travel, scored set.<br>
+      Depth {{relay_depth}} → {{final_depth}}.<br>
+      <span class="mut">Plus the other solo line’s improvements and a small parameter search over band width.</span></p>
+  </div>
+  <aside class="notes">After relay we treated movement as a constrained optimisation problem. Gates and their order are fixed;
+    only positions and moves are chosen. An exact solver re-solved small windows of moves, and the patterns it found became
+    cheap local rules: merge two moves, trim a dip, re-pick a waypoint. That pass works on the output of any compiler. On relay
+    alone it cuts travel by 3.5 percent. Together with improvements merged from our parallel solo line and a small search
+    over band widths, the score goes from {{relay_score}} to {{final_score}}. Relay is the idea; this is the polish.</aside>
+</section>
+
 <!-- 7 ─────────────────────────────────────────────────────────── takeaway -->
 <section class="slide">
   <p class="kicker">Takeaway</p>
@@ -387,7 +416,7 @@ aside.notes{display:none}
       <span style="color:var(--old)">{{big_solo2}}</span><span class="mut" style="font-weight:300"> → </span><span class="green">{{big_relay}}</span></div>
     <p class="lead" style="font-size:21px">depth of the largest circuit (50 qubits, 3 layers),<br>
       under the {{big_bound}} we believed was the floor.<br>
-      <span class="mut">Overall score <b>+{{relay_score}} %</b>, {{n_valid}} circuits valid.</span></p>
+      <span class="mut">Final score <b>+{{final_score}} %</b>, {{n_valid}} circuits valid.</span></p>
   </div>
   <p class="punch"><b>Next:</b> carrying atoms into the band is still 43–50 % of the travel at 50 qubits.</p>
   <aside class="notes">Three things to take away. The limit we assumed was a property of our gate sequence, not of the machine:

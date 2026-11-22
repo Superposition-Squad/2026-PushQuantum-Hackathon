@@ -34,6 +34,8 @@ def depth_bounds():
 
 def main():
     relay, solo2, naive = load("relay"), load("solo2"), load("naive")
+    final = load("relay_best_l3")
+    fs = final["summary"]
     by = lambda run: {r["label"]: r for r in run["records"]}
     r_rec, s_rec, n_rec = by(relay), by(solo2), by(naive)
     bounds = depth_bounds()
@@ -52,11 +54,15 @@ def main():
         })
 
     rs, ss = relay["summary"], solo2["summary"]
+    assert fs["valid"] and not final["failed"]
     assert rs["valid"] and not relay["failed"] and relay["mode"] == "full"
     big = next(c for c in circuits if (c["n"], c["variant"], c["p"]) == (50, "stagger", 3))
     hub_deg = big["n"] - 1
     values = {
         "relay_score": f"{rs['score']:.2f}",
+        "final_score": f"{fs['score']:.2f}",
+        "final_dist": num(fs["distance"]),
+        "final_depth": num(fs["depth"]),
         "solo2_score": f"{ss['score']:.2f}",
         "score_gain": f"{rs['score'] - ss['score']:.2f}",
         "relay_depth": num(rs["depth"]),
