@@ -49,7 +49,7 @@ if __name__ == "__main__":
     flt = sys.argv[sys.argv.index("--filter") + 1] if "--filter" in sys.argv else ""
     jobs = int(sys.argv[sys.argv.index("--jobs") + 1]) if "--jobs" in sys.argv else 6
     files = [f for f in scored_files() if flt in f.name]
-    files.sort(key=lambda f: -int(f.name.split("_")[2][:-1]))  # big first
+    files.sort(key=lambda f: int(f.name.split("_")[2][:-1]) * (1 if "--small-first" in sys.argv else -1))
     with cf.ProcessPoolExecutor(jobs) as ex:
         for r in ex.map(one, [comp] * len(files), files):
             print(*r, flush=True)

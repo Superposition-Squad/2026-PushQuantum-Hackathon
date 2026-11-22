@@ -87,8 +87,15 @@ def _l3_optimise(out, loading):
 _l3_base_compile_circuit = compile_circuit
 
 
+_L3_WALL = 230.0  # seconds since the start of compile_circuit; skip the pass on slow machines
+
+
 def compile_circuit(circuit, architecture_spec):
+    import time as _l3time
+    _t0 = _l3time.time()
     out, arch = _l3_base_compile_circuit(circuit, architecture_spec)
+    if _l3time.time() - _t0 > _L3_WALL:
+        return out, arch
     try:
         res = _l3_optimise(out, dict(arch.initial_loading))
         if res is not None:

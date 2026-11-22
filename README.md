@@ -13,11 +13,21 @@ Compilers for planqc's zoned neutral-atom machine: map a circuit to `rx`/`rz` (s
   - **single-zone moves:** each move picks up in one zone and drops off in one zone;
   - no `rzz`; true equivalence at every size; same qubit count (no ancillas).
 
+> **New leader (2026-11-22): `relay_best_l3` at +92.45 % (full, 20/20)**, +0.44 over relay.
+> Details: [docs/ideas/l3abstract.md](docs/ideas/l3abstract.md), numbers: [docs/results-log.md](docs/results-log.md).
+
 | compiler | v5 score (20 circuits) | what it is |
 |---|---|---|
-| **`portfolio`** (`submission/portfolio.py`) | **+91.55** (full) | best per circuit of solo, systolic_po, rectbatch |
+| **`relay_best_l3`** | **+92.45** (full, 20/20; +92.39 with the slow-machine guards firing under heavy load) | relay + solo improvements made after the solo2 fork (Codex) + band-width / hub-park search variants + rollout finalists + l3 peephole pass |
+| `relay_l3` | +92.25 (full, 20/20) | relay + l3 peephole pass (compiler-agnostic move post-optimiser) |
+| `relay` (`submission/relay.py`) | +92.01 (full) | solo2 + relayed hub fan-out |
+| `solo2` | +91.56 (full) | solo + hub-as-rotor rounds, gather lifts |
+| `portfolio` (`submission/portfolio.py`) | +91.55 (full) | best per circuit of solo, systolic_po, rectbatch |
 | `solo` (`submission/solo.py`) | +91.55 (full) | dynamic storage band, hub sweeps, and Pauli-frame optimization |
 | `systolic_po` | +86.30 | systolic + post-optimizer |
+
+Compile time: `relay_best_l3` takes up to ~230 s per 50q circuit with 3 parallel jobs on this laptop
+(relay ~100-200 s); wall-clock guards skip the extra stages on slow machines (hard limit 300 s).
 
 All compilers, the ideas behind them, what worked and what did not: **[docs/overview.md](docs/overview.md)**.
 

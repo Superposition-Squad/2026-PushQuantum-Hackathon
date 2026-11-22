@@ -62,6 +62,10 @@ Patterns found by the MILP, turned into peephole operators (`l3/peep.py`, MILP-f
 | P5 ride-along | split a long single-atom move so that one half rides with another translation move (4.0 → 2.0 + shared 2.0) |
 | P5b staging absorbed | instead of a staging move before a block lift, ride along with the block from the original site and fix up in the zone (1.41 → 1.04) |
 | P6 general ride-along | short pre-move to a waypoint from which the atom joins another move with non-uniform row/col maps (MILP pattern on 20q tree p1) |
+| P8 compose | (MIP-LNS on relay_l3) a rigid drop followed by a shuffle of some of the same atoms: the drop's column map takes them straight to their final sites (several atoms jointly, maps stay monotone) |
+| P9 stack-lift | two lifts from different storage rows become one lift into two zone rows plus a cheap zone shift (2.24 + 2.63 → 2.63 + 1.04) |
+| P10 round-trip retarget | a rigid dip into rows 7–8 while rows 8–9 are free: shift both moves of the round trip (3.08 + 3.08 → 2.12 + 2.12 for 20 atoms) |
+| P6b map-preimage ride-along | the waypoint is the preimage of the target under the other move's row/col maps; may also join an *earlier* move |
 | (not built) passing lane | reorder atoms in a storage row by a detour through the empty zone (MILP found it on tree_warm, ~0.6) |
 
 Peephole on solo's 20 plans: **11 818.3 → 11 497.4 (−2.7 %, ≈ +0.16 points)** (P1–P6), every plan validated
@@ -140,6 +144,46 @@ global setting is clearly better, but the **per-circuit best over these settings
 (before the peephole): diversity helps, calibration does not. Adding them only as variants of the
 top-3 configurations gives +0.003 (reverted). Capturing the +0.08 needs whole searches per setting
 (≈ 3× compile time, ~150 s at 50q) — over the 60 s guideline, so not built.
+
+### Collecting findings on top of relay (`compilers/relay_plus*`)
+
+relay forks solo2, which forked solo at 682d68b (+91.25), before Codex's later solo work. `relay_plus`
+= 3-way merge (base solo@682d68b, ours relay, theirs solo with Codex's uncommitted hub waves): b9a2a15
+hub rotations + phase lowering, d85a571 phase retiming + boundary moves, hub-wave scheduling + local
+resynthesis. 9 conflicts resolved by hand (`_zxz` keeps relay's shorter Euler form as a tuple; hub-form
+options of both kept, relay's as default; finalists emitted with `_finalize_phases` and
+`_fold_boundary_moves`; `_band_layouts` restored and `P` re-defined after the merge).
+**relay_plus: +92.16 (fast, 20/20) vs relay +92.01**, depth 1486 → 1419, distance 11 770 → 11 666.
+`relay_plus2` adds WIDE (band width) and HUB_PARK_NEAR (fanframe) as search variants.
+
+### Second mining round: MIP-LNS on relay_l3 (after the peephole)
+
+`l3/mine.py` records every improving window rewrite. On relay_l3's 12q plans the exact windows still
+find ~2 % (stagger p1 112.9 → 110.8, stagger p3 377.4 → 370.4, tree p1 126.8 → 124.1, tree p3 390.9 →
+380.9; HEA and warm already optimal), on 20q tree p3 −3.0 % (36 rewrites). Distilled into P8, P9, P10,
+P6b: a second peephole pass on relay_l3's plans gives **11 362.3 → 11 253.7 (−1.0 %)**, ≤ 25 s at 50q.
+
+### Results on top of relay
+
+| compiler | score (full, 20/20) | distance | depth |
+|---|---|---|---|
+| relay | +92.01 | 11 769.6 | 1486 |
+| relay_l3 (P1-P10, guarded) | +92.25 | 11 283.5 | 1486 |
+| relay_plus2 (fast) | +92.19 | 11 626.4 | 1415 |
+| **relay_best_l3** | **+92.45** (+92.39 guarded under load) | 11 113.3 | 1411 |
+
+Long, resumable mining on relay_best_l3's plans: `l3/long_mine.sh` (checkpoints in
+`l3/out/mine_relay_best_l3/`, restart the script to resume).
+
+### Lookahead for the band choice (rollout, approximate DP; `l3/exp/rollout.py`)
+
+At every round try the K best band plans, simulate this round plus the next L steps of the recorded
+schedule with the greedy base policy on a clone, commit the best (replay with rank 0 reproduces the
+search exactly). K=4, L=5: 50q tree p1 −3.06 %, 20q tree p3 −0.43 %, 20q stagger p3 +0.08 %, 50q
+stagger p3 +0.55 %, 50q tree p3 +0.88 % (finite horizon misleads). Full horizon (exact base-policy
+completion, guaranteed no worse): 0 changes on 12q stagger p3 and 20q tree p3, −0.29 % on 20q stagger
+p3. **The greedy band choice is at a local optimum against single deviations** (agrees with fanframe's
+beam search, ≤ 2.4 %). Kept only as a guarded extra finalist (`relay_plus_roll`).
 
 ## Conclusions
 

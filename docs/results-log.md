@@ -234,3 +234,17 @@ term of `docs/bounds.md` (two sequential hub pulses per hub block) no longer hol
 The peephole pass is compiler-agnostic (`python l3/make_l3.py <name>` builds `<name>_l3`). On relay it
 cuts distance 3.5 % (11 769.6 → 11 362.3) at unchanged depth, 18/20 circuits improved. Details, dead ends and parked steps:
 `docs/ideas/l3abstract.md`.
+
+## relay_best_l3: new leader (+92.45), 2026-11-22
+
+| compiler | v5 leaderboard set | validity | commit |
+|---|---|---|---|
+| **relay_best_l3** = relay_plus2 + rollout finalists + l3 peephole (P1-P10) | **+92.45** (distance 11 113.3, depth 1411) | full 20/20, sanity 13/13 | idea/l3abstract |
+| relay_best_l3 with slow-machine guards (ROLL_WALL 150 s, EMIT_WALL 200 s, L3 pass skipped after 230 s), measured under heavy load | +92.39 (distance 11 230.5, depth 1410) | full 20/20 | idea/l3abstract |
+| relay_l3 (relay + l3 peephole P1-P10, guarded) | +92.25 (distance 11 283.5, depth 1486) | full 20/20, sanity 13/13 | idea/l3abstract |
+| relay_plus (relay + Codex's later solo work, 3-way merged) | +92.16 (fast) | 20/20 | idea/l3abstract |
+| relay_plus2 (+ WIDE / HUB_PARK_NEAR variants) | +92.19 (fast) | 20/20 | idea/l3abstract |
+
+Slowest compile 228 s (3 jobs, laptop under load). The guards only fire on slow machines; the
++92.39 run had a background mining job competing for the CPU.
+

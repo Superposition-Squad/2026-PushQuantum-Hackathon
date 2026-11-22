@@ -330,6 +330,136 @@ def optimise_gap(start, moves, need, end, max_span=8, budget=4000, stay_op=False
                     break
         if improved:
             continue
+        # P8 compose (MILP pattern on relay_l3): atoms moved by move i and again by a later move j
+        # go to their move-j targets already in move i (jointly: the column/row maps must stay
+        # monotone), and leave move j
+        for i in range(n):
+            for j in range(i + 1, min(n, i + 1 + max_span)):
+                common = [q for q in moves[i] if q in moves[j]
+                          and not any(q in moves[h] for h in range(i + 1, j))]
+                if not common:
+                    continue
+                subsets = [common] + ([[q] for q in common] if len(common) > 1 else [])
+                for sub in subsets:
+                    cand = [dict(g) for g in moves]
+                    for q in sub:
+                        cand[i][q] = moves[j][q]
+                        del cand[j][q]
+                    cand = [g for g in cand if g]
+                    evals += 1
+                    c = replay(start, cand, need, end)
+                    if c is not None and c < best - 1e-9:
+                        moves, best, improved = cand, c, True
+                        break
+                if improved:
+                    break
+            if improved:
+                break
+        if improved:
+            continue
+        # P9 stack-lift (MILP pattern): two storage->zone moves i < j with disjoint atoms become one
+        # move where move i's atoms land one zone row higher, plus a zone fix-up move for them
+        for i in range(n):
+            if not moves[i] or any(M.in_zone(states[i].pos[q]) or not M.in_zone(t) for q, t in moves[i].items()):
+                continue
+            for j in range(i + 1, min(n, i + 1 + max_span)):
+                if set(moves[i]) & set(moves[j]):
+                    continue
+                if any(M.in_zone(states[j].pos[q]) or not M.in_zone(t) for q, t in moves[j].items()):
+                    continue
+                for dy in (1, -1, 2):
+                    lifted = {q: (t[0], t[1] + dy) for q, t in moves[i].items()}
+                    if any(not (10 <= t[1] <= 19) for t in lifted.values()):
+                        continue
+                    cand = [dict(g) for g in moves]
+                    cand[j] = {**moves[j], **lifted}
+                    cand.insert(j + 1, dict(moves[i]))
+                    del cand[i]
+                    evals += 1
+                    c = replay(start, cand, need, end)
+                    if c is not None and c < best - 1e-9:
+                        moves, best, improved = cand, c, True
+                        break
+                if improved:
+                    break
+            if improved:
+                break
+        if improved:
+            continue
+        # P10 round-trip retarget (MILP pattern on relay_l3): move i takes a set of zone atoms down and
+        # a later move j brings exactly them back to the same sites: shift the storage sites of both
+        for i in range(n):
+            if len(moves[i]) < 2 or not all(M.in_zone(states[i].pos[q]) and not M.in_zone(t) for q, t in moves[i].items()):
+                continue
+            for j in range(i + 1, n):
+                if set(moves[j]) != set(moves[i]):
+                    if set(moves[j]) & set(moves[i]):
+                        break
+                    continue
+                if any(moves[j][q] != states[i].pos[q] for q in moves[i]):
+                    break
+                for dx, dy in ((0, 1), (0, 2), (0, -1), (1, 0), (-1, 0), (1, 1), (-1, 1)):
+                    down = {q: (t[0] + dx, t[1] + dy) for q, t in moves[i].items()}
+                    if any(not (0 <= t[0] <= 9 and 0 <= t[1] <= 9) for t in down.values()):
+                        continue
+                    cand = [dict(g) for g in moves]
+                    cand[i] = down
+                    evals += 1
+                    c = replay(start, cand, need, end)
+                    if c is not None and c < best - 1e-9:
+                        moves, best, improved = cand, c, True
+                        break
+                break
+            if improved:
+                break
+        if improved:
+            continue
+        # P6b ride-along with an earlier move / map-preimage waypoints: single-atom move {q: t} at i;
+        # for another move j (before or after i, q not moved in between) the waypoint w is the
+        # preimage of t under move j's row/col maps (or t itself for j < i); q goes to w by its own
+        # move (inserted at the right place) and rides move j
+        for i in range(n):
+            if len(moves[i]) != 1:
+                continue
+            (q, t), = moves[i].items()
+            p = states[i].pos[q]
+            for j in range(max(0, i - max_span), min(n, i + 1 + max_span)):
+                if j == i or q in moves[j]:
+                    continue
+                lo, hi = min(i, j), max(i, j)
+                if any(q in moves[h] for h in range(lo + 1, hi)):
+                    continue
+                src = states[j].pos
+                rmap = {src[a][1]: b[1] for a, b in moves[j].items()}
+                cmap = {src[a][0]: b[0] for a, b in moves[j].items()}
+                rinv = {v: k for k, v in rmap.items()}
+                cinv = {v: k for k, v in cmap.items()}
+                ws = set()
+                for wy in ({rinv[t[1]]} if t[1] in rinv else set()) | {t[1] - 1, t[1] + 1, p[1]}:
+                    for wx in ({cinv[t[0]]} if t[0] in cinv else set()) | {p[0], t[0]}:
+                        ws.add((wx, wy))
+                for w in ws:
+                    if w == p or not (0 <= w[0] <= 9 and 0 <= w[1] <= 19) or M.zone_of(w) != M.zone_of(p):
+                        continue
+                    cand = [dict(g) for g in moves]
+                    cand[j] = {**moves[j], q: t}
+                    if j > i:
+                        cand[i] = {q: w}
+                    else:
+                        del cand[i]
+                        cand.insert(j, {q: w})
+                    cand = [g for g in cand if g]
+                    evals += 1
+                    c = replay(start, cand, need, end)
+                    if c is not None and c < best - 1e-9:
+                        moves, best, improved = cand, c, True
+                        break
+                if improved:
+                    break
+            if improved:
+                break
+        if improved:
+            continue
         # P4 split an atom off a multi-atom move into its own move (right after), then hope P1 merges
         for i in range(n):
             if len(moves[i]) < 2:

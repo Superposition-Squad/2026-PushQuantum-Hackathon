@@ -42,20 +42,42 @@ def window_need(states, i, W, B, members_end):
 PAD = 1
 
 
-def lns(path, W=4, tl=20, passes=1, log=print):
+def lns(path, W=4, tl=20, passes=1, log=print, record=None, ckpt=None, every=25):
+    """ckpt: path of a checkpoint file (pickle). Saved every `every` windows (gaps, position,
+    counters, records); an existing checkpoint is resumed. Delete it to start over."""
+    import pickle
     c, l = M.load_cached(path)
     s = M.extract(c)
     X, gaps = C.incumbent(c, l, s)
     B = C.binding(s)
-    mem = s.members()
     base = sum(C.gap_cost(X[k], gaps[k]) for k in range(s.K + 1))
     gain = 0.0
     tried = solved = improved = 0
     t0 = time.time()
-    for p in range(passes):
-        for k in range(s.K + 1):
-            i = 0
+    pos0 = (0, 0, 0)
+    if record is None:
+        record = []
+    if ckpt and Path(ckpt).exists():
+        with open(ckpt, "rb") as f:
+            st_ = pickle.load(f)
+        gaps, pos0, gain, tried, solved, improved = st_["gaps"], st_["pos"], st_["gain"], st_["tried"], st_["solved"], st_["improved"]
+        record[:] = st_["records"]
+        log(f"  resumed at pass/gap/move {pos0}, gain so far {gain:.2f}")
+
+    def save(p, k, i):
+        if ckpt:
+            tmp = str(ckpt) + ".tmp"
+            with open(tmp, "wb") as f:
+                pickle.dump({"gaps": gaps, "pos": (p, k, i), "gain": gain, "tried": tried, "solved": solved,
+                             "improved": improved, "records": record, "base": base}, f)
+            Path(tmp).replace(ckpt)
+
+    for p in range(pos0[0], passes):
+        for k in range(pos0[1] if p == pos0[0] else 0, s.K + 1):
+            i = pos0[2] if (p, k) == pos0[:2] else 0
             while i + 2 <= len(gaps[k]):
+                if tried and tried % every == 0:
+                    save(p, k, i)
                 w = min(W, len(gaps[k]) - i)
                 states = states_of(X[k], gaps[k])
                 a, b = states[i], states[i + w]
@@ -74,12 +96,24 @@ def lns(path, W=4, tl=20, passes=1, log=print):
                     except M.MoveError:
                         new = None
                     if new is not None and new < old - 1e-6:
+                        if True:
+                            def desc(start, ms):
+                                st = M.State(start)
+                                out = []
+                                for g in ms:
+                                    _, c = st.check(g)
+                                    out.append((round(c, 3), {q: (st.pos[q], t) for q, t in g.items()}))
+                                    st.apply(g)
+                                return out
+                            record.append({"gap": k, "i": i, "w": w, "old": old, "new": new, "need": need,
+                                           "old_moves": desc(a, gaps[k][i:i + w]), "new_moves": desc(a, mv)})
                         gaps[k] = gaps[k][:i] + mv + gaps[k][i + w:]
                         gain += old - new
                         improved += 1
                         log(f"  gap {k} moves {i}..{i+w-1}: {old:.3f} -> {new:.3f} ({len(mv)} moves)  total gain {gain:.2f}")
                         continue  # retry at same position
                 i += 1
+    save(passes, 0, 0)
     out, load, d = C.assemble(s, l, gaps)
     r = check(out, load)
     return {"file": Path(path).stem, "base": base, "final": r["distance"], "tried": tried, "solved": solved,
