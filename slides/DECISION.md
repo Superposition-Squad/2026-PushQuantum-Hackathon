@@ -49,5 +49,5 @@ honest), 9 (takeaway), the 6 draft identity slides; ours slides 4 (three layers)
    The slide also links to the online animation,
    `https://superposition-squad.github.io/2026-PushQuantum-Hackathon/anim/relay_anim.html` (GitHub Pages).
 5. The workflow slide links (URL and QR code beside the screenshot) to the GitHub Pages landing page,
-   `https://superposition-squad.github.io/2026-PushQuantum-Hackathon/` (visualiser, animation, slides).
+   `https://superposition-squad.github.io/2026-PushQuantum-Hackathon/viz/` (visualiser of all compilers).
    Check that both pages load before presenting.

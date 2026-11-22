@@ -7,7 +7,7 @@ const IMG = (f) => path.join(HERE, "img", f);
 const SITE_URL = "https://superposition-squad.github.io/2026-PushQuantum-Hackathon/";
 const SITE_LABEL = "superposition-squad.github.io/2026-PushQuantum-Hackathon";
 const ANIMATION_URL = SITE_URL + "anim/relay_anim.html";
-const VISUALISER_URL = SITE_URL;  // landing page: visualiser, animation, slides
+const VISUALISER_URL = SITE_URL + "viz/";  // visualiser of all compilers
 
 const THEME = {
   name: "Relay",
@@ -186,7 +186,7 @@ s.addText("cz(hub, l) · cz(hub, r) = P · cz(hub, r) · P,   P = rx_r(−π/2) 
 stat(s, 0.6, 5.85, 6.4, "depth 1 856 → 1 486", "solo2 → relay on the scored set (+91.56 → +92.01)", HEX.gold, 26);
 picture(s, "relay_parity.png", 7.35, 1.45, 5.35, FRAME_ASPECT, "Seven partner pairs pulse in parallel in the entangling zone while the hub waits in storage");
 caption(s, "Animation 0:19 · 7 partner pairs collect parity in parallel; the hub (gold) waits in storage. Next: 8 hub pulses instead of 16.", 7.35, 5.5, 5.35);
-webLink(s, ANIMATION_URL, 7.35, 6.05, 5.35);
+webLink(s, ANIMATION_URL, 7.35, 6.05, 5.35, SITE_LABEL + "/anim");
 s.addNotes("This is the step from solo2 (+91.56) to relay (+92.01): total depth 1 856 → 1 486 on the scored set. A hub batch is F · ∏ rx(θ_p) · F with F = ∏ cz(hub, p). Partner pairs (or paths of four) fold their parity into one root; roots alternate between the two passes so every input pair still interacts (validator rule above 19 qubits). The identity was checked numerically on 6 qubits before any compiler work, and every compiled circuit passes the official equivalence check.");
 
 // ------------------------------------------------------------------ 5 L2 + L3
@@ -321,7 +321,7 @@ s.addText("Try the visualiser", {
   x: 8.7, y: 5.63, w: 4.0, h: 0.35, fontSize: 17, bold: true, color: C.text1,
   margin: 0, isTextBox: true, objectName: nm("visualiserLabel"),
 });
-webLink(s, VISUALISER_URL, 8.7, 6.05, 4.0);
+webLink(s, VISUALISER_URL, 8.7, 6.05, 4.0, SITE_LABEL + "/viz");
 s.addNotes("Most ideas were judged by watching both plans side by side, for example the tall storage bands at 50 qubits (5 rows, so at least 5 per band move) and dips that took whole rows down when one atom needed storage. Those observations turned into the band-width search option and the dip-trim operator.");
 
 // ------------------------------------------------------------------ 9 results
