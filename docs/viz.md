@@ -181,6 +181,24 @@ edits fall back to relative progress ("diff (too different)").
 `gran=inst` (instruction steps; default: frame), `sp` speed, `cmp=<name>` split view, `side=0` sidebar hidden, `ov=1` only valid,
 `lbl=0` atom labels off, `diff=0` diff mode off. Example: `gates/metric_circuit_36.html#cmp=zonedwell&p=0.25`.
 
+## Handoff: pages for the relay family (diff mode)
+
+Generated pages are not committed (`viz/` is gitignored); build them on the server from the code:
+
+```sh
+# the 20 scored circuits for the current leader and the compilers it is compared with
+for c in relay_best_l3 relay_l3 relay solo; do
+  python bench/viz.py all compilers/$c/compiler.py --set metric --jobs 4
+done
+python bench/viz.py rewrap          # re-embed every existing page into the current template
+python bench/viz.py serve           # then open e.g. relay_best_l3/metric_circuit_22.html#cmp=relay
+```
+
+Useful pairs for the diff view: `relay_best_l3` vs `relay` (everything this branch added),
+`relay_l3` vs `relay` (only the peephole pass: same gates, so the diff is moves only),
+`relay_best_l3` vs `relay_l3` (Codex's solo work + variants + rollout). 50q pages take a few
+minutes each to compile (relay_best_l3 up to ~200 s per circuit).
+
 ## Invalid compilations
 
 - `compile` (the compiler raised, timed out or returned bad output): banner with the message;
