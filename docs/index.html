@@ -15,6 +15,11 @@
   .hero { display:flex; flex-wrap:wrap; gap:16px; align-items:center; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--gold); border-radius:10px; padding:20px; margin-bottom:28px; }
   .hero .big { font-size: 40px; font-weight: 700; line-height: 1; }
   .hero .lbl { color: var(--muted); font-size: 14px; }
+  .topbar { display:flex; justify-content:flex-end; margin-bottom:8px; }
+  .gh { display:inline-flex; align-items:center; gap:8px; color:var(--fg); text-decoration:none; border:1px solid var(--line); border-radius:8px; padding:6px 12px; font-size:14px; background:var(--card); }
+  .gh:hover { border-color:var(--accent); }
+  .btns { display:flex; flex-wrap:wrap; gap:10px; margin-left:auto; }
+  .btn.alt { background:transparent; color:var(--accent); border:1px solid var(--accent); }
   .btn { display:inline-block; background:var(--accent); color:#fff; text-decoration:none; padding:10px 18px; border-radius:8px; font-weight:600; }
   .grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap:12px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
@@ -26,12 +31,13 @@
 </head>
 <body>
 <main>
+  <div class="topbar"><a class="gh" href="https://github.com/Superposition-Squad/2026-PushQuantum-Hackathon"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> Superposition-Squad/2026-PushQuantum-Hackathon</a></div>
   <h1>planqc compiler track</h1>
   <p class="sub">PushQuantum Hackathon 2026 · quantum circuits compiled for a zoned neutral-atom machine</p>
 
   <div class="hero">
     <div><div class="big">+92.45%</div><div class="lbl">benchmark score of our best compiler, <code>relay_best_l3</code>, on the 20 scored circuits</div></div>
-    <div style="margin-left:auto"><a class="btn" href="viz/index.html">Open the step-by-step visualiser →</a></div>
+    <div class="btns"><a class="btn" href="slides/talk_5min.pdf">Slides (PDF)</a><a class="btn alt" href="viz/index.html">Visualiser →</a></div>
   </div>
 
   <h2>Benchmark result</h2>
@@ -40,6 +46,10 @@
     <div class="card"><h3>Depth −89.4%</h3><p>1 411 vs 13 364 for the naive compiler.</p></div>
     <div class="card"><h3>20 / 20 circuits valid</h3><p>18 iHVA circuits and the two 12-qubit HEA circuits, checked for equivalence.</p></div>
   </div>
+
+  <h2>Slides (5-minute talk)</h2>
+  <p class="sub" style="margin-bottom:12px"><a href="slides/talk_5min.pdf">Open the PDF</a> · <a href="slides/relay_full.pdf">full deck incl. backup slides (PDF)</a></p>
+  <iframe src="slides/talk_5min.pdf" title="Talk slides" loading="lazy" style="width:100%;aspect-ratio:16/10;border:1px solid var(--line);border-radius:10px;background:#fff"></iframe>
 
   <h2>How it works (animation)</h2>
   <p class="sub" style="margin-bottom:12px">One real compiled plan: a 20-qubit iHVA circuit, 106 moves, 30 CZ pulses. Space plays or pauses, keys 1–6 jump to a chapter. <a href="anim/relay_anim.html">Full screen</a> · <a href="anim/relay_anim.mp4">MP4</a></p>
@@ -50,7 +60,7 @@
     <div class="card"><h3><a href="viz/index.html">Visualiser index</a></h3><p>Every compiler × circuit page. The best compiler is on top, marked with a star. Each page replays atom positions and the compiled circuit in sync.</p></div>
     <div class="card"><h3><a href="https://github.com/Superposition-Squad/2026-PushQuantum-Hackathon/blob/main/docs/overview.md">Overview</a></h3><p>How the machine, scoring and compilers fit together.</p></div>
     <div class="card"><h3><a href="https://github.com/Superposition-Squad/2026-PushQuantum-Hackathon/blob/main/docs/results-log.md">Results log</a></h3><p>Scores of every compiler idea over time.</p></div>
-    <div class="card"><h3><a href="https://github.com/Superposition-Squad/2026-PushQuantum-Hackathon">Repository</a></h3><p>Compilers in <code>compilers/</code>, harness in <code>bench/</code>, notes in <code>docs/</code>.</p></div>
+    <div class="card"><h3><a href="https://github.com/Superposition-Squad/2026-PushQuantum-Hackathon">GitHub repository</a></h3><p>Compilers in <code>compilers/</code>, harness in <code>bench/</code>, notes in <code>docs/</code>.</p></div>
   </div>
 </main>
 </body>

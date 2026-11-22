@@ -1,0 +1,34 @@
+{
+ "name": "relay_l3",
+ "label": "sample_circuit_04",
+ "family": "sanity",
+ "qubits": 4,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/relay_l3/compiler.py",
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 6,
+  "move_steps": 6,
+  "move_distance": 7.711049,
+  "move_time": 7.711049,
+  "depth": 10,
+  "num_operations": 22,
+  "spacing_warnings": 0
+ },
+ "cz": 3,
+ "naive": {
+  "num_moves": 6,
+  "move_steps": 6,
+  "move_distance": 60.384822,
+  "move_time": 60.384822,
+  "depth": 16,
+  "num_operations": 28,
+  "spacing_warnings": 0
+ },
+ "equivalence": "skipped (fast)",
+ "compile_s": 1.273,
+ "page": "sample_circuit_04.html",
+ "page_bytes": 118221,
+ "generated": "2026-11-22T12:10:57Z"
+}
