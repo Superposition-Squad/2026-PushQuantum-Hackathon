@@ -78,7 +78,15 @@ when that avoids basis changes. Dedicated hub sweeps still keep the hub stationa
 **Phase lowering.** After routing, combine Rz gates between consecutive Rx gates on the same atom.
 Candidate rewrites also propagate local Pauli corrections through CZ, where an X adds a Z to
 its partner, and flip rotation signs through anticommuting corrections. Combined phases are
-placed at storage-safe points. The compiler keeps the output with the lowest depth.
+placed during storage visits. The retiming pass uses the longest dependency paths before and after
+each eligible insertion point to place phases. The compiler keeps a rewrite only when it reduces
+depth.
+
+**Initial loading and final moves.** Fold storage setup into the initial loading when replay
+confirms that the revised positions allow each remaining move. Leave qubits at a valid resting
+site after their last interaction when that saves movement. The solver reuses the search's stored
+schedules for first-use layouts and compares four finalists using movement distance and gate depth
+after both passes.
 
 **Fallback.** Anything not iHVA-shaped (HEA, sanity circuits) goes to the naive scheme (valid; the
 portfolio covers HEA).
@@ -97,6 +105,7 @@ portfolio covers HEA).
 | + HEA path | 8f5366d | +90.86 (full, 20/20) | portfolio_po + solo est. 90.91; solo wins 18/20 |
 | + special-angle blocks (+-pi/2 one cz, pi local) | 682d68b | **+91.25 (full, 20/20)** | solo wins 20/20 vs portfolio_po |
 | + hub rotations in band rounds and phase lowering | | **+91.48 (full, 20/20)** | 50q tree p3 depth 418 → 367 at the same movement distance |
+| + storage-aware phase retiming and boundary moves | | **+91.55 (full, 20/20)** | 50q tree p3 movement 3278.4 → 3248.0 and depth 367 → 362 |
 
 Per circuit vs portfolio_po (dist/depth) at 8f5366d: solo wins 18/20, e.g. 50q stagger p3 4603/471
 -> 2664/341, tree p3 5742/554 -> 3278/418, 20q stagger p3 1164/189 -> 783/150, 12q HEA p3 44/28 ->
@@ -121,6 +130,8 @@ compile ~14 s (50q tree p3).
 - Seeded perturbations: 0-3 %.
 - Direct lifts into preselected bands, non-rigid columns, reverse routing, separately executed
   sub-bands, spectral starts, and physical line re-embedding gave small or inconsistent gains.
+- Additional hub sweeps and sparse bands matched the previous 50q scores. Regrouping transfers
+  between fixed pulse positions saved 8.4 total movement units across the six 50q cases.
 
 ## Cross-round residency
 

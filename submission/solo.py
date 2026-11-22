@@ -16,6 +16,7 @@ app = marimo.App(width="medium")
 with app.setup:
     import itertools
     import math
+    from bisect import bisect_left
     from collections.abc import Sequence
     from functools import lru_cache
     from numbers import Integral
@@ -1357,6 +1358,7 @@ with app.setup:
         preds, succs = build_dag(blocks)
         home = default_layout(n, hub)
         res = []
+        schedules = []
 
         layouts = {None: home}
 
@@ -1367,6 +1369,7 @@ with app.setup:
                 return None
             c = ex.m.dist + DEPTH_W * (max(ex.m.depth) + 1)
             res.append((c, len(res), cand, lay))
+            schedules.append(ex.steps)
             return ex
 
         for cand in cands or CANDS:
@@ -1382,9 +1385,8 @@ with app.setup:
             run((pol, lam, mu, tuple(opts) + (("FRAME", "SH"),)), lay)
         # first-use layouts derived from the best configurations' own step sequences
         for _, k, cand, lay in sorted(res)[:top]:
-            ex = run_candidate(n, blocks, preds, succs, layouts[lay], *cand, allowed=allowed)
             key = ("first", k)
-            layouts[key] = layout_from_steps(n, hub, ex.steps)
+            layouts[key] = layout_from_steps(n, hub, schedules[k])
             run(cand, key)
         if nseed:
             _, _, cand, lay = min(res)
@@ -1398,12 +1400,20 @@ with app.setup:
                 for forms, lazy in (("N", False), ("auto", False), ("N", True), ("auto", True)):
                     run((pol, lam, mu, (*opts, ("KEEP_HUB_STATIC", False), ("FORMS", forms),
                                            ("LAZY_FRAME", lazy))), lay)
-        best = min(res)
+        finalists = sorted(res)[:4]
         if not emit:
-            return best[0], best[2]
-        home = layouts[best[3]]
-        ex = run_candidate(n, blocks, preds, succs, home, *best[2], emit=True, allowed=allowed)
-        qc = ex.m.qc
+            return finalists[0][0], finalists[0][2]
+
+        best = None
+        for _, _, cand, lay in finalists:
+            home = layouts[lay]
+            ex = run_candidate(n, blocks, preds, succs, home, *cand, emit=True, allowed=allowed)
+            qc = _place_z_phases(_lower_z_phases(ex.m.qc))
+            qc, home, distance = _fold_boundary_moves(qc, home, ex.m.dist)
+            cost = distance + DEPTH_W * _scored_depth(qc)
+            if best is None or cost < best[0] - 1e-9:
+                best = cost, qc, home
+        _, qc, home = best
         # guard: the interaction set must stay inside the input's pairs (validator check above 19 qubits)
         idx = {bit: i for i, bit in enumerate(qc.qubits)}
         for inst in qc.data:
@@ -1576,19 +1586,252 @@ with app.setup:
                     out.append(ins)
             return out
 
-        def depth(qc):
-            levels = [0] * n
-            for ins in qc.data:
-                if ins.operation.name in ("move", "barrier"):
-                    continue
-                qs = [indices[q] for q in ins.qubits]
-                level = max(levels[q] for q in qs) + 1
-                for q in qs:
-                    levels[q] = level
-            return max(levels, default=0)
-
         candidates = (lower(paulis, late) for paulis, late in itertools.product((False, True), repeat=2))
-        return min(itertools.chain((circuit,), candidates), key=depth)
+        return min(itertools.chain((circuit,), candidates), key=_scored_depth)
+
+
+    def _scored_depth(circuit):
+        indices = {q: i for i, q in enumerate(circuit.qubits)}
+        levels = [0] * circuit.num_qubits
+        for ins in circuit.data:
+            if ins.operation.name in ("move", "barrier"):
+                continue
+            qs = [indices[q] for q in ins.qubits]
+            level = max(levels[q] for q in qs) + 1
+            for q in qs:
+                levels[q] = level
+        return max(levels, default=0)
+
+
+    def _place_z_phases(circuit):
+        """Place each combined Z phase in a storage visit with maximal circuit slack."""
+        n = circuit.num_qubits
+        indices = {q: i for i, q in enumerate(circuit.qubits)}
+        data = list(circuit.data)
+        gates = [(ins.operation.name, tuple(indices[q] for q in ins.qubits)) for ins in data]
+        timeline = [[] for _ in range(n)]
+        storage = [[0] for _ in range(n)]
+        prior = [-1] * n
+        z = [0.0] * n
+        phases = []
+        for i, (name, qs) in enumerate(gates):
+            if name == "move":
+                if max(data[i].operation.params[2]) < 10:
+                    for q in qs:
+                        storage[q].append(i + 1)
+            elif name == "rz":
+                q, = qs
+                z[q] += float(data[i].operation.params[0])
+            elif name == "cz":
+                for q in qs:
+                    timeline[q].append(i)
+            elif name in ("rx","measure"):
+                q, = qs
+                phase = _wrap(z[q])
+                if abs(phase) > 1e-10:
+                    phases.append((q, phase, prior[q] + 1, i))
+                z[q] = 0.0
+                prior[q] = i
+                timeline[q].append(i)
+
+        def path_lengths(extra, reverse=False):
+            lengths = {}
+            levels = [0] * n
+            order = reversed(range(len(gates))) if reverse else range(len(gates))
+            for i in order:
+                name, qs = gates[i]
+                if not reverse:
+                    for q, _ in extra.get(i, ()):
+                        levels[q] += 1
+                if name in ("rx", "cz", "measure"):
+                    length = max(levels[q] for q in qs) + 1
+                    lengths[i] = length
+                    for q in qs:
+                        levels[q] = length
+                if reverse:
+                    for q, _ in extra.get(i, ()):
+                        levels[q] += 1
+            return max(levels, default=0), lengths
+
+        _, prefix = path_lengths({})
+        _, suffix = path_lengths({}, reverse=True)
+        candidates = []
+        for q, angle, start, end in phases:
+            options = {}
+            for slot in sorted({start, end} | {i for i in storage[q] if start <= i <= end}):
+                j = bisect_left(timeline[q], slot)
+                before = timeline[q][j - 1] if j else None
+                after = timeline[q][j]
+                options.setdefault((before, after), slot)
+            candidates.append((q, angle, options))
+
+        placements = []
+        for direction in (1, -1):
+            extra = {}
+            chosen = []
+            for q, angle, options in candidates:
+                edge = min(options, key=lambda edge: (prefix.get(edge[0], 0) + suffix[edge[1]],
+                                                       direction * options[edge]))
+                slot = options[edge]
+                extra.setdefault(slot, []).append((q, angle))
+                chosen.append(slot)
+            depth, _ = path_lengths(extra)
+            placements.append((depth, extra, chosen))
+        _, extra, chosen = min(placements, key=lambda trial: trial[0])
+
+        # Refine the placement of flexible phases against the lengths of the
+        # current circuit. Removing one phase makes its best insertion exact.
+        flexible = [i for i, (_, _, options) in enumerate(candidates) if len(options) > 1]
+        flexible.sort(key=lambda i: (-len(candidates[i][2]), i))
+        for i in flexible[:96]:
+            q, angle, options = candidates[i]
+            slot = chosen[i]
+            extra[slot].remove((q, angle))
+            _, prefix = path_lengths(extra)
+            _, suffix = path_lengths(extra, reverse=True)
+            edge = min(options, key=lambda edge: (prefix.get(edge[0], 0) + suffix[edge[1]],
+                                                   abs(options[edge] - slot)))
+            extra.setdefault(options[edge], []).append((q, angle))
+
+        depth, _ = path_lengths(extra)
+        if depth >= _scored_depth(circuit):
+            return circuit
+        out = circuit.copy_empty_like()
+        for i, ins in enumerate(data):
+            for q, theta in extra.get(i, ()):
+                out.rz(theta, q)
+            if ins.operation.name != "rz":
+                out.append(ins)
+        return out
+
+
+    def _fold_boundary_moves(circuit, home, original_distance):
+        """Absorb storage setup into loading and stop moving atoms after their last use."""
+        n = circuit.num_qubits
+        indices = {q: i for i, q in enumerate(circuit.qubits)}
+        reference = dict(home)
+        moves = []
+        first_lift = {}
+        last_cz = {}
+        last_rotation = {}
+        for ins in circuit.data:
+            name = ins.operation.name
+            qs = [indices[q] for q in ins.qubits]
+            step = len(moves)
+            if name == "cz":
+                last_cz.update(dict.fromkeys(qs, step))
+            elif name in ("rx", "rz"):
+                last_rotation[qs[0]] = step
+            elif name == "move":
+                _, _, new_rows, new_cols = ins.operation.params
+                rows = dict(zip(sorted({reference[q][1] for q in qs}), new_rows, strict=True))
+                cols = dict(zip(sorted({reference[q][0] for q in qs}), new_cols, strict=True))
+                target = {q: (cols[reference[q][0]], rows[reference[q][1]]) for q in qs}
+                for q, (_, y) in target.items():
+                    if y >= 10:
+                        first_lift.setdefault(q, step)
+                moves.append(target)
+                reference.update(target)
+        if not first_lift or not last_cz:
+            return circuit, home, original_distance
+
+        leading = min(first_lift.values())
+        loading = dict(home)
+        for target in moves[:leading]:
+            loading.update(target)
+
+        starts = {}
+        stops = {}
+        for step, target in enumerate(moves[leading:], leading):
+            for q, site in target.items():
+                if step < first_lift.get(q, 0):
+                    starts.setdefault(q, []).append((step + 1, site))
+                if q in last_cz and step >= last_cz[q] and site[1] < 10:
+                    stops.setdefault(q, []).append(step + 1)
+        last_pulse = max(last_cz.values())
+        for q, options in stops.items():
+            # After the final pulse an atom with only a measurement left may stay in the zone.
+            if last_cz[q] == last_pulse and last_rotation.get(q, -1) < last_pulse:
+                options.insert(0, last_pulse)
+            options.pop()
+
+        enter = {}
+        leave = {}
+
+        def selected(step):
+            return {q: site for q, site in moves[step].items()
+                    if enter.get(q, leading) <= step < leave.get(q, len(moves))}
+
+        def replay(end):
+            m = Machine(n, loading, emit=False)
+            for step in range(leading, end):
+                m.move(selected(step))
+            return m.dist
+
+        if starts:
+            end = max(first_lift.values()) + 1
+            best = replay(end)
+            for _ in range(2):
+                for q, options in sorted(starts.items(), key=lambda item: (-len(item[1]), item[0])):
+                    prev = loading[q]
+                    cut = enter.get(q, leading)
+                    accepted = False
+                    for step, site in reversed(options):
+                        if step <= cut:
+                            break
+                        if site != prev and site in loading.values():
+                            continue
+                        loading[q], enter[q] = site, step
+                        try:
+                            cost = replay(end)
+                        except Illegal:
+                            cost = math.inf
+                        if cost < best - 1e-8:
+                            best = cost
+                            accepted = True
+                            break
+                        loading[q] = prev
+                    if not accepted:
+                        loading[q] = prev
+                        if cut == leading:
+                            enter.pop(q, None)
+                        else:
+                            enter[q] = cut
+
+        if any(stops.values()):
+            best = replay(len(moves))
+            for q, options in sorted(stops.items(), key=lambda item: (-len(item[1]), item[0])):
+                for step in options:
+                    leave[q] = step
+                    try:
+                        cost = replay(len(moves))
+                    except Illegal:
+                        continue
+                    if cost < best - 1e-8:
+                        best = cost
+                        break
+                else:
+                    leave.pop(q, None)
+
+        if not leading and not enter and not leave:
+            return circuit, home, original_distance
+
+        out = circuit.copy_empty_like()
+        m = Machine(n, loading, emit=False)
+        step = 0
+        for ins in circuit.data:
+            if ins.operation.name != "move":
+                out.append(ins)
+                continue
+            if step >= leading:
+                target = selected(step)
+                if target:
+                    rows, cols, new_rows, new_cols, distance = m._plan(target)
+                    if distance:
+                        _move(out, sorted(target), rows, cols, new_rows, new_cols)
+                        m.move(target)
+            step += 1
+        return out, loading, m.dist
 
 
     def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
@@ -1602,7 +1845,6 @@ with app.setup:
             if n <= 100:
                 try:
                     qc, home = compile_ihva(n, blocks)
-                    qc = _lower_z_phases(qc)
                     qc.global_phase = 0
                     return qc, Architecture(home, spec=architecture_spec)
                 except Illegal:
