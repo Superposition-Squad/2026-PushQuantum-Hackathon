@@ -69,6 +69,7 @@ BASE_OPS = ["rx", "rz", "cz", "move", "measure", "barrier"]
 """Name table; `ops` is this plus any other operation encountered, in order of appearance."""
 
 EXCLUDED = frozenset({"portfolio", "blockingcz"})
+EARLY_COMPILERS = frozenset({"gates", "rectbatch", "hubstream", "zonedwell", "hubwalk"})
 """Compilers left out of the visualisation (portfolio = per-circuit best of the others): `page`, `all`
 and the regenerate endpoint refuse them (unless `--force`), and the index, `manifest.json` and the
 comparison sidebar skip them even if their pages exist. Matched against the idea folder / page name."""
@@ -839,6 +840,9 @@ def collect_index(out: Path) -> list[dict]:
                 "rows": rows,
             }
         )
+    for g in result:  # first tries, from before the final `idle` rule (atoms waited in the entangling zone)
+        g["early"] = g["name"] in EARLY_COMPILERS
+    result.sort(key=lambda g: g["early"])
     scored = [g for g in result if g["summary"] and g["summary"].get("valid") and g["summary"].get("official")]
     if scored:
         top = max(scored, key=lambda g: g["summary"]["score"])
