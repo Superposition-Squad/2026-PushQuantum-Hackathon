@@ -15,8 +15,8 @@ Compilers for planqc's zoned neutral-atom machine: map a circuit to `rx`/`rz` (s
 
 | compiler | v5 score (20 circuits) | what it is |
 |---|---|---|
-| **`portfolio`** (`submission/portfolio.py`) | **+91.55** (full) | best per circuit of solo, systolic_po, rectbatch |
-| `solo` (`submission/solo.py`) | +91.55 (full) | dynamic storage band, hub sweeps, and Pauli-frame optimization |
+| **`portfolio`** (`submission/portfolio.py`) | **+91.60** (full) | best per circuit of solo, systolic_po, rectbatch |
+| `solo` (`submission/solo.py`) | +91.60 (full) | dynamic storage band, hub sweeps, and Pauli-frame optimization |
 | `systolic_po` | +86.30 | systolic + post-optimizer |
 
 All compilers, the ideas behind them, what worked and what did not: **[docs/overview.md](docs/overview.md)**.

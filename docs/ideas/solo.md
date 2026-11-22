@@ -88,6 +88,11 @@ site after their last interaction when that saves movement. The solver reuses th
 schedules for first-use layouts and compares four finalists using movement distance and gate depth
 after both passes.
 
+**Hub waves.** An alternative scheduler groups successive hub blocks by Pauli role. It
+prioritizes ready blocks that unlock more of the current wave, then sweeps the exposed partners.
+The existing candidates stay in the final cost comparison. Local Euler decompositions are cached
+across simulations, and a final exact resynthesis can shorten single-qubit runs between CZs.
+
 **Fallback.** Anything not iHVA-shaped (HEA, sanity circuits) goes to the naive scheme (valid; the
 portfolio covers HEA).
 
@@ -106,6 +111,7 @@ portfolio covers HEA).
 | + special-angle blocks (+-pi/2 one cz, pi local) | 682d68b | **+91.25 (full, 20/20)** | solo wins 20/20 vs portfolio_po |
 | + hub rotations in band rounds and phase lowering | | **+91.48 (full, 20/20)** | 50q tree p3 depth 418 → 367 at the same movement distance |
 | + storage-aware phase retiming and boundary moves | | **+91.55 (full, 20/20)** | 50q tree p3 movement 3278.4 → 3248.0 and depth 367 → 362 |
+| + hub-wave scheduling and local resynthesis | | **+91.60 (full, 20/20)** | 50q stagger p3 movement 2663.8 → 2610.1 |
 
 Per circuit vs portfolio_po (dist/depth) at 8f5366d: solo wins 18/20, e.g. 50q stagger p3 4603/471
 -> 2664/341, tree p3 5742/554 -> 3278/418, 20q stagger p3 1164/189 -> 783/150, 12q HEA p3 44/28 ->

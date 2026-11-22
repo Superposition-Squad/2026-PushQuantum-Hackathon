@@ -211,3 +211,15 @@ Solo passed 13/13 full sanity circuits and 6/6 strict 20q statevector checks. Th
 variants matched exact tableaux in both synthesis modes. Two 50q solo compiles hit the 300 s
 limit during overlapping experiments. The two-worker full rerun passed, with a slowest compile
 of 75.9 s. The packaged portfolio passed its parallel run with a slowest compile of 216.3 s.
+
+## Solo hub-wave scheduling
+
+Solo and the packaged portfolio both scored **+91.5962%** in full mode. Both passed all 20
+scored circuits. Movement distance fell from 11711.0 to 11678.5 and total depth from 1811 to
+1794. The wave scheduler cut 50q stagger p3 movement from 2663.8 to 2610.1, with its depth
+increasing from 337 to 343. On 12q tree p3, depth went from 121 to 102 and distance went
+from 402.2 to 425.5.
+
+Solo passed all 13 full sanity cases and all six strict 20q statevector checks. The slowest
+observed compile was 140.2 s for solo. The packaged portfolio took up to 287.5 s while other
+experiments were running.

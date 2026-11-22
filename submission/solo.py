@@ -119,11 +119,13 @@ with app.setup:
     _H = np.array([[1, 1], [1, -1]], dtype=complex) / math.sqrt(2)
 
 
+    @lru_cache(maxsize=4096)
     def _rx(t):
         c, s = math.cos(t / 2), math.sin(t / 2)
         return np.array([[c, -1j * s], [-1j * s, c]], dtype=complex)
 
 
+    @lru_cache(maxsize=4096)
     def _rz(t):
         return np.array([[np.exp(-0.5j * t), 0], [0, np.exp(0.5j * t)]], dtype=complex)
 
@@ -164,27 +166,33 @@ with app.setup:
 
 
     def _zxz(u):
-        """[(name, angle)] in time order with u == phase * product, angles of ~0 dropped."""
+        """Native Euler angles, shared across simulations of repeated local gates."""
+        return _cached_zxz(np.asarray(u, dtype=complex).tobytes())
+
+
+    @lru_cache(maxsize=8192)
+    def _cached_zxz(data):
+        u = np.frombuffer(data, dtype=complex).reshape(2, 2)
         det = np.linalg.det(u)
         v = u / np.sqrt(det)  # SU(2)
         a, b = v[0, 0], v[0, 1]
         if abs(b) < 1e-10:
             lam = -2 * np.angle(a)
-            return [("rz", lam)] if abs(_wrap(lam)) > 1e-9 else []
+            return (("rz", lam),) if abs(_wrap(lam)) > 1e-9 else ()
         if abs(a) < 1e-10:
             # v = Rz(phi) Rx(pi) Rz(lam): only phi+... fix lam = 0
             th = math.pi
             # Rz(phi) Rx(pi) = [[0, -i e^{-i phi/2}], [-i e^{i phi/2}, 0]]
             phi = 2 * np.angle(1j * b) * -1
             seq = [("rx", th), ("rz", phi)]
-            return [(g, t) for g, t in seq if abs(_wrap(t)) > 1e-9]
+            return tuple((g, t) for g, t in seq if abs(_wrap(t)) > 1e-9)
         # v = Rz(phi) Rx(th) Rz(lam); v00 = cos(th/2) e^{-i(phi+lam)/2}, v01 = -i sin(th/2) e^{-i(phi-lam)/2}
         th = 2 * math.atan2(abs(b), abs(a))
         s = -np.angle(a) * 2  # phi + lam
         d = -np.angle(1j * b) * 2  # phi - lam
         phi, lam = (s + d) / 2, (s - d) / 2
         seq = [("rz", lam), ("rx", th), ("rz", phi)]
-        return [(g, t) for g, t in seq if abs(_wrap(t)) > 1e-9]
+        return tuple((g, t) for g, t in seq if abs(_wrap(t)) > 1e-9)
 
 
     def _wrap(t):
@@ -488,6 +496,73 @@ with app.setup:
 
     def schedule(blocks, preds, succs, hub, policy=("look", 2.0)):
         return list(schedule_gen(blocks, preds, succs, hub, policy))
+
+
+    def hub_epoch_schedule(blocks, preds, succs, hub, policy, positions, depths):
+        """Prepare the dependency frontier for one collinear hub wave at a time."""
+        threshold, urgency, coverage = policy[1:]
+        waves = []
+        last = None
+        for i, block in enumerate(blocks):
+            if hub not in block.qubits():
+                continue
+            role = block.c == hub
+            if role != last:
+                waves.append([])
+                last = role
+            waves[-1].append(i)
+        ancestors = []
+        for i, dependencies in enumerate(preds):
+            before = set(dependencies)
+            for j in dependencies:
+                before.update(ancestors[j])
+            ancestors.append(before)
+        needed = [len(p) for p in preds]
+        ready = {i for i, count in enumerate(needed) if count == 0}
+        done = set()
+        while ready:
+            wave = next((set(w) - done for w in waves if not set(w) <= done), set())
+            available = wave & ready
+            blocked = wave - available
+            pressure = {}
+            for i in blocked:
+                for j in ancestors[i] & ready:
+                    pressure[j] = pressure.get(j, 0) + 1
+            nonhub = ready - available
+            local = [i for i in nonhub if hub not in blocks[i].qubits()]
+            witnesses = {i for i in local if i in pressure}
+            if available and (not local or len(available) >= threshold and
+                              (not witnesses or len(available) >= coverage * len(wave))):
+                selected = sorted(available)
+                kind = "hub" if len(selected) > 1 else "round"
+            else:
+                pos = positions()
+                depth = depths()
+                mix = not witnesses or len(available) < threshold
+                pool = local + (sorted(available) if mix else [])
+                def priority(i):
+                    b = blocks[i]
+                    travel = _dist(pos[b.c], pos[b.t])
+                    crit = max(depth[b.c], depth[b.t]) - min(depth[b.c], depth[b.t])
+                    return travel + 0.15 * crit - urgency * pressure.get(i, 0) - 0.15 * len(succs[i]), i
+                selected = []
+                used = set()
+                for i in sorted(pool, key=priority):
+                    qs = blocks[i].qubits()
+                    if used.isdisjoint(qs):
+                        used.update(qs)
+                        selected.append(i)
+                kind = "round"
+            if not selected:
+                raise Illegal("empty hub wave")
+            yield kind, [blocks[i] for i in selected]
+            for i in selected:
+                ready.remove(i)
+                done.add(i)
+                for j in succs[i]:
+                    needed[j] -= 1
+                    if needed[j] == 0:
+                        ready.add(j)
 
 
     def schedule_gen(blocks, preds, succs, hub, policy=("look", 2.0), posfn=None, mu=None, evaluator=None,
@@ -1303,8 +1378,12 @@ with app.setup:
                         best = (c, k)
                 return 0 if best is None else best[1]
             evaluator.far = ex.FAR
-        for kind, blks in schedule_gen(blocks, preds, succs, hub, pol, posfn=lambda: ex.m.pos, mu=mu, evaluator=evaluator,
-                                       depthfn=(lambda: ex.m.depth) if ex.HUBDEP else None):
+        if pol[0] == "wave":
+            sequence = hub_epoch_schedule(blocks, preds, succs, hub, pol, lambda: ex.m.pos, lambda: ex.m.depth)
+        else:
+            sequence = schedule_gen(blocks, preds, succs, hub, pol, posfn=lambda: ex.m.pos, mu=mu,
+                                    evaluator=evaluator, depthfn=(lambda: ex.m.depth) if ex.HUBDEP else None)
+        for kind, blks in sequence:
             cur = {b.idx for b in blks}
             nxt = {}
             for b in blks:
@@ -1400,7 +1479,14 @@ with app.setup:
                 for forms, lazy in (("N", False), ("auto", False), ("N", True), ("auto", True)):
                     run((pol, lam, mu, (*opts, ("KEEP_HUB_STATIC", False), ("FORMS", forms),
                                            ("LAZY_FRAME", lazy))), lay)
-        finalists = sorted(res)[:4]
+        ordinary = sorted(res)[:4]
+        experimental = len(res)
+        if n >= 12 and any(b.kind == "G" for b in blocks):
+            for threshold, urgency, coverage in ((3, 1.6, 1.01), (8, 0.6, 0.8), (16, 1.6, 0.8)):
+                policy = "wave", threshold, urgency, coverage
+                opts = (("KEEP_HUB_STATIC", False), ("FORMS", "N"), ("RECT_SIM", 2))
+                run((policy, 0.2, None, opts))
+        finalists = ordinary + sorted(res[experimental:])[:2]
         if not emit:
             return finalists[0][0], finalists[0][2]
 
@@ -1408,7 +1494,7 @@ with app.setup:
         for _, _, cand, lay in finalists:
             home = layouts[lay]
             ex = run_candidate(n, blocks, preds, succs, home, *cand, emit=True, allowed=allowed)
-            qc = _place_z_phases(_lower_z_phases(ex.m.qc))
+            qc = _finalize_phases(ex.m.qc)
             qc, home, distance = _fold_boundary_moves(qc, home, ex.m.dist)
             cost = distance + DEPTH_W * _scored_depth(qc)
             if best is None or cost < best[0] - 1e-9:
@@ -1832,6 +1918,61 @@ with app.setup:
                         m.move(target)
             step += 1
         return out, loading, m.dist
+
+
+    def _fuse_local_gates(circuit):
+        """Resynthesize independent single-qubit runs between CZs."""
+        n = circuit.num_qubits
+        indices = {q: i for i, q in enumerate(circuit.qubits)}
+        runs = [[] for _ in range(n)]
+        replacements = {}
+        skip = set()
+
+        def flush(q):
+            run = runs[q]
+            if len(run) > 1:
+                matrix = _gate_matrix([(name, theta) for _, name, theta in run])
+                zxz = _zxz(matrix)
+                xzx = tuple(("rz" if name == "rx" else "rx", theta)
+                            for name, theta in _zxz(_H @ matrix @ _H))
+                seq = min((zxz, xzx), key=len)
+                if len(seq) < len(run):
+                    replacements[run[0][0]] = (q, seq)
+                    skip.update(i for i, _, _ in run)
+            run.clear()
+
+        for i, ins in enumerate(circuit.data):
+            name = ins.operation.name
+            if name in ("rx", "rz"):
+                q = indices[ins.qubits[0]]
+                runs[q].append((i, name, float(ins.operation.params[0])))
+            elif name in ("cz", "measure"):
+                for q in ins.qubits:
+                    flush(indices[q])
+        for q in range(n):
+            flush(q)
+
+        if not replacements:
+            return circuit
+
+        out = circuit.copy_empty_like()
+        for i, ins in enumerate(circuit.data):
+            if i in replacements:
+                q, seq = replacements[i]
+                for name, theta in seq:
+                    getattr(out, name)(theta, q)
+            elif i not in skip:
+                out.append(ins)
+        return out
+
+
+    def _finalize_phases(circuit):
+        original = _place_z_phases(_lower_z_phases(circuit))
+        fused = _fuse_local_gates(original)
+        if fused is original:
+            return original
+        optimized = _place_z_phases(_lower_z_phases(fused))
+        return min((original, fused, optimized), key=_scored_depth)
 
 
     def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
