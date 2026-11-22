@@ -2,7 +2,7 @@
 @page{size:1280px 720px;margin:0}
 :root{--bg:#0a0f1e;--panel:#121a31;--line:#26324f;--fg:#eaeefa;--mut:#93a0c2;--blue:#4ea1ff;--orange:#ff9f43;--gold:#ffd166;--green:#3ddc97}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,"Segoe UI",system-ui,Arial,sans-serif;color:var(--fg)}
-a{cursor:pointer}.pg{width:1280px;height:720px;page-break-after:always;overflow:hidden;position:relative}
+a{cursor:pointer}.pg{width:1280px;height:720px;page-break-after:always;break-after:page;overflow:hidden;position:relative}
 .pg img.full{width:1280px;height:720px;display:block}
 .s{background:radial-gradient(900px 520px at 78% 8%,#17234a 0%,transparent 70%),var(--bg);padding:50px 72px}
 .k{font-size:15px;letter-spacing:.16em;text-transform:uppercase;color:var(--orange);font-weight:700;margin:0 0 10px}
@@ -11,6 +11,8 @@ h2{font-size:42px;margin:0 0 22px;font-weight:750}h2 em{font-style:normal;color:
 .t{display:flex;gap:14px;align-items:flex-start;margin-bottom:10px}.n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--gold);color:#0a0f1e;font-weight:800;display:flex;align-items:center;justify-content:center}
 .t b{font-size:18px}.t p{margin:3px 0 0;font-size:14px;color:#cdd5ec;line-height:1.35}.v{margin-left:auto;color:var(--green);font-weight:700;white-space:nowrap;font-size:15px}
 .mut{color:var(--mut);font-size:14px;line-height:1.4}.punch{border-left:4px solid var(--orange);padding:4px 0 4px 16px;font-size:19px;color:#cdd5ec;margin-top:14px}
+.pg:last-child{page-break-after:auto;break-after:auto}
+html,body{height:auto}
 </style></head><body>
 <div class="pg"><img class="full" src="hi/p-01.png"></div>
 <div class="pg"><img class="full" src="hi/p-08.png"></div>
@@ -41,7 +43,7 @@ h2{font-size:42px;margin:0 0 22px;font-weight:750}h2 em{font-style:normal;color:
 <div class="t"><span class="n">3</span><div><b>Exact solver as a teacher</b><p>optimal windows showed which move patterns were missing</p></div></div>
 <div class="t"><span class="n">4</span><div><b>Visualiser with diff mode</b><p>two plans aligned on their pulses; differences in red / green; click jumps both</p></div></div>
 <p class="punch">We judged ideas by watching both plans side by side.</p></div>
-<div class="panel" style="flex:1;padding:8px"><img src="viz.png" style="width:100%;border-radius:8px"><div style="display:flex;align-items:center;gap:18px;padding:10px 6px 4px"><img src="qr.png" style="width:110px;height:110px;border-radius:6px"><div><b style="font-size:20px">Try the visualiser</b><a href="https://superposition-squad.github.io/2026-PushQuantum-Hackathon/viz/" style="color:var(--blue);font-size:13px;margin-top:6px;display:block;text-decoration:none">superposition-squad.github.io/2026-PushQuantum-Hackathon/viz/</div></div></div></div></div></div>
+<div class="panel" style="flex:1;padding:8px"><img src="viz.png" style="width:100%;border-radius:8px"><div style="display:flex;align-items:center;gap:18px;padding:10px 6px 4px"><img src="qr.png" style="width:110px;height:110px;border-radius:6px"><div><b style="font-size:20px">Try the visualiser</b><a href="https://superposition-squad.github.io/2026-PushQuantum-Hackathon/viz/" style="color:var(--blue);font-size:13px;margin-top:6px;display:block;text-decoration:none">superposition-squad.github.io/2026-PushQuantum-Hackathon/viz/</a></div></div></div></div></div></div>
 <div class="pg"><img class="full" src="hi/p-06.png"></div>
 <div class="pg s" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px"><h2 style="color:var(--gold);margin:0">Try the visualiser</h2><img src="qr.png" style="width:340px;height:340px;border-radius:10px;background:#fff"><a href="https://superposition-squad.github.io/2026-PushQuantum-Hackathon/viz/" style="color:var(--blue);font-size:24px;font-weight:700;text-decoration:none">superposition-squad.github.io/2026-PushQuantum-Hackathon/viz/</a></div>
 </body></html>
