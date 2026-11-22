@@ -1,0 +1,34 @@
+{
+ "name": "solo2",
+ "label": "sample_circuit_02",
+ "family": "sanity",
+ "qubits": 3,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/solo2/compiler.py",
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 4,
+  "move_steps": 4,
+  "move_distance": 5.827833,
+  "move_time": 5.827833,
+  "depth": 10,
+  "num_operations": 18,
+  "spacing_warnings": 0
+ },
+ "cz": 2,
+ "naive": {
+  "num_moves": 4,
+  "move_steps": 4,
+  "move_distance": 40.335882,
+  "move_time": 40.335882,
+  "depth": 12,
+  "num_operations": 20,
+  "spacing_warnings": 0
+ },
+ "equivalence": "skipped (fast)",
+ "compile_s": 1.835,
+ "page": "sample_circuit_02.html",
+ "page_bytes": 119635,
+ "generated": "2026-11-22T12:41:16Z"
+}

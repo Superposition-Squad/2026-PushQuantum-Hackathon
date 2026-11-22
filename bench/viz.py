@@ -1193,6 +1193,8 @@ def cmd_all(args) -> int:
         paths += metric_benchmarks(reduced=not args.full_set)
     if args.filter:
         paths = [p for p in paths if args.filter in (benchmark_label(p) or "") or args.filter in str(p)]
+    else:  # their pages are 4-12 MB each: too big to commit and serve, render them only on request
+        paths = [p for p in paths if benchmark_label(p) not in ("sample_circuit_12", "sample_circuit_13")]
     if not paths:
         raise SystemExit("no benchmarks selected")
 
