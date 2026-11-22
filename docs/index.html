@@ -30,9 +30,20 @@
   <p class="sub">PushQuantum Hackathon 2026 · quantum circuits compiled for a zoned neutral-atom machine</p>
 
   <div class="hero">
-    <div><div class="big">+92.45%</div><div class="lbl">local leaderboard score of the best compiler, <code>relay_best_l3</code></div></div>
+    <div><div class="big">+92.45%</div><div class="lbl">benchmark score of our best compiler, <code>relay_best_l3</code>, on the 20 scored circuits</div></div>
     <div style="margin-left:auto"><a class="btn" href="viz/index.html">Open the step-by-step visualiser →</a></div>
   </div>
+
+  <h2>Benchmark result</h2>
+  <div class="grid">
+    <div class="card"><h3>Move distance −93.2%</h3><p>11 113 vs 163 364 for the naive compiler.</p></div>
+    <div class="card"><h3>Depth −89.4%</h3><p>1 411 vs 13 364 for the naive compiler.</p></div>
+    <div class="card"><h3>20 / 20 circuits valid</h3><p>18 iHVA circuits and the two 12-qubit HEA circuits, checked for equivalence.</p></div>
+  </div>
+
+  <h2>How it works (animation)</h2>
+  <p class="sub" style="margin-bottom:12px">One real compiled plan: a 20-qubit iHVA circuit, 106 moves, 30 CZ pulses. Space plays or pauses, keys 1–6 jump to a chapter. <a href="anim/relay_anim.html">Full screen</a> · <a href="anim/relay_anim.mp4">MP4</a></p>
+  <iframe src="anim/relay_anim.html" title="Animation of the relay compiler" loading="lazy" style="width:100%;aspect-ratio:16/10;border:1px solid var(--line);border-radius:10px;background:#000"></iframe>
 
   <h2>What you can look at</h2>
   <div class="grid">
