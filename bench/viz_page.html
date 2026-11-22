@@ -1252,12 +1252,13 @@ footer summary { cursor: pointer; }
 
 
   // ================================================================== diff alignment (split view)
-  // Gates are aligned with Myers' diff (they define equivalent states); moves are matched as
-  // multisets inside each pair of aligned gate segments (reordered moves still count as common).
+  // CZ gates (the pulse structure) are aligned with Myers' diff and define equivalent states; all
+  // other instructions (1q gates, moves, measurements) are matched as multisets inside each pair of
+  // aligned CZ segments, so gates or moves that are only reordered within a gap count as common.
   // dstat[i] = 1: instruction i exists only on this side (side 1 red, side 2 green).
   var DIFF = { on: HASH.diff !== "0", al: null };
   function diffTokens(m) {
-    var I = m.I, OPS = m.OPS, out = new Array(m.N), isMove = new Uint8Array(m.N);
+    var I = m.I, OPS = m.OPS, out = new Array(m.N), isMove = new Uint8Array(m.N), isAnchor = new Uint8Array(m.N);
     for (var i = 0; i < m.N; i++) {
       var op = OPS[I.op[i]], qs = I.qs[i] || [];
       if (op === "move") {
@@ -1271,13 +1272,14 @@ footer summary { cursor: pointer; }
           out[i] = parts.join(";");
         } else out[i] = "illegal#" + i;
       } else if (op === "cz") {
+        isAnchor[i] = 1;
         out[i] = "cz|" + qs.slice().sort(function (x, y) { return x - y; }).join(",");
       } else {
         var par = I.par[i];
         out[i] = op + "|" + qs.join(",") + "|" + (typeof par === "number" ? par.toFixed(4) : "");
       }
     }
-    return { tok: out, isMove: isMove };
+    return { tok: out, isMove: isMove, isAnchor: isAnchor };
   }
   function myersPairs(a, b, maxD) {   // a, b: arrays of strings; LCS pairs [[i, j], ...] or null if D > maxD
     var n = a.length, m = b.length, pre = 0, suf = 0;
@@ -1317,16 +1319,16 @@ footer summary { cursor: pointer; }
   function alignModels(ma, mb) {
     var ta = diffTokens(ma), tb = diffTokens(mb);
     var ga = [], gb = [];
-    for (var i = 0; i < ma.N; i++) if (!ta.isMove[i]) ga.push(i);
-    for (var j = 0; j < mb.N; j++) if (!tb.isMove[j]) gb.push(j);
+    for (var i = 0; i < ma.N; i++) if (ta.isAnchor[i]) ga.push(i);
+    for (var j = 0; j < mb.N; j++) if (tb.isAnchor[j]) gb.push(j);
     var gp = myersPairs(ga.map(function (i) { return ta.tok[i]; }), gb.map(function (j) { return tb.tok[j]; }), 6000);
     if (!gp) return null;
     var pa = new Int32Array(ma.N).fill(-1), pb = new Int32Array(mb.N).fill(-1);
     gp.forEach(function (pr) { pa[ga[pr[0]]] = gb[pr[1]]; pb[gb[pr[1]]] = ga[pr[0]]; });
     // segments: number of matched gates before each instruction; match moves inside a segment
-    function segs(m, pmine) { var sg = new Int32Array(m.N), c = 0; for (var i = 0; i < m.N; i++) { sg[i] = c; if (pmine[i] >= 0 && !(m === ma ? ta : tb).isMove[i]) c++; } return sg; }
-    var sa = segs(ma, pa), sb = segs(mb, pb), pool = new Map();
-    for (var j2 = 0; j2 < mb.N; j2++) if (tb.isMove[j2]) {
+    function segs(m, pmine, tk) { var sg = new Int32Array(m.N), c = 0; for (var i = 0; i < m.N; i++) { sg[i] = c; if (pmine[i] >= 0 && tk.isAnchor[i]) c++; } return sg; }
+    var sa = segs(ma, pa, ta), sb = segs(mb, pb, tb), pool = new Map();
+    for (var j2 = 0; j2 < mb.N; j2++) if (!tb.isAnchor[j2]) {
       var key = sb[j2] + "#" + tb.tok[j2];
       if (!pool.has(key)) pool.set(key, []);
       pool.get(key).push(j2);
@@ -1334,6 +1336,24 @@ footer summary { cursor: pointer; }
     for (var i2 = 0; i2 < ma.N; i2++) if (ta.isMove[i2]) {
       var lst = pool.get(sa[i2] + "#" + ta.tok[i2]);
       if (lst && lst.length) { var jj = lst.shift(); pa[i2] = jj; pb[jj] = i2; }
+    }
+    // 1q gates and measurements: per qubit (their per-qubit order is what matters, not where in the
+    // global stream a compiler emitted them)
+    function perQubit(m, tk) {
+      var by = [];
+      for (var i = 0; i < m.N; i++) if (!tk.isAnchor[i] && !tk.isMove[i]) {
+        var q = (m.I.qs[i] || [])[0];
+        if (q === undefined) continue;
+        (by[q] = by[q] || []).push(i);
+      }
+      return by;
+    }
+    var qa = perQubit(ma, ta), qb = perQubit(mb, tb);
+    for (var q = 0; q < Math.max(qa.length, qb.length); q++) {
+      var la = qa[q] || [], lb = qb[q] || [];
+      if (!la.length || !lb.length) continue;
+      var pq = myersPairs(la.map(function (i) { return ta.tok[i]; }), lb.map(function (j) { return tb.tok[j]; }), 4000);
+      if (pq) pq.forEach(function (pr) { pa[la[pr[0]]] = lb[pr[1]]; pb[lb[pr[1]]] = la[pr[0]]; });
     }
     function stat(m, pm) { var st = new Uint8Array(m.N); for (var i = 0; i < m.N; i++) st[i] = pm[i] < 0 ? 1 : 0; return st; }
     // instruction maps: exact on common instructions, interpolated inside differing runs
@@ -1350,8 +1370,10 @@ footer summary { cursor: pointer; }
       return out;
     }
     var cnt = function (m, tk, pm, mv) { var c = 0, d = 0; for (var i = 0; i < m.N; i++) if (pm[i] < 0 && tk.isMove[i] === mv) { c++; if (mv && m.mvAt[i] >= 0) d += m.MV[m.mvAt[i]].d; } return [c, d]; };
+    var aa = new Int32Array(ma.N).fill(-1), ab = new Int32Array(mb.N).fill(-1);
+    for (var i5 = 0; i5 < ma.N; i5++) if (ta.isAnchor[i5] && pa[i5] >= 0) { aa[i5] = pa[i5]; ab[pa[i5]] = i5; }
     return {
-      stA: stat(ma, pa), stB: stat(mb, pb), mapAB: imap(ma.N, pa, mb.N), mapBA: imap(mb.N, pb, ma.N),
+      stA: stat(ma, pa), stB: stat(mb, pb), mapAB: imap(ma.N, aa, mb.N), mapBA: imap(mb.N, ab, ma.N),
       onlyA: { moves: cnt(ma, ta, pa, 1), gates: cnt(ma, ta, pa, 0) }, onlyB: { moves: cnt(mb, tb, pb, 1), gates: cnt(mb, tb, pb, 0) },
       commonGates: gp.length
     };
@@ -1481,7 +1503,7 @@ footer summary { cursor: pointer; }
       var al = DIFF.al;
       h += '<tr><td>diff (aligned)</td><td class="bad">only in 1: ' + al.onlyA.moves[0] + " moves (Σ " + fmt(al.onlyA.moves[1], 2) + "), " + al.onlyA.gates[0] +
         ' gates</td><td class="good">only in 2: ' + al.onlyB.moves[0] + " moves (Σ " + fmt(al.onlyB.moves[1], 2) + "), " + al.onlyB.gates[0] +
-        " gates</td><td colspan=2>" + al.commonGates + " common gates · <kbd>D</kbd>/<kbd>Shift</kbd>+<kbd>D</kbd> next/prev difference</td></tr>";
+        " gates</td><td colspan=2>" + al.commonGates + " common CZ · <kbd>D</kbd>/<kbd>Shift</kbd>+<kbd>D</kbd> next/prev difference</td></tr>";
     }
     $("diff").innerHTML = h + "</table>";
   }

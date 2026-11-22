@@ -164,15 +164,16 @@ view shows a message with a link to its page instead.
 
 **Diff mode** (split view, on by default; "◐ diff on/off" button in side 2's header, `diff=0` in the
 hash turns it off): the two compilations are aligned instead of followed by relative progress.
-Gates (`rx`/`rz` with angle, `cz` pair, measure) are aligned with Myers' diff; they define the
-*equivalent states*. Moves are compared as exact (qubit, from, to) sets inside each pair of
-aligned gate segments, so moves that are only reordered within a gap still count as common.
+The CZ gates (the pulse structure) are aligned with Myers' diff; they define the *equivalent
+states* and the position maps. Moves (exact (qubit, from, to) sets) are matched as multisets inside
+each pair of aligned CZ segments; `rx`/`rz`/measurements are aligned per qubit (their per-qubit
+order is what matters, not where in the global stream a compiler emitted them).
 Instructions that exist only on side 1 are tinted **red** in its circuit strip (ticks in its
 overview), those only on side 2 **green**. Side 2 follows side 1 through the alignment (exact on
 common instructions, interpolated inside differing runs); clicking an instruction on either side
 jumps the other one to the equivalent state. `D` / `Shift`+`D`: next / previous run of differences
 (on side 1). The difference table adds a row with the moves (count and Σ distance) and gates only
-in 1 / only in 2, and the number of common gates. Sequences whose gates differ in more than 6000
+in 1 / only in 2, and the number of common CZ gates. Sequences whose CZs differ in more than 6000
 edits fall back to relative progress ("diff (too different)").
 
 ![Split view in diff mode: relay_best_l3 (1) vs relay_l3 (2) on 12q tree p1, at a difference](img/viz_diff_split.png)
