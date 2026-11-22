@@ -196,6 +196,48 @@ bullets(s, [
 stat(s, 6.4, 5.55, 6.3, "≈ 2.1 per band move", "for up to 10 pairs (2-row band); the hub stream is near its floor at ≈ 3.2 per hub pulse", HEX.blue, 26);
 s.addNotes("The rigid band is why moves are cheap per CZ: one 2-row band move costs about 2.1 for up to 10 pairs. Per round: lift, pulse, rotors dip for rx(θ), lift, pulse, drop, about 4 moves for all pairs. The hub stream is close to its floor (about 3.2 per hub pulse: drop, hop, lift).");
 
+// ------------------------------------------------------------------ 5b L3 movement summary (for the 5-minute talk)
+s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Approach" });
+s.addText("L3: moving atoms cheaply", { placeholder: "title" });
+// left: staging row + row rotation diagram
+card(s, 0.6, 1.4, 5.0, 5.35);
+chip(s, 0.85, 1.65, "L3", HEX.blue, 0.5, 13);
+s.addText("Hub stream: staging row + row rotation", { x: 1.5, y: 1.65, w: 4.0, h: 0.5, fontSize: 18, bold: true, color: C.text1, margin: 0, valign: "middle", isTextBox: true, objectName: "l3dTitle" });
+const zx = 0.95, zy = 2.4, zw = 4.3;
+s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: zx, y: zy, w: zw, h: 0.8, rectRadius: 0.08, fill: { color: HEX.zone }, line: { color: HEX.zone, width: 0 }, objectName: "l3zone" });
+s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: zx, y: zy + 0.9, w: zw, h: 1.85, rectRadius: 0.08, fill: { color: HEX.sto }, line: { color: HEX.sto, width: 0 }, objectName: "l3sto" });
+s.addText("entangling zone, row 10", { x: zx + 0.1, y: zy + 0.04, w: 2.4, h: 0.24, fontSize: 10, color: "B8662A", margin: 0, isTextBox: true, objectName: "l3zoneLbl" });
+const hubX = zx + 1.6, rowY = [zy + 1.1, zy + 1.65, zy + 2.2], rowCol = [HEX.blue, "7FA6D6", "B9CCE6"], rowName = ["row 9 · staging", "row 8", "row 7"];
+s.addShape(pres.shapes.OVAL, { x: hubX, y: zy + 0.33, w: 0.36, h: 0.36, fill: { color: HEX.gold }, line: { color: HEX.white, width: 1 }, objectName: "l3hub" });
+s.addShape(pres.shapes.OVAL, { x: hubX + 0.4, y: zy + 0.33, w: 0.36, h: 0.36, fill: { color: HEX.blue }, line: { color: HEX.white, width: 1 }, objectName: "l3partner" });
+rowY.forEach((y, r) => {
+  for (let k = 0; k < 7; k++) s.addShape(pres.shapes.OVAL, { x: zx + 0.15 + k * 0.4, y, w: 0.3, h: 0.3, fill: { color: rowCol[r] }, line: { color: HEX.white, width: 1 }, objectName: nm("l3row") });
+  s.addText(rowName[r], { x: zx + 3.05, y: y - 0.02, w: 1.2, h: 0.34, fontSize: 10, color: C.text2, margin: 0, valign: "middle", isTextBox: true, objectName: nm("l3rowLbl") });
+});
+s.addShape(pres.shapes.LINE, { x: hubX + 0.58, y: zy + 0.72, w: 0.01, h: rowY[0] - zy - 0.72, line: { color: HEX.purple, width: 2, dashType: "dash", beginArrowType: "triangle" }, objectName: "l3lift" });
+bullets(s, [
+  "The hub waits in the zone; partners rise one by one from row 9 and drop back (≈ 1.1 each)",
+  "Row 9 used up: one move shifts all rows down by one, one move lifts the next row into row 9",
+  "≈ 6 per row of 10 partners at 50 qubits",
+], 0.85, 5.2, 4.55, 1.5, 12);
+// right: the other movement tricks, one row each
+const TRICKS = [
+  ["Rigid band rounds", "A round's pairs sit as one band in storage; one lift carries all of them, rotors dip and come back.", "≈ 2.1 / move, 10 pairs", HEX.blue],
+  ["Hub slot hopping", "The hub moves between the two sites of its pair (0.3 apart), so partners rise straight up from two columns.", "0.3 per hop", HEX.gold],
+  ["Gather lifts", "Small rounds: each row segment of members goes straight to its pair slots in one move, no shuffling first.", "rounds ≤ 5 pairs", HEX.orange],
+  ["Dip trimming", "Only atoms that owe a rotation go to storage, straight down, instead of taking whole rows along.", "1.22 → 1.04 / move", HEX.sky],
+  ["Exact solver → fast pass", "MILP on 3-move windows of finished plans; the patterns became rewrite rules that run in seconds.", "−4.1 % distance", HEX.purple],
+];
+TRICKS.forEach(([t, d, num, col], i) => {
+  const y = 1.4 + i * 1.08;
+  card(s, 5.85, y, 6.85, 0.95);
+  chip(s, 6.05, y + 0.22, String(i + 1), col, 0.5, 14);
+  s.addText(t, { x: 6.75, y: y + 0.08, w: 3.6, h: 0.36, fontSize: 15, bold: true, color: C.text1, margin: 0, valign: "middle", isTextBox: true, objectName: nm("trickTitle") });
+  s.addText(d, { x: 6.75, y: y + 0.44, w: 4.25, h: 0.48, fontSize: 11, color: C.text2, margin: 0, valign: "top", isTextBox: true, objectName: nm("trickText") });
+  s.addText(num, { x: 11.05, y: y + 0.08, w: 1.5, h: 0.8, fontSize: 13, bold: true, color: col, align: "right", margin: 0, valign: "middle", isTextBox: true, objectName: nm("trickNum") });
+});
+s.addNotes("Between the pulses, the movement layer decides where atoms wait and which rigid moves bring them up. The picture on the left is the hub stream: the hub waits in the zone and its partners rise one at a time from storage row 9, the staging row. When that row is used up, one move shifts every stored row down by one and one move lifts the next row into row 9: about six per row of ten partners at 50 qubits. On the right the other tricks: a round's pairs are lifted as one band, about 2.1 per move for up to ten pairs; the hub hops between the two sites of its pair so partners come straight up from two columns; small rounds gather each row segment straight into its slots; only atoms that owe a rotation dip, straight down. And we solved small windows of finished plans exactly with a MILP and turned the patterns into a clean-up pass: 4 percent less distance on top of relay, gates untouched.");
+
 // ------------------------------------------------------------------ 6 formal L3
 pres.addSection({ title: "Our L3 work" });
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Our L3 work" });

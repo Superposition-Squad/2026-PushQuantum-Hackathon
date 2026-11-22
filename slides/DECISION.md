@@ -19,27 +19,30 @@ three layers, formal L3 / exact solver / peephole, how we worked, results histor
 
 Ours is too long for 5 minutes (11 slides). Theirs is the better talk.
 
-## Decision: their deck as backbone, one slide from ours, the rest is backup
+## Decision (updated): fewer hub slides, one slide on the movement layer
+
+Their deck spends five slides on the hub. For 5 minutes: two hub slides (insight, mechanism), then
+one slide on how the atoms move (L3, ours, new) and one on how we worked (ours).
 
 | # | slide | source | time |
 |---|---|---|---|
-| 1 | Title + headline numbers (+92.45 %, −93.2 % travel, −89.4 % depth, 20/20) | theirs, slide 1 | 0:30 |
-| 2 | The bottleneck: one hub, 98 pulses per layer | theirs, slide 2 | 0:45 |
-| 3 | The insight: the hub only needs the parity (reveal steps = one slide) | theirs, slides 3-5 | 1:00 |
-| 4 | The mechanism: all handovers at once, hub meets only roots | theirs, slide 6 (optionally play 10 s of our MP4 from 0:19) | 0:45 |
-| 5 | How we worked: one harness, exact solver → fast peephole pass, visualiser diff, merging lines of work | ours, slide 9 | 0:40 |
-| 6 | Results + takeaway | theirs, slide 8 (one takeaway sentence from slide 9 in the notes) | 0:50 |
+| 1 | Title + headline numbers (+92.45 %, −93.2 % travel, −89.4 % depth, 20/20) | theirs, slide 1 | 0:25 |
+| 2 | The hub only needs the parity (final reveal state; say the bottleneck in one sentence: 98 hub pulses per layer at 50 qubits) | theirs, slide 5 | 1:00 |
+| 3 | The mechanism: all handovers at once, hub meets only roots | theirs, slide 6 | 0:40 |
+| 4 | **L3: moving atoms cheaply**: staging row + row rotation (diagram), rigid band rounds, hub slot hopping, gather lifts, dip trimming, exact solver → fast pass | ours, slide 7 | 0:55 |
+| 5 | How we worked: one harness, exact solver → peephole, visualiser diff, merging lines of work | ours, slide 10 | 0:40 |
+| 6 | Results (one takeaway sentence in the notes) | theirs, slide 8 | 0:40 |
 
-Total ≈ 4:30, leaving 30 s buffer.
+Total ≈ 4:20, leaving 40 s buffer.
 
-Backup (after a "Backup" divider, for questions): theirs "Keeping it honest" (slide 7), theirs takeaway
-(slide 9), theirs 6 draft identity slides, ours "Three layers" (slide 4), ours "From exact solutions
-to a fast pass" (slide 8), ours results chart (slide 10), the MP4 `slides/anim/relay_anim.mp4`.
+Backup (behind a "Backup" title slide): theirs slides 2 (bottleneck), 3-4 (reveal steps), 7 (keeping it
+honest), 9 (takeaway), the 6 draft identity slides; ours slides 4 (three layers), 6 (rounds and band),
+8 (formal L3), 9 (exact solutions → fast pass), 11 (results chart); the MP4.
 
 ## How to assemble (Google Slides, no file edits)
 
 1. File → Import slides → upload `slides/relay/relay.pptx` → select all → Import.
-2. File → Import slides → upload `slides/deck/relay_deck.pptx` → select only slide 9 (and the backup
-   slides 4, 8, 10) → Import; drag slide 9 between their mechanism and results slides.
-3. Move their slide 7, 9 and the draft slides behind a "Backup" title slide.
+2. File → Import slides → upload `slides/deck/relay_deck.pptx` → select slides 7 and 10 (and the backup
+   slides 4, 6, 8, 9, 11) → Import; put 7 and 10 between their mechanism and results slides.
+3. Move their slides 2, 3, 4, 7, 9 and the draft slides behind a "Backup" title slide.
 4. Optional: Insert → Video → Drive → `relay_anim.mp4` on the mechanism slide (start at 0:19).
