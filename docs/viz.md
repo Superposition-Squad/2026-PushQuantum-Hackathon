@@ -32,7 +32,7 @@ python bench/viz.py serve        # http://<host>:9000/ serving viz/ (default hos
 ```
 
 - Output: `viz/<name>/<label>.html` (one self-contained page, no external assets) plus
-  `viz/<name>/<label>.json` (sidecar with metrics, used by the index). `viz/` is gitignored.
+  `viz/<name>/<label>.json` (sidecar with metrics, used by the index). `viz/` is committed so the pages can be opened straight from the repo.
   `--out DIR` changes the output directory for every subcommand.
 - `<name>`: the idea folder for compilers under `compilers/` of this checkout or of the main repo
   (`naive`, `gates`), `<worktree>-<idea>` for `/home/hackathon/challenge-wt/<wt>/compilers/<idea>/`

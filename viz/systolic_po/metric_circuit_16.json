@@ -1,0 +1,34 @@
+{
+ "name": "systolic_po",
+ "label": "metric_circuit_16",
+ "family": "ihva",
+ "qubits": 20,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/systolic_po/compiler.py",
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 665,
+  "move_steps": 665,
+  "move_distance": 1134.673463,
+  "move_time": 1300.746807,
+  "depth": 229,
+  "num_operations": 1444,
+  "spacing_warnings": 67
+ },
+ "cz": 300,
+ "naive": {
+  "num_moves": 984,
+  "move_steps": 984,
+  "move_distance": 9820.647618,
+  "move_time": 9820.647618,
+  "depth": 795,
+  "num_operations": 2630,
+  "spacing_warnings": 0
+ },
+ "equivalence": "skipped (fast)",
+ "compile_s": 8.327,
+ "page": "metric_circuit_16.html",
+ "page_bytes": 332335,
+ "generated": "2026-11-21T21:55:39Z"
+}

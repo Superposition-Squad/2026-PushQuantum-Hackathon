@@ -1,0 +1,34 @@
+{
+ "name": "optimizer-optimizer",
+ "label": "metric_circuit_15",
+ "family": "ihva",
+ "qubits": 20,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/optimizer-optimizer/compiler.py",
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 217,
+  "move_steps": 217,
+  "move_distance": 587.106298,
+  "move_time": 608.504495,
+  "depth": 78,
+  "num_operations": 322,
+  "spacing_warnings": 11
+ },
+ "cz": 100,
+ "naive": {
+  "num_moves": 328,
+  "move_steps": 328,
+  "move_distance": 3273.549206,
+  "move_time": 3273.549206,
+  "depth": 247,
+  "num_operations": 930,
+  "spacing_warnings": 0
+ },
+ "equivalence": "skipped (fast)",
+ "compile_s": 2.538,
+ "page": "metric_circuit_15.html",
+ "page_bytes": 169039,
+ "generated": "2026-11-21T22:04:57Z"
+}
