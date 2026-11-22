@@ -99,6 +99,16 @@ svg text{font-family:inherit;fill:var(--fg)}
 .gbox rect{fill:#18305c;stroke:var(--blue);stroke-width:1.5}
 .gbox text{font-size:14px;text-anchor:middle;font-weight:600}
 .gbox .gn{font-size:11px;fill:#9fb9e8;font-weight:500}
+.cxg line{stroke:#cdd5ec;stroke-width:2.5} .cxg .ctl{fill:#cdd5ec} .cxg .tgt{fill:var(--bg);stroke:#cdd5ec;stroke-width:2.5}
+.gbox.fr rect{fill:#161d33;stroke:#7d8ab0;stroke-dasharray:4 3}
+.gbox.hl rect{fill:#3a2a12;stroke:var(--orange)}
+.gbox.yb rect{fill:#10382a;stroke:var(--green)}
+.gbox .one{font-size:16px}
+.slide.draft .kicker{color:var(--mag)}
+.minis{display:flex;flex-direction:column;align-items:center;padding-bottom:18px}
+.minis .mt{font-size:20px;font-weight:750;align-self:flex-start;margin-bottom:10px}
+.minis .meq{font-size:34px;font-weight:300;color:var(--mut);line-height:1;margin:2px 0 4px}
+.minis .lbl{font-size:15px;color:#cdd5ec;margin-top:10px;align-self:flex-start}
 .brace{stroke:var(--green);stroke-width:1.5;fill:none;opacity:.8}
 .btext{font-size:14px;fill:var(--green);text-anchor:middle}
 .eq{font-size:70px;font-weight:300;color:var(--mut);align-self:center;padding:0 6px 26px}
@@ -151,6 +161,7 @@ svg text{font-family:inherit;fill:var(--fg)}
 .bar.old{fill:var(--old)} .bar.new{fill:var(--green)}
 .bv{font-size:12px;text-anchor:middle;fill:var(--mut);font-variant-numeric:tabular-nums;paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
 .bv.new{fill:var(--green);font-weight:700}
+.bv.big{font-size:15px;fill:#06281a;stroke:none}
 .bound{stroke:#fff;stroke-width:2;stroke-dasharray:5 4}
 .bnote{font-size:13px;fill:#fff;font-weight:600}
 .delta{font-size:15px;color:var(--mut);margin-top:6px}
@@ -166,6 +177,10 @@ body.notes #notes{display:flex;gap:28px}
 #clock.over{color:#ff6b6b}
 #clock small{display:block;font-size:11px;font-weight:500;color:var(--mut);letter-spacing:.08em}
 aside.notes{display:none}
+/* capture mode (make_pptx.py): flat background so exported images blend into the slide */
+body.cap #stage{background:var(--bg);border-radius:0}
+body.cap .slide{transition:none}
+body.cap #page,body.cap #hud{display:none}
 
 @media print{
   @page{size:1280px 720px;margin:0}
@@ -192,27 +207,29 @@ aside.notes{display:none}
       <p class="lead" style="margin-top:14px;max-width:620px">A parity trick that takes the busiest qubit of the circuit
         out of the queue on a zoned neutral-atom machine.</p>
     </div>
-    <svg class="hero" id="hero" width="400" height="400" viewBox="0 0 400 400"></svg>
+    <svg class="hero" id="hero" data-gif="hero" data-gif-ms="7000" width="400" height="400" viewBox="0 0 400 400"></svg>
   </div>
   <div class="tiles">
-    <div class="tile"><div class="big gold">+{{relay_score}}<small> %</small></div>
-      <div class="lbl">score vs. the naive compiler (official validator v5, run locally)</div></div>
-    <div class="tile"><div class="big green">−{{depth_cut}}<small> % depth</small></div>
-      <div class="lbl">vs. our own previous best compiler, on the same 20 circuits</div></div>
+    <div class="tile"><div class="big gold">+{{score}}<small> %</small></div>
+      <div class="lbl">score against the baseline compiler (official validator v5, run locally)</div></div>
+    <div class="tile"><div class="big green">−{{dist_impr}}<small> %</small></div>
+      <div class="lbl">atom travel: {{naive_dist}} → {{best_dist}}</div></div>
+    <div class="tile"><div class="big green">−{{depth_impr}}<small> %</small></div>
+      <div class="lbl">circuit depth: {{naive_depth}} → {{best_depth}}</div></div>
     <div class="tile"><div class="big">{{n_valid}}</div>
-      <div class="lbl">scored circuits valid; equivalence checked at 12, 20 and 50 qubits</div></div>
+      <div class="lbl">scored circuits valid</div></div>
   </div>
-  <aside class="notes">We compiled circuits for planqc's zoned neutral-atom machine. Against the baseline our compiler removes
-    {{dist_impr}} % of the atom travel and {{depth_impr}} % of the circuit depth: a score of {{relay_score}}. I want to use
-    these minutes for the one idea in it we are proudest of. We call it relay, and it broke something we had written down as
-    a hard limit.</aside>
+  <aside class="notes">We compiled circuits for planqc's zoned neutral-atom machine. Against the baseline compiler ours removes
+    {{dist_impr}} % of the atom travel and {{depth_impr}} % of the circuit depth: a score of {{score}}. I want to use these
+    minutes for the one idea in it we are proudest of. We call it relay, and it broke something we had written down as a
+    hard limit.</aside>
 </section>
 
 <!-- 2 ─────────────────────────────────────────────────────────── bottleneck -->
 <section class="slide" data-scene="queue">
   <p class="kicker">The bottleneck</p>
   <h2>One hub qubit, and <em>everyone</em> has to visit it</h2>
-  <div class="row">
+  <div class="row" style="flex:none" data-gif="queue">
     <div class="col" style="width:330px;align-items:center">
       <svg id="star" width="300" height="300" viewBox="0 0 300 300"></svg>
       <div class="counter"><b id="qcount">0</b> / 20 hub pulses</div>
@@ -220,11 +237,11 @@ aside.notes{display:none}
     <div class="col grow">
       <svg id="scene-queue" width="100%"></svg>
       <div class="caption" id="qcap">&nbsp;</div>
-      <p class="lead" style="font-size:20px;margin-top:8px">A two-qubit gate means bringing two atoms side by side in the
-        entangling zone. The hub is <b>one atom</b>, so its partners queue: up, pulse, down, next.
-        And every gate block needs that <b>twice</b>.</p>
     </div>
   </div>
+  <p class="lead" style="font-size:21px;margin-top:14px">A two-qubit gate means bringing two atoms side by side in the
+    entangling zone. The hub is <b>one atom</b>, so its partners queue: up, pulse, down, next.
+    And every gate block needs that <b>twice</b>.</p>
   <p class="punch">At 50 qubits: {{hub_deg}} partners × 2 passes = <b>{{hub_pulses}} pulses in a row on one wire, per layer</b>.
     We had {{big_bound}} written down as a hard floor for the depth of the 3-layer circuits.</p>
   <aside class="notes">The benchmark circuits are Max-Cut ansätze. They have one reference qubit that interacts with every
@@ -242,18 +259,18 @@ aside.notes{display:none}
     Parity is something the partners can work out among themselves.</p>
   <div class="row" style="flex:none;gap:10px;margin-top:22px;align-items:flex-start">
     <div class="col">
-      <svg id="circ-a" width="290" height="225" viewBox="0 0 290 225"></svg>
+      <svg id="circ-a"></svg>
       <div class="tally">hub pulses: <b class="orange">2</b></div>
     </div>
-    <div class="eq frag">=</div>
-    <div class="col frag">
-      <svg id="circ-b" width="700" height="225" viewBox="0 0 700 225"></svg>
+    <div class="eq frag" data-g="1">=</div>
+    <div class="col frag" data-g="1">
+      <svg id="circ-b"></svg>
       <div class="tally">hub pulses: <b class="orange">1</b> &nbsp;·&nbsp; partner pulses: <b class="green">2</b>
         <span class="mut">(off the hub’s wire)</span></div>
     </div>
   </div>
-  <div class="frag" style="margin-top:14px">
-    <div class="panel formula">cz(hub, L) · cz(hub, R) &nbsp;=&nbsp; P · cz(hub, R) · P
+  <div class="frag" data-g="2" style="margin-top:14px">
+    <div class="panel formula" data-img>cz(hub, L) · cz(hub, R) &nbsp;=&nbsp; P · cz(hub, R) · P
       <span class="mut">&nbsp;&nbsp;with&nbsp; P = rx<sub>R</sub>(−π/2) · cz(L, R) · rx<sub>R</sub>(π/2)</span></div>
     <div class="chips">
       <div class="chip"><b>Exact</b>An identity, not an approximation. P is a controlled-Y between two partners.</div>
@@ -272,7 +289,7 @@ aside.notes{display:none}
 <section class="slide" data-scene="relay">
   <p class="kicker">The mechanism</p>
   <h2>All handovers at once. The hub meets only <em>roots</em>.</h2>
-  <div class="row">
+  <div class="row" style="flex:none" data-gif="relay">
     <div class="col" style="width:650px">
       <svg id="scene-relay" width="100%"></svg>
       <div class="legend">
@@ -307,7 +324,7 @@ aside.notes{display:none}
 <!-- 5 ─────────────────────────────────────────────────────────── validity -->
 <section class="slide">
   <p class="kicker">Keeping it honest</p>
-  <h2>Same circuit? We <em>checked</em>, at every size</h2>
+  <h2>Same circuit? We <em>checked</em>.</h2>
   <div class="row">
     <div class="col" style="width:520px">
       <p class="lead" style="font-size:19px">Above 19 qubits the validator wants every input pair to interact, and a
@@ -320,20 +337,22 @@ aside.notes{display:none}
     </div>
     <div class="col grow">
       <ul class="checks">
+        <li><b>The identity is exact</b><small>checked numerically against the original gate blocks before any compiler work</small></li>
         <li><b>12 qubits: full equivalence</b><small>QCEC on all eight circuits, up to global phase</small></li>
-        <li><b>20 qubits: state vectors</b><small>6 / 6 circuits, three random product inputs each</small></li>
-        <li><b>50 qubits: exact Clifford tableaux</b><small>12 / 12 as compiled, 12 / 12 with the generic two-pass path forced</small></li>
-        <li><b>Sanity set 13 / 13, scored set {{n_valid}}</b><small>official validator, full mode, idle rule on</small></li>
+        <li><b>All {{n_circ}} scored circuits pass the official validator</b><small>full mode, idle rule on; the 13 sanity circuits pass too</small></li>
+        <li><b>The relay path at scale</b><small>state vectors at 20 qubits and exact Clifford tableaux at 50, run on the relay core before the final tuning</small></li>
+        <li><b>The move clean-up cannot change the circuit</b><small>every qubit keeps exactly its gate sequence; only moves are rewritten</small></li>
         <li><b>Physically meaningful pulses</b><small>a pulse hits every occupied pair in the zone, never a subset</small></li>
       </ul>
     </div>
   </div>
-  <p class="punch">The validator only compares interaction pairs above 19 qubits. <b>We never relied on that gap.</b></p>
+  <p class="punch">The validator only compares interaction pairs above 19 qubits. <b>We built for true equivalence.</b></p>
   <aside class="notes">Is that still the same circuit? Two things. First, for large circuits the organisers' validator checks
     that every pair that interacts in the input also interacts in the output. A relay leaf never touches the hub, and our
     first version failed five of eighteen circuits. The fix: a block needs two passes anyway, so the roots swap between the
-    passes, and the compiler keeps a ledger of who has met the hub. Second, we never relied on that weak check. Full
-    equivalence at 12 qubits, state vectors at 20, and exact Clifford tableaux at 50.</aside>
+    passes, and the compiler keeps a ledger of who has met the hub. Second, we did not build for that weak check. The
+    identity is exact, the 12-qubit circuits pass full equivalence checking, and we tested the relay path with state
+    vectors at 20 qubits and exact Clifford tableaux at 50.</aside>
 </section>
 
 <!-- 6 ─────────────────────────────────────────────────────────── results -->
@@ -341,30 +360,29 @@ aside.notes{display:none}
   <p class="kicker">Results</p>
   <h2>Below the floor we had <em>assumed</em></h2>
   <div class="row">
-    <div class="col" style="width:730px">
-      <svg id="chart" width="730" height="400" viewBox="0 0 730 400"></svg>
-      <div class="legend" style="margin-top:2px">
-        <span><i class="bar" style="background:var(--old)"></i>our previous best (solo2)</span>
-        <span><i class="bar" style="background:var(--green)"></i>relay</span>
+    <div class="col" style="width:700px">
+      <svg id="chart" width="700" height="410" viewBox="0 0 700 410"></svg>
+      <div class="legend" data-img style="margin-top:4px;padding:2px 0">
+        <span><i class="bar" style="background:var(--green)"></i>Relay</span>
         <span><svg width="26" height="8" style="display:inline-block;vertical-align:1px;margin-right:6px"><line x1="0" x2="26" y1="4" y2="4" class="bound"/></svg>assumed floor: 2 pulses per hub gate</span>
       </div>
     </div>
     <div class="col grow" style="gap:12px">
-      <div class="tile" style="flex:none"><div class="big gold nw">{{solo2_score}} → {{relay_score}}</div>
-        <div class="lbl">score, scored set of 20 circuits</div></div>
-      <div class="tile" style="flex:none"><div class="big green nw">{{solo2_depth}} → {{relay_depth}}</div>
-        <div class="lbl">total depth: −{{depth_cut}} %. Largest circuit {{big_solo2}} → {{big_relay}} (−{{big_cut}} %)</div></div>
-      <div class="tile" style="flex:none"><div class="big nw">{{solo2_dist}} → {{relay_dist}}</div>
-        <div class="lbl">total atom travel: {{dist_change}} %, about flat. Relays save hub trips but pay for band lifts</div></div>
-      <p class="mut" style="font-size:15px;line-height:1.4">Pays off from ≈ 15 partners per batch: the 12-qubit circuits
-        never use it. The compiler simulates both options per batch and keeps the cheaper one.</p>
+      <div class="tile" style="flex:none"><div class="big gold">+{{score}}<small> %</small></div>
+        <div class="lbl">score on the {{n_circ}} scored circuits, all valid</div></div>
+      <div class="tile" style="flex:none"><div class="big green nw">{{naive_dist}} → {{best_dist}}</div>
+        <div class="lbl">atom travel: −{{dist_impr}} % against the baseline compiler</div></div>
+      <div class="tile" style="flex:none"><div class="big green nw">{{naive_depth}} → {{best_depth}}</div>
+        <div class="lbl">circuit depth: −{{depth_impr}} %. Largest circuit {{big_naive}} → {{big_best}}</div></div>
+      <p class="mut" style="font-size:15px;line-height:1.4">Relays only pay off for large batches, so the compiler
+        simulates each batch with and without the relay and keeps the cheaper plan.</p>
     </div>
   </div>
-  <aside class="notes">Results. Depth on the scored set drops by {{depth_cut}} percent against our own previous best. The largest
-    circuit goes from {{big_solo2}} to {{big_relay}}; the dashed line is what we had written down as the lower bound,
-    {{big_bound}}. Atom travel stays about flat: relays save hub trips but pay for band lifts. The score goes from
-    {{solo2_score}} to {{relay_score}}. It is not magic. It pays off from about fifteen partners per batch, so the 12-qubit
-    circuits never use it, and the compiler decides per batch by simulating both options.</aside>
+  <aside class="notes">Results. Against the baseline compiler, atom travel drops by {{dist_impr}} percent and circuit depth by
+    {{depth_impr}} percent, a score of {{score}} with all {{n_circ}} circuits valid. The chart shows the six 50-qubit circuits.
+    The dashed lines are the floor we had written down, two pulses per hub gate. Every one of them lands below it; the
+    largest circuit goes from {{big_naive}} to {{big_best}}, where we thought {{big_bound}} was the limit. It is not magic:
+    relays only pay off for large batches, so the compiler simulates each batch both ways and keeps the cheaper plan.</aside>
 </section>
 
 <!-- 7 ─────────────────────────────────────────────────────────── takeaway -->
@@ -376,24 +394,152 @@ aside.notes{display:none}
       <div class="lbl" style="font-size:18px;color:#cdd5ec">“Two pulses per hub gate” was a property of our gate sequence,
         not of the machine. One identity removes ½ to ¾ of the hub’s pulses in a relayed batch.</div></div>
     <div class="tile"><div class="big green" style="font-size:30px">Exact and native</div>
-      <div class="lbl" style="font-size:18px;color:#cdd5ec">Only rx, rz and cz. Every pulse is a real global pulse.
-        Verified at 12, 20 and 50 qubits.</div></div>
+      <div class="lbl" style="font-size:18px;color:#cdd5ec">Only rx, rz and cz. Every pulse is a real global pulse on
+        every pair in the zone. No approximation anywhere.</div></div>
     <div class="tile"><div class="big gold" style="font-size:30px">Not just these circuits</div>
       <div class="lbl" style="font-size:18px;color:#cdd5ec">Any qubit that fans out to many others queues the same way
         on a zoned machine. Parity relays apply wherever that happens.</div></div>
   </div>
-  <div class="row" style="align-items:center;gap:40px;margin-top:26px">
-    <div style="font-size:92px;font-weight:800;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums">
-      <span style="color:var(--old)">{{big_solo2}}</span><span class="mut" style="font-weight:300"> → </span><span class="green">{{big_relay}}</span></div>
+  <div class="row" style="align-items:center;gap:36px;margin-top:24px;flex:none">
+    <div style="font-size:84px;font-weight:800;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap">
+      <span class="mut">{{big_naive}}</span><span class="mut" style="font-weight:300"> → </span><span class="green">{{big_best}}</span></div>
     <p class="lead" style="font-size:21px">depth of the largest circuit (50 qubits, 3 layers),<br>
       under the {{big_bound}} we believed was the floor.<br>
-      <span class="mut">Overall score <b>+{{relay_score}} %</b>, {{n_valid}} circuits valid.</span></p>
+      <span class="mut">Overall score <b>+{{score}} %</b>, {{n_valid}} circuits valid.</span></p>
   </div>
-  <p class="punch"><b>Next:</b> carrying atoms into the band is still 43–50 % of the travel at 50 qubits.</p>
+  <p class="mut" style="font-size:18px;line-height:1.4;margin-top:18px">Around the relay: partners travel as one rigid band,
+    and a final pass shortens the move plan with patterns we found using an exact solver.</p>
+  <p class="punch"><b>Next:</b> the open problem is rearranging atoms in storage before each lift.</p>
   <aside class="notes">Three things to take away. The limit we assumed was a property of our gate sequence, not of the machine:
     rewriting the math beat moving atoms faster. It is exact, and it uses only the machine's own gates. And it is not tied to
-    these circuits: any qubit that fans out to many others queues the same way on a zoned machine. What is left to do:
-    carrying atoms into the band is still about half of the travel at 50 qubits. Thank you.</aside>
+    these circuits: any qubit that fans out to many others queues the same way on a zoned machine. Around the relay, partners
+    travel as one rigid band, and a final pass shortens the moves. The open problem is rearranging atoms in storage before
+    each lift. Thank you.</aside>
+</section>
+
+<!-- 8 ─────────────────────────────────────────────────────────── draft: identity 1 -->
+<section class="slide draft">
+  <p class="kicker">Draft · circuit identity 1 of 6</p>
+  <h2>A gate block is <em>one rotation</em> between two pulses</h2>
+  <p class="lead">Every two-qubit block of the input is a single rotation about Z⊗Y. In the right frame it is pulse, rotate, pulse.</p>
+  <div class="row" style="flex:none;gap:10px;margin-top:18px;align-items:flex-start">
+    <div class="col"><svg id="d1-a"></svg><div class="tally">as given: <b>2</b> cx, <b>3</b> rotations, a basis change in every block</div></div>
+    <div class="eq">=</div>
+    <div class="col"><svg id="d1-b"></svg><div class="tally"><b class="orange">2</b> pulses, <b>1</b> rotation. S† and S of neighbouring blocks cancel</div></div>
+  </div>
+  <div style="margin-top:14px">
+    <div class="panel formula" data-img style="font-size:19px">rx<sub>t</sub>(−π/2)·cx·rz<sub>t</sub>(θ)·cx·rx<sub>t</sub>(π/2) &nbsp;=&nbsp; exp(−i θ/2 · Z<sub>c</sub>Y<sub>t</sub>) &nbsp;=&nbsp; S<sub>t</sub> · [ cz · rx<sub>t</sub>(θ) · cz ] · S<sub>t</sub>†</div>
+    <div class="chips">
+      <div class="chip"><b>One frame for the whole circuit</b>Each qubit gets S† once at the start and S once at the end. No basis change per block.</div>
+      <div class="chip"><b>The rotation happens in storage</b>Between the two pulses the target drops to storage for rx(θ). That visit is what the movement plan is built around.</div>
+      <div class="chip"><b>Blocks reorder like Pauli strings</b>Two blocks commute exactly when their Pauli strings do. That gives the scheduler its freedom.</div>
+    </div>
+  </div>
+  <aside class="notes">Draft. Every block of the input circuit is one rotation about Z on the control and Y on the target. If every qubit is conjugated by S once, the block becomes pulse, rotate the target, pulse, with no basis change per block.</aside>
+</section>
+
+<!-- 9 ─────────────────────────────────────────────────────────── draft: identity 2 -->
+<section class="slide draft">
+  <p class="kicker">Draft · circuit identity 2 of 6</p>
+  <h2>Blocks that share the hub share its <em>pulses</em></h2>
+  <p class="lead">Hub blocks that are ready together commute, so their pulses can move to the outside.</p>
+  <div class="row" style="flex:none;gap:10px;margin-top:18px;align-items:flex-start">
+    <div class="col"><svg id="d2-a"></svg><div class="tally">one block after the other: <b>3</b> separate storage visits</div></div>
+    <div class="eq">=</div>
+    <div class="col"><svg id="d2-b"></svg><div class="tally">fan-out, <b>one</b> storage visit for all, fan-out again</div></div>
+  </div>
+  <div style="margin-top:14px">
+    <div class="panel formula" data-img style="font-size:19px">∏<sub>p</sub> cz(hub, p) · rx<sub>p</sub>(θ<sub>p</sub>) · cz(hub, p) &nbsp;=&nbsp; F · ∏<sub>p</sub> rx<sub>p</sub>(θ<sub>p</sub>) · F <span class="mut">&nbsp;&nbsp;with&nbsp; F = ∏<sub>p</sub> cz(hub, p)</span></div>
+    <div class="chips">
+      <div class="chip"><b>Why it holds</b>Every block is a Z⊗X rotation with Z on the hub, so they all commute.</div>
+      <div class="chip"><b>What it buys</b>The hub stays in the zone for the whole batch, and all partners rotate together in storage.</div>
+      <div class="chip"><b>It sets up the relay</b>The fan-out F is exactly the piece the relay identity replaces.</div>
+    </div>
+  </div>
+  <aside class="notes">Draft. All hub blocks that are ready at the same time commute. So instead of pulse, rotate, pulse for each partner in turn, we do one fan-out over all partners, rotate all of them in one storage visit, and fan out again.</aside>
+</section>
+
+<!-- 10 ─────────────────────────────────────────────────────────── draft: identity 3 -->
+<section class="slide draft">
+  <p class="kicker">Draft · circuit identity 3 of 6</p>
+  <h2>A whole tree of partners funnels into <em>one root</em></h2>
+  <p class="lead">Chain the handovers: after two levels, one atom holds the parity of four.</p>
+  <div class="row" style="flex:none;gap:10px;margin-top:18px;align-items:flex-start">
+    <div class="col"><svg id="d3-a"></svg><div class="tally">hub pulses: <b class="orange">4</b></div></div>
+    <div class="eq">=</div>
+    <div class="col"><svg id="d3-b"></svg><div class="tally">hub pulses: <b class="orange">1</b> &nbsp;·&nbsp; partner pulse layers: <b class="green">4</b> <span class="mut">(2 levels in, 2 out; each is one lift)</span></div></div>
+  </div>
+  <div style="margin-top:14px">
+    <div class="panel formula" data-img style="font-size:17px">∏<sub>p</sub> cz(hub, p) &nbsp;=&nbsp; P† · cz(hub, R) · P <span class="mut">&nbsp;&nbsp;P = the Y gates, children first; each is rx(−π/2)·cz·rx(π/2)</span></div>
+    <div class="chips">
+      <div class="chip"><b>Why it holds</b>A controlled-Y turns the parent’s Z into child·parent. After the tree, the root’s Z is the parity of all four.</div>
+      <div class="chip"><b>Levels are parallel</b>The gates of one level act on disjoint pairs: one band lift and one pulse per level.</div>
+      <div class="chip"><b>Two levels fit the machine</b>A path of four sits in one storage row. Level 2 is the same lift shifted by one slot.</div>
+    </div>
+  </div>
+  <aside class="notes">Draft. The handover chains. In a path of four, the two outer atoms hand to the inner ones, then one inner atom hands to the other. That last atom, the root, now carries the parity of all four, and the hub needs one pulse instead of four.</aside>
+</section>
+
+<!-- 11 ─────────────────────────────────────────────────────────── draft: identity 4 -->
+<section class="slide draft">
+  <p class="kicker">Draft · circuit identity 4 of 6</p>
+  <h2>Quarter-turn blocks need <em>one pulse</em>, not two</h2>
+  <p class="lead">When the angle is ±π/2 the block is a Clifford gate, and one pulse with local gates is enough.</p>
+  <div class="row" style="flex:none;gap:10px;margin-top:18px;align-items:flex-start">
+    <div class="col"><svg id="d4-a"></svg><div class="tally"><b class="orange">2</b> pulses, with a storage visit in between</div></div>
+    <div class="eq">=</div>
+    <div class="col"><svg id="d4-b"></svg><div class="tally"><b class="orange">1</b> pulse. The control’s S is diagonal and simply waits</div></div>
+  </div>
+  <div style="margin-top:14px">
+    <div class="panel formula" data-img style="font-size:17px">cz · rx<sub>t</sub>(±π/2) · cz &nbsp;≅&nbsp; H<sub>t</sub> · (S<sup>±</sup> ⊗ S<sup>±</sup>) · cz · H<sub>t</sub> <span class="mut">&nbsp;&nbsp;up to a global phase</span></div>
+    <div class="chips">
+      <div class="chip"><b>Where it applies</b>In the warm-start circuits every non-zero angle is ±π/2, so every block there takes this form.</div>
+      <div class="chip"><b>Half turns and zero</b>θ = π is a pair of local Pauli gates with no pulse at all. θ = 0 is the identity and is dropped.</div>
+      <div class="chip"><b>Still exact</b>Only a global phase differs. The compiler detects these angles and switches form by itself.</div>
+    </div>
+  </div>
+  <aside class="notes">Draft. When a block's angle is plus or minus a quarter turn, the block is a Clifford gate and one pulse with local gates is enough. In the warm-start circuits every non-zero angle is like that.</aside>
+</section>
+
+<!-- 12 ─────────────────────────────────────────────────────────── draft: identity 5 -->
+<section class="slide draft">
+  <p class="kicker">Draft · circuit identity 5 of 6</p>
+  <h2><em>Either atom</em> can do the rotating</h2>
+  <p class="lead">The rotation between the two pulses can sit on the control instead of the target. Only local gates change.</p>
+  <div class="row" style="flex:none;gap:10px;margin-top:18px;align-items:flex-start">
+    <div class="col"><svg id="d5-a"></svg><div class="tally">the <b>target</b> drops to storage</div></div>
+    <div class="eq">=</div>
+    <div class="col"><svg id="d5-b"></svg><div class="tally">the <b>control</b> drops instead; the target stays where it is</div></div>
+  </div>
+  <div style="margin-top:14px">
+    <div class="panel formula" data-img style="font-size:17px">cz · rx<sub>t</sub>(θ) · cz &nbsp;=&nbsp; (C<sub>c</sub>⊗C<sub>t</sub>)† · [ cz · rx<sub>c</sub>(θ) · cz ] · (C<sub>c</sub>⊗C<sub>t</sub>) <span class="mut">&nbsp;&nbsp;C<sub>c</sub> = rz(π/2)·rx(π/2),&nbsp; C<sub>t</sub> = rx(π/2)·rz(π/2)</span></div>
+    <div class="chips">
+      <div class="chip"><b>Why it holds</b>Z⊗X and X⊗Z differ only by a local Clifford on each atom, and those are native rx and rz gates.</div>
+      <div class="chip"><b>What it buys</b>When the hub is the target of a block, its partner rotates instead and the hub stays in the zone.</div>
+      <div class="chip"><b>Chosen per block</b>The compiler picks whichever form keeps the busy atom still and the gate count low.</div>
+    </div>
+  </div>
+  <aside class="notes">Draft. The rotation between the two pulses can sit on either atom; only the local gates around the block change. So when the hub is the target, its partner does the rotating and the hub never has to leave the zone.</aside>
+</section>
+
+<!-- 13 ─────────────────────────────────────────────────────────── draft: identity 6 -->
+<section class="slide draft">
+  <p class="kicker">Draft · circuit identity 6 of 6</p>
+  <h2>Three small identities that <em>save trips</em></h2>
+  <p class="lead">None of them is deep. Each one removes moves or gates in every round.</p>
+  <div class="row" style="gap:20px;flex:none;margin-top:18px">
+    <div class="tile minis"><div class="mt gold">A pulse twice is no pulse</div>
+      <svg id="d6-a1"></svg><div class="meq">=</div><svg id="d6-a2"></svg>
+      <div class="lbl">Two bystanders on one pair can ride along with a band and take both pulses. The band stays one rigid block and nobody idles in the zone.</div></div>
+    <div class="tile minis"><div class="mt green">Diagonal gates can wait</div>
+      <svg id="d6-b1"></svg><div class="meq">=</div><svg id="d6-b2"></svg>
+      <div class="lbl">An rz commutes with the pulse, so it never forces a trip to storage on its own. It waits until the atom is there anyway.</div></div>
+    <div class="tile minis"><div class="mt orange">Two spellings of one gate</div>
+      <svg id="d6-c1"></svg><div class="meq">=</div><svg id="d6-c2"></svg>
+      <div class="lbl">The compiler emits whichever is shorter, for example rz(π)·rx(θ)·rz(−π) = rx(−θ): one gate instead of three.</div></div>
+  </div>
+  <p class="punch">cz · cz = 1 &nbsp;·&nbsp; rz · cz = cz · rz &nbsp;·&nbsp; rz(φ) rx(θ) rz(λ) = rz(φ−π) rx(−θ) rz(λ+π)</p>
+  <aside class="notes">Draft. Three small identities. A pulse applied twice cancels, so two bystander atoms can ride along with a band. Diagonal gates commute with the pulse, so an rz never forces a storage trip. And every single-qubit gate has two Euler spellings; the compiler emits the shorter one.</aside>
 </section>
 
 </div>
@@ -495,19 +641,19 @@ class Scene {
 // Runs an async loop while its slide is shown; stop() cancels at the next sleep.
 const STOP = Symbol("stop");
 class Runner {
-  constructor(reset, loop) { this.gen = 0; this.reset = reset; this.loop = loop; }
+  constructor(reset, loop) { this.gen = 0; this.loops = 0; this.reset = reset; this.loop = loop; }
   start() {
     const g = ++this.gen;
     const sleep = (ms) => new Promise((res, rej) => setTimeout(() => (g === this.gen ? res() : rej(STOP)), ms));
     (async () => {
       try {
-        while (g === this.gen) { this.reset(); await this.loop(sleep); }
+        while (g === this.gen) { this.reset(); await this.loop(sleep); this.loops++; }
       } catch (e) { if (e !== STOP) throw e; }
     })();
   }
   stop() { this.gen++; this.reset(); }
 }
-const scenes = {};
+const scenes = (window.__scenes = {});   // also used by make_pptx.py to record the animations
 
 /* ------------------------------------------------------------------ slide 1: hero */
 (function hero() {
@@ -572,38 +718,112 @@ const scenes = {};
   });
 })();
 
-/* ------------------------------------------------------------------ slide 3: circuits */
-function drawCircuit(svg, x1, gates) {
-  const Y = { hub: 44, L: 104, R: 164 };
-  for (const w in Y) {
-    el("line", { class: "wire", x1: 58, x2: x1, y1: Y[w], y2: Y[w] }, svg);
-    el("text", { class: "wlabel", x: 8, y: Y[w] + 6, style: w === "hub" ? "fill:var(--gold)" : "" }, svg, w);
+/* ------------------------------------------------------------------ circuits (slide 3 and the identity drafts) */
+// wires: [[id, label, colour]]; gates sit at x; time runs left to right. Returns the natural height.
+//   {cz:[a,b], cls}   pulse (cls "hubp" orange / "rel" green)      {cx:[c,t]}   cx as given in the input
+//   {cy:[c,p]}        controlled-Y, Y box on the parent p          {b, s, w, cls, bw}  box "b" (second line s) on wire w
+//   {brace:[x0,x1], text}   bracket under the last wire
+function circuit(svg, wires, x1, gates, { dy = 60, lw = 58, h } = {}) {
+  const Y = {}, yLast = 44 + dy * (wires.length - 1), bh = Math.min(42, dy - 6);
+  wires.forEach(([id], i) => (Y[id] = 44 + dy * i));
+  for (const [id, label, color] of wires) {
+    el("line", { class: "wire", x1: lw, x2: x1, y1: Y[id], y2: Y[id] }, svg);
+    el("text", { class: "wlabel", x: 8, y: Y[id] + 6, style: color ? `fill:${color}` : "" }, svg, label || id);
   }
+  const box = (x, w, cls, name, sub, bw) => {
+    const grp = el("g", { class: "gbox " + (cls || "") }, svg), ww = bw || (sub ? 62 : 40);
+    el("rect", { x: x - ww / 2, y: Y[w] - bh / 2, width: ww, height: bh, rx: 7 }, grp);
+    if (sub) {
+      el("text", { class: "gn", x, y: Y[w] - 5 }, grp, name);
+      el("text", { x, y: Y[w] + 13 }, grp, sub);
+    } else el("text", { class: "one", x, y: Y[w] + 6 }, grp, name);
+  };
+  let brace = false;
   for (const g of gates) {
     if (g.cz) {
-      const grp = el("g", { class: "cz " + g.cls }, svg), [a, b] = g.cz;
-      el("line", { x1: g.x, x2: g.x, y1: Y[a], y2: Y[b] }, grp);
-      el("circle", { cx: g.x, cy: Y[a], r: 8 }, grp);
-      el("circle", { cx: g.x, cy: Y[b], r: 8 }, grp);
-    } else if (g.rx) {
-      const grp = el("g", { class: "gbox" }, svg);
-      el("rect", { x: g.x - 31, y: Y.R - 21, width: 62, height: 42, rx: 7 }, grp);
-      el("text", { class: "gn", x: g.x, y: Y.R - 5 }, grp, "rx");
-      el("text", { x: g.x, y: Y.R + 13 }, grp, g.rx);
-    } else if (g.brace) {
-      const [a, b] = g.brace, y = Y.R + 32;
-      el("path", { class: "brace", d: `M${a} ${y} v8 H${b} v-8` }, svg);
-      el("text", { class: "btext", x: (a + b) / 2, y: y + 27 }, svg, g.text);
+      const grp = el("g", { class: "cz " + g.cls }, svg), [p, q] = g.cz;
+      el("line", { x1: g.x, x2: g.x, y1: Y[p], y2: Y[q] }, grp);
+      el("circle", { cx: g.x, cy: Y[p], r: 8 }, grp);
+      el("circle", { cx: g.x, cy: Y[q], r: 8 }, grp);
+    } else if (g.cx) {
+      const grp = el("g", { class: "cxg" }, svg), [c, t] = g.cx;
+      el("line", { x1: g.x, x2: g.x, y1: Y[c], y2: Y[t] + Math.sign(Y[t] - Y[c]) * 11 }, grp);
+      el("circle", { class: "ctl", cx: g.x, cy: Y[c], r: 6 }, grp);
+      el("circle", { class: "tgt", cx: g.x, cy: Y[t], r: 11 }, grp);
+      el("line", { x1: g.x - 11, x2: g.x + 11, y1: Y[t], y2: Y[t] }, grp);
+      el("line", { x1: g.x, x2: g.x, y1: Y[t] - 11, y2: Y[t] + 11 }, grp);
+    } else if (g.cy) {
+      const grp = el("g", { class: "cz rel" }, svg), [c, p] = g.cy;
+      el("line", { x1: g.x, x2: g.x, y1: Y[c], y2: Y[p] }, grp);
+      el("circle", { cx: g.x, cy: Y[c], r: 7 }, grp);
+      box(g.x, p, "yb", "Y", null, 32);
+    } else if (g.b) box(g.x, g.w, g.cls, g.b, g.s, g.bw);
+    else if (g.brace) {
+      const [p, q] = g.brace, y = yLast + 32;
+      el("path", { class: "brace", d: `M${p} ${y} v8 H${q} v-8` }, svg);
+      el("text", { class: "btext", x: (p + q) / 2, y: y + 27 }, svg, g.text);
+      brace = true;
     }
   }
+  const nat = yLast + (brace ? 66 : 30);
+  for (const [k, v] of [["viewBox", `0 0 ${x1 + 8} ${h || nat}`], ["width", x1 + 8], ["height", h || nat]]) svg.setAttribute(k, v);
+  return nat;
 }
-drawCircuit($("circ-a"), 282, [{ cz: ["hub", "L"], x: 120, cls: "hubp" }, { cz: ["hub", "R"], x: 215, cls: "hubp" }]);
-drawCircuit($("circ-b"), 692, [
-  { rx: "+π/2", x: 105 }, { cz: ["L", "R"], x: 172, cls: "rel" }, { rx: "−π/2", x: 239 },
-  { cz: ["hub", "R"], x: 375, cls: "hubp" },
-  { rx: "+π/2", x: 511 }, { cz: ["L", "R"], x: 578, cls: "rel" }, { rx: "−π/2", x: 645 },
-  { brace: [72, 272], text: "P: L hands its bit to R" }, { brace: [478, 678], text: "P again: hand it back" },
-]);
+// both sides of an identity, drawn at the same height
+function identity(id, wires, [xa, ga], [xb, gb], opts = {}) {
+  const A = $(id + "-a") || $(id + "1"), B = $(id + "-b") || $(id + "2");
+  const h = opts.h || Math.max(circuit(A, wires, xa, ga, opts), circuit(B, wires, xb, gb, opts));
+  for (const e of [A, B]) { e.replaceChildren(); }
+  circuit(A, wires, xa, ga, { ...opts, h }); circuit(B, wires, xb, gb, { ...opts, h });
+}
+const HUB = ["hub", "hub", "var(--gold)"];
+const rxb = (s, w, x, cls) => ({ b: "rx", s, w, x, cls }), rzb = (s, w, x, cls) => ({ b: "rz", s, w, x, cls });
+
+// slide 3: the relay identity on one pair
+identity("circ", [HUB, ["L"], ["R"]],
+  [282, [{ cz: ["hub", "L"], x: 120, cls: "hubp" }, { cz: ["hub", "R"], x: 215, cls: "hubp" }]],
+  [692, [rxb("+π/2", "R", 105), { cz: ["L", "R"], x: 172, cls: "rel" }, rxb("−π/2", "R", 239),
+    { cz: ["hub", "R"], x: 375, cls: "hubp" },
+    rxb("+π/2", "R", 511), { cz: ["L", "R"], x: 578, cls: "rel" }, rxb("−π/2", "R", 645),
+    { brace: [72, 272], text: "P: L hands its bit to R" }, { brace: [478, 678], text: "P again: hand it back" }]], { h: 224 });
+
+// draft 1: the input block is one Z⊗Y rotation; in the S frame it is cz · rx · cz
+identity("d1", [["c"], ["t"]],
+  [470, [rxb("+π/2", "t", 105), { cx: ["c", "t"], x: 180 }, rzb("θ", "t", 255), { cx: ["c", "t"], x: 330 }, rxb("−π/2", "t", 405)]],
+  [440, [{ b: "S†", w: "t", x: 100, cls: "fr" }, { cz: ["c", "t"], x: 170, cls: "hubp" }, rxb("θ", "t", 240, "hl"),
+    { cz: ["c", "t"], x: 310, cls: "hubp" }, { b: "S", w: "t", x: 380, cls: "fr" }]]);
+
+// draft 2: a batch of hub blocks = fan-out, one rotation layer, fan-out
+(() => {
+  const P = ["p1", "p2", "p3"], T = ["θ₁", "θ₂", "θ₃"], left = [], right = [];
+  P.forEach((p, i) => left.push({ cz: ["hub", p], x: 95 + 160 * i, cls: "hubp" }, rxb(T[i], p, 150 + 160 * i, "hl"), { cz: ["hub", p], x: 205 + 160 * i, cls: "hubp" }));
+  P.forEach((p, i) => right.push({ cz: ["hub", p], x: 95 + 35 * i, cls: "hubp" }, rxb(T[i], p, 240, "hl"), { cz: ["hub", p], x: 385 - 35 * i, cls: "hubp" }));
+  identity("d2", [HUB, ...P.map((p) => [p])], [560, left], [440, right], { dy: 44 });
+})();
+
+// draft 3: the relay on a path of four (l0 -> r0, l1 -> R, then r0 -> R; root R)
+identity("d3", [HUB, ["l0"], ["r0"], ["R"], ["l1"]],
+  [300, ["l0", "r0", "R", "l1"].map((p, i) => ({ cz: ["hub", p], x: 95 + 45 * i, cls: "hubp" }))],
+  [640, [{ cy: ["l0", "r0"], x: 110 }, { cy: ["l1", "R"], x: 110 }, { cy: ["r0", "R"], x: 210 },
+    { cz: ["hub", "R"], x: 330, cls: "hubp" },
+    { cy: ["r0", "R"], x: 450 }, { cy: ["l0", "r0"], x: 550 }, { cy: ["l1", "R"], x: 550 }]], { dy: 40 });
+
+// draft 4: a quarter-turn block is Clifford: one pulse
+identity("d4", [["c"], ["t"]],
+  [330, [{ cz: ["c", "t"], x: 110, cls: "hubp" }, rxb("±π/2", "t", 185, "hl"), { cz: ["c", "t"], x: 260, cls: "hubp" }]],
+  [400, [{ b: "H", w: "t", x: 100 }, { cz: ["c", "t"], x: 170, cls: "hubp" }, { b: "S±", w: "c", x: 245 }, { b: "S±", w: "t", x: 245 }, { b: "H", w: "t", x: 320 }]]);
+
+// draft 5: the rotation can sit on the control (the compiler's own local Cliffords)
+identity("d5", [["c"], ["t"]],
+  [330, [{ cz: ["c", "t"], x: 110, cls: "hubp" }, rxb("θ", "t", 185, "hl"), { cz: ["c", "t"], x: 260, cls: "hubp" }]],
+  [600, [rxb("+π/2", "c", 100), rzb("+π/2", "c", 170), rzb("+π/2", "t", 100), rxb("+π/2", "t", 170),
+    { cz: ["c", "t"], x: 245, cls: "hubp" }, rxb("θ", "c", 320, "hl"), { cz: ["c", "t"], x: 395, cls: "hubp" },
+    rzb("−π/2", "c", 470), rxb("−π/2", "c", 540), rxb("−π/2", "t", 470), rzb("−π/2", "t", 540)]]);
+
+// draft 6: three small ones
+identity("d6-a", [["a"], ["b"]], [190, [{ cz: ["a", "b"], x: 85, cls: "hubp" }, { cz: ["a", "b"], x: 135, cls: "hubp" }]], [190, []], { dy: 36, lw: 30 });
+identity("d6-b", [["a"], ["b"]], [190, [rzb("φ", "a", 80), { cz: ["a", "b"], x: 145, cls: "hubp" }]], [190, [{ cz: ["a", "b"], x: 75, cls: "hubp" }, rzb("φ", "a", 140)]], { dy: 40, lw: 30 });
+identity("d6-c", [["q"]], [290, [rzb("φ", "q", 80), rxb("θ", "q", 160), rzb("λ", "q", 240)]], [290, [rzb("φ−π", "q", 80), rxb("−θ", "q", 160), rzb("λ+π", "q", 240)]], { lw: 30 });
 
 /* ------------------------------------------------------------------ slide 4: the relay band */
 (function relay() {
@@ -684,26 +904,26 @@ drawTree($("tree-b"), 1);
 
 /* ------------------------------------------------------------------ slide 6: chart */
 (function chart() {
-  const svg = $("chart"), W = 730, H = 400, L = 40, B = 52, T = 22;
-  const order = { stagger: 0, tree: 1 };
-  const cs = DATA.circuits.filter((c) => c.family === "ihva" && c.variant in order && c.n >= 20)
-    .sort((a, b) => a.n - b.n || order[a.variant] - order[b.variant] || a.p - b.p);
-  const top = Math.ceil(Math.max(...cs.map((c) => Math.max(c.solo2[1], c.bound))) / 100) * 100;
-  const y = (v) => H - B - (v / top) * (H - B - T), gw = (W - L - 6) / cs.length, bw = 27;
+  const svg = $("chart"), W = 700, H = 410, L = 40, B = 72, T = 34;
+  const order = { stagger: 0, tree: 1, tree_warm: 2 };
+  const cs = DATA.circuits.filter((c) => c.family === "ihva" && c.n === 50)
+    .sort((a, b) => order[a.variant] - order[b.variant] || a.p - b.p);
+  const top = Math.ceil(Math.max(...cs.map((c) => Math.max(c.best[1], c.bound))) / 100) * 100;
+  const y = (v) => H - B - (v / top) * (H - B - T), gw = (W - L - 6) / cs.length, bw = 46;
+  el("text", { class: "axl", x: L, y: 12 }, svg, "circuit depth of the six 50-qubit circuits (lower is better)");
   for (let v = 0; v <= top; v += 100) {
     el("line", { class: "grid", x1: L, x2: W, y1: y(v), y2: y(v) }, svg);
     el("text", { class: "axl", x: L - 8, y: y(v) + 4, "text-anchor": "end" }, svg, v);
   }
-  el("text", { class: "axl", x: L, y: 12 }, svg, "circuit depth (lower is better)");
   cs.forEach((c, i) => {
-    const gx = L + i * gw + gw / 2, big = c.n === 50 && c.variant === "stagger" && c.p === 3;
-    const bars = [["old", c.solo2[1], gx - bw - 2], ["new", c.relay[1], gx + 2]];
-    bars.forEach(([cls, v, x]) => el("rect", { class: "bar " + cls, x, y: y(v), width: bw, height: y(0) - y(v), rx: 3 }, svg));
-    el("line", { class: "bound", x1: gx - bw - 8, x2: gx + bw + 8, y1: y(c.bound), y2: y(c.bound) }, svg);
-    bars.forEach(([cls, v, x]) => el("text", { class: "bv " + cls, x: x + bw / 2, y: y(v) - 6 }, svg, v));
-    if (big) el("text", { class: "bnote", x: gx + bw + 12, y: y(c.bound) + 4 }, svg, "floor " + c.bound);
-    el("text", { class: "xl", x: gx, y: H - B + 20 }, svg, `${c.n}q ${c.variant}`);
+    const gx = L + i * gw + gw / 2, v = c.best[1];
+    el("rect", { class: "bar new", x: gx - bw / 2, y: y(v), width: bw, height: y(0) - y(v), rx: 4 }, svg);
+    el("line", { class: "bound", x1: gx - bw / 2 - 14, x2: gx + bw / 2 + 14, y1: y(c.bound), y2: y(c.bound) }, svg);
+    el("text", { class: "bnote", x: gx, y: y(c.bound) - 8, "text-anchor": "middle" }, svg, "floor " + c.bound);
+    el("text", { class: "bv new big", x: gx, y: y(v) + 20 }, svg, v);
+    el("text", { class: "xl", x: gx, y: H - B + 20 }, svg, c.variant.replace("_", " "));
     el("text", { class: "xl2", x: gx, y: H - B + 37 }, svg, `${c.p} layer${c.p > 1 ? "s" : ""}`);
+    el("text", { class: "xl2", x: gx, y: H - B + 54 }, svg, "baseline " + c.naive[1].toLocaleString("en").replace(",", "\u202f"));
   });
 })();
 
@@ -730,15 +950,17 @@ function show(i, dir) {
   $("notetext").textContent = slides[i].querySelector("aside.notes").textContent.replace(/\s+/g, " ").trim();
   history.replaceState(null, "", "#" + (i + 1));
 }
+// fragments with the same data-g are revealed together
+const group = (f) => (f.dataset.g ? [...slides[cur].querySelectorAll(`.frag[data-g="${f.dataset.g}"]`)] : [f]);
 function next() {
   if (t0 === null) t0 = Date.now();
   const f = slides[cur].querySelector(".frag:not(.on)");
-  if (f) f.classList.add("on");
+  if (f) group(f).forEach((e) => e.classList.add("on"));
   else show(cur + 1, 1);
 }
 function prev() {
   const on = slides[cur].querySelectorAll(".frag.on");
-  if (on.length) on[on.length - 1].classList.remove("on");
+  if (on.length) group(on[on.length - 1]).forEach((e) => e.classList.remove("on"));
   else show(cur - 1, -1);
 }
 addEventListener("keydown", (e) => {
@@ -763,6 +985,7 @@ setInterval(() => {
 }, 500);
 const hash = new URLSearchParams(location.hash.slice(1).replace(/^(\d+)/, "s=$1"));
 if (hash.get("notes")) document.body.classList.add("notes");
+if (hash.get("cap")) document.body.classList.add("cap");
 fit();
 show((parseInt(hash.get("s"), 10) || 1) - 1, hash.get("all") ? -1 : 1);
 </script>
