@@ -12,4 +12,4 @@ recompute, second pass, last round. Keys: Space play/pause, 1-6 jump to a chapte
 | MP4 (1920×1080, 30 fps, ~1:27) + GIF (960 px, 12 fps) | `python slides/anim/export.py <frames dir>` (Playwright + system Chromium, ffmpeg) |
 
 Google Slides cannot embed HTML: insert the MP4 via Insert → Video → Google Drive, or the GIF via
-Insert → Image (plays and loops automatically). MP4/GIF are not committed (generated media).
+Insert → Image (plays and loops automatically). MP4 and GIF are committed next to the page.
