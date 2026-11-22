@@ -211,3 +211,24 @@ Solo passed 13/13 full sanity circuits and 6/6 strict 20q statevector checks. Th
 variants matched exact tableaux in both synthesis modes. Two 50q solo compiles hit the 300 s
 limit during overlapping experiments. The two-worker full rerun passed, with a slowest compile
 of 75.9 s. The packaged portfolio passed its parallel run with a slowest compile of 216.3 s.
+
+## relay (fork of solo2, relayed hub fan-out), 2026-11-22 ~04:00 CET
+
+| compiler | v5 leaderboard set | validity | commit |
+|---|---|---|---|
+| relay (hub fan-out relayed over partner pairs / paths of four, shorter Euler sequences, hub-site DP) | **+92.01** (distance 92.80 %, depth 88.88 %) | full 20/20, sanity 13/13, strict 20q 6/6, Clifford tableaux 50q 12/12 as compiled and 12/12 generic; notebook `submission/relay.py` scores the same | idea/relay |
+
+The gain over solo2 (+91.56) is depth (1 856 → 1 486); distance is flat (11 568 → 11 770). The hub
+term of `docs/bounds.md` (two sequential hub pulses per hub block) no longer holds: see
+`docs/ideas/relay.md`. Slowest compile 97 s.
+
+## l3abstract (L3 as formal optimisation; peephole pass; solo_wide), 2026-11-22
+
+| compiler | v5 leaderboard set | validity | commit |
+|---|---|---|---|
+| solo_l3 (solo @b9a2a15 + l3 peephole pass) | +91.63 (distance 11 497.3, depth 1829) | full 20/20, sanity 13/13 | idea/l3abstract |
+| solo_wide_l3 (solo @b9a2a15 fork with band-width search + peephole) | **+91.72** (distance 11 368.6, depth 1815) | full 20/20, sanity 13/13; slowest compile 88 s (3 jobs) | idea/l3abstract |
+
+The peephole pass is compiler-agnostic (`python l3/make_l3.py <name>` builds `<name>_l3`); it was not
+yet applied to solo @d85a571, solo2 or relay. Details, dead ends and parked steps:
+`docs/ideas/l3abstract.md`.
