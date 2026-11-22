@@ -73,7 +73,7 @@ a { color: #1f5fbf; }
     var nok = rows.filter(function (r) { return r.ok; }).length;
     var badge = s && s.valid ? (s.official ? "score " : "partial ") + (s.score >= 0 ? "+" : "") + fmt(s.score, 2) + "%" : "";
     toc += '<a href="#g' + gi + '">' + (g.best ? "★ " : "") + esc(g.name) + '<span class="s">' + nok + "/" + rows.length + (badge ? " · " + badge : "") + "</span></a>";
-    out += '<section id="g' + gi + '"' + (g.best ? ' class="best"' : "") + '><h2>' + (g.best ? '<span class="bestbadge">★ best compiler</span> ' : "") + esc(g.name) + ' <span class="path">' + esc(g.compiler || "") + "</span></h2>";
+    out += '<a id="' + esc(g.name) + '"></a><section id="g' + gi + '"' + (g.best ? ' class="best"' : "") + '><h2>' + (g.best ? '<span class="bestbadge">★ best compiler</span> ' : "") + esc(g.name) + ' <span class="path">' + esc(g.compiler || "") + "</span></h2>";
     out += '<div class="summary">';
     out += "<span>" + nok + " / " + rows.length + " pages valid</span>";
     if (s && s.valid) {

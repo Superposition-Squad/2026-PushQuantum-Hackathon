@@ -1,0 +1,34 @@
+{
+ "name": "relay_plus",
+ "label": "metric_circuit_23",
+ "family": "ihva",
+ "qubits": 50,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/relay_plus/compiler.py",
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 127,
+  "move_steps": 127,
+  "move_distance": 242.892051,
+  "move_time": 262.469628,
+  "depth": 36,
+  "num_operations": 206,
+  "spacing_warnings": 8
+ },
+ "cz": 49,
+ "naive": {
+  "num_moves": 996,
+  "move_steps": 996,
+  "move_distance": 8302.303239,
+  "move_time": 8302.303239,
+  "depth": 555,
+  "num_operations": 2699,
+  "spacing_warnings": 0
+ },
+ "equivalence": "skipped (fast)",
+ "compile_s": 105.915,
+ "page": "metric_circuit_23.html",
+ "page_bytes": 174615,
+ "generated": "2026-11-22T12:27:03Z"
+}
