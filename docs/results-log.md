@@ -188,3 +188,14 @@ headroom is in sorting atoms into the working row, not in the hub stream.
 | portfolio (solo, systolic_po, rectbatch) | +91.25 (solo wins all 20; others are fallbacks) | full 20/20, slowest compile 53 s | this commit |
 
 Submission candidates: `submission/portfolio.py` (with fallbacks) and `submission/solo.py` (solo alone, faster).
+
+## Solo hub rotations and phase lowering
+
+Solo and the packaged portfolio both scored **+91.4753%** locally in full mode, passing all 20
+scored circuits. From +91.2483%, total depth dropped from 2004 to 1829 and movement distance rose
+from 11747.1 to 11818.3. The 50q tree p3 depth dropped from 418 to 367 at the same distance.
+
+Solo passed 13/13 full sanity circuits and 6/6 strict 20q statevector checks. The six 50q Clifford
+variants matched exact tableaux with special-angle synthesis enabled and with it forced off.
+The longest compile observed during the parallel runs was 149.5 s for solo and 106.4 s for the
+packaged portfolio.

@@ -17,6 +17,7 @@ with app.setup:
     import itertools
     import math
     from collections.abc import Sequence
+    from functools import lru_cache
     from numbers import Integral
     from typing import Any
 
@@ -326,6 +327,7 @@ with app.setup:
         return (float(x), float(y))
 
 
+    @lru_cache(maxsize=40000)
     def _dist(a, b):
         pa, pb = _phys(a), _phys(b)
         return math.hypot(pa[0] - pb[0], pa[1] - pb[1])
@@ -354,6 +356,14 @@ with app.setup:
         def _plan(self, mapping):
             """Validator-exact legality of one rectangle move; returns (rows, cols, new_rows, new_cols, d)."""
             pos, occ = self.pos, self.occ
+            if len(mapping) == 1:
+                q, (tx, ty) = next(iter(mapping.items()))
+                x, y = pos[q]
+                if not 0 <= tx <= 9 or not 0 <= ty <= 19:
+                    raise Illegal("target outside")
+                if occ.get((tx, ty), q) != q:
+                    raise Illegal("deposit on occupied")
+                return [y], [x], [ty], [tx], _dist((x, y), (tx, ty))
             src = {q: pos[q] for q in mapping}
             rmap, cmap = {}, {}
             for q, (x, y) in src.items():
@@ -752,25 +762,31 @@ with app.setup:
             if gs:
                 self._round(gs)
 
+        @staticmethod
+        @lru_cache(maxsize=100)
+        def _band_layouts(count, pars, shifts):
+            layouts = []
+            for par in pars:
+                for j1 in range(par, 5):
+                    for j2 in range(j1, 5):
+                        hmin = math.ceil(count / (j2 - j1 + 1))
+                        for h in (hmin, hmin + 1):
+                            for sh in shifts:
+                                if 1 <= h and h + sh <= 9:
+                                    a, bb = 10 - h - sh, 9 - sh
+                                    slots = [(2 * j - par, y) for y in range(a, bb + 1) for j in range(j1, j2 + 1)]
+                                    idx = [y * 9 + xl for xl, y in slots]
+                                    layouts.append((a, bb, j1, j2, par, slots, idx))
+            return layouts
+
         def _round(self, blks):
             from scipy.optimize import linear_sum_assignment
 
             m = self.m
-            P = len(blks)
             lam = self.LOOK
             members = {q for b in blks for q in b.qubits()}
             look = {q: self._lookpos(q) for q in members}
-            # candidate rectangles: rows a..bb, zone pair columns j1..j2, parity par (storage col = zone col - par)
-            rects = []
-            for par in self.PARS:
-                for j1 in range(par, 5):
-                    for j2 in range(j1, 5):
-                        w = j2 - j1 + 1
-                        hmin = math.ceil(P / w)
-                        for h in (hmin, hmin + 1):
-                            for sh in self.SHIFTS:
-                                if 1 <= h and h + sh <= 9:
-                                    rects.append((10 - h - sh, 9 - sh, j1, j2, par))
+            rects = self._band_layouts(len(blks), self.PARS, self.SHIFTS)
             plans = []
             occ = m.occ
             EV = self.EVICT
@@ -797,9 +813,7 @@ with app.setup:
             if self.SEED is not None:
                 CM = CM + self.NOISE * self.rng.random(CM.shape)
             OR = C2 < C1
-            for a, bb, j1, j2, par in rects:
-                slots = [(2 * j - par, y) for y in range(a, bb + 1) for j in range(j1, j2 + 1)]
-                idx = [y * 9 + xl for xl, y in slots]
+            for a, bb, j1, j2, par, slots, idx in rects:
                 cost = CM[:, idx]
                 orient = OR[:, idx]
                 ri, ci = linear_sum_assignment(cost)
@@ -920,6 +934,8 @@ with app.setup:
                     m.apply1(b.t, m.frame["St"][1])
 
         FORMS = "auto"
+        KEEP_HUB_STATIC = True
+        LAZY_FRAME = False
 
         def _ng(self, q, u):
             v = u @ self.m.pend[q]
@@ -929,10 +945,11 @@ with app.setup:
 
         def choose_form(self, b):
             hub = self.hub
-            if b.c == hub:
-                return "N"
-            if b.t == hub:
-                return "S"
+            if self.KEEP_HUB_STATIC:
+                if b.c == hub:
+                    return "N"
+                if b.t == hub:
+                    return "S"
             if self.FORMS != "auto":
                 return self.FORMS
             dep = self.m.depth
@@ -989,9 +1006,10 @@ with app.setup:
             src = self.m
             m.n, m.emit, m.qc = src.n, False, None
             m.frame = src.frame
+            m.LAZY = src.LAZY
             m.pos, m.occ = dict(src.pos), dict(src.occ)
             m.dist, m.nmoves = src.dist, src.nmoves
-            m.pend = [u.copy() for u in src.pend]
+            m.pend = src.pend.copy()  # operations replace matrix entries rather than mutating them
             m.depth = list(src.depth)
             e.m = m
             return e
@@ -1259,6 +1277,7 @@ with app.setup:
         ex.LOOK = lam
         for k, v in opts:
             setattr(ex, k, v)
+        ex.m.LAZY = ex.LAZY_FRAME
         if ex.SEED is not None:
             ex.rng = np.random.default_rng(ex.SEED)
         byq = {}
@@ -1372,6 +1391,13 @@ with app.setup:
             pol, lam, mu, opts = cand
             for sd in range(1, nseed + 1):
                 run((pol, lam, mu, tuple(opts) + (("SEED", sd),)), lay)
+        if n >= 12 and any(b.kind == "G" for b in blocks):
+            # Both endpoints already return to storage in a band round. Let the
+            # hub take the middle rotation if that avoids basis changes.
+            for _, _, (pol, lam, mu, opts), lay in sorted(res)[:2]:
+                for forms, lazy in (("N", False), ("auto", False), ("N", True), ("auto", True)):
+                    run((pol, lam, mu, (*opts, ("KEEP_HUB_STATIC", False), ("FORMS", forms),
+                                           ("LAZY_FRAME", lazy))), lay)
         best = min(res)
         if not emit:
             return best[0], best[2]
@@ -1485,6 +1511,86 @@ with app.setup:
         return ex
 
 
+    def _lower_z_phases(circuit):
+        """Combine Z phases across CZs and keep Pauli corrections in a frame."""
+        # Rz commutes with CZ. An Rx or measurement gives a storage-safe
+        # endpoint for any combined phase. Movement and CZ pulses stay in place.
+        indices = {q: i for i, q in enumerate(circuit.qubits)}
+        n = circuit.num_qubits
+        data = circuit.data
+
+        def lower(propagate_paulis, late):
+            phase = [0.0] * n
+            pending_x = [False] * n
+            pending_z = [False] * n
+            previous_x = [None] * n
+            extra = {}
+            replacements = {}
+            for i, ins in enumerate(data):
+                name = ins.operation.name
+                if name not in ("cz", "rx", "rz", "measure"):
+                    continue
+                qs = [indices[q] for q in ins.qubits]
+                q = qs[0]
+                if name == "cz":
+                    # CZ conjugates X on either qubit to X on that qubit
+                    # and Z on its partner.
+                    a, b = qs
+                    pending_z[a] ^= pending_x[b]
+                    pending_z[b] ^= pending_x[a]
+                elif name == "rz":
+                    theta = _wrap(float(ins.operation.params[0]))
+                    if propagate_paulis and abs(abs(theta) - math.pi) < 1e-10:
+                        pending_z[q] ^= True
+                    else:
+                        phase[q] += -theta if pending_x[q] else theta
+                    replacements[i] = ()
+                else:
+                    theta = None if name == "measure" else _wrap(float(ins.operation.params[0]))
+                    if propagate_paulis and theta is not None and abs(abs(theta) - math.pi) < 1e-10:
+                        pending_x[q] ^= True
+                        replacements[i] = ()
+                        continue
+                    angle = _wrap(phase[q] + (math.pi if name == "measure" and pending_z[q] else 0.0))
+                    if abs(angle) > 1e-10:
+                        previous = previous_x[q]
+                        slot = i if late or previous is None else previous + 1
+                        extra.setdefault(slot, []).append(("rz", angle, q))
+                    phase[q] = 0.0
+                    if name == "measure":
+                        if pending_x[q]:
+                            extra.setdefault(i, []).append(("rx", math.pi, q))
+                    else:
+                        rotation = -theta if pending_z[q] else theta
+                        replacements[i] = (("rx", rotation, q),) if abs(rotation) > 1e-10 else ()
+                        if replacements[i]:
+                            previous_x[q] = i
+            out = circuit.copy_empty_like()
+            for i, ins in enumerate(data):
+                for name, angle, q in extra.get(i, ()):
+                    getattr(out, name)(angle, q)
+                if i in replacements:
+                    for name, angle, q in replacements[i]:
+                        getattr(out, name)(angle, q)
+                else:
+                    out.append(ins)
+            return out
+
+        def depth(qc):
+            levels = [0] * n
+            for ins in qc.data:
+                if ins.operation.name in ("move", "barrier"):
+                    continue
+                qs = [indices[q] for q in ins.qubits]
+                level = max(levels[q] for q in qs) + 1
+                for q in qs:
+                    levels[q] = level
+            return max(levels, default=0)
+
+        candidates = (lower(paulis, late) for paulis, late in itertools.product((False, True), repeat=2))
+        return min(itertools.chain((circuit,), candidates), key=depth)
+
+
     def compile_circuit(circuit: QuantumCircuit, architecture_spec: Any):
         parsed = None
         try:
@@ -1496,6 +1602,7 @@ with app.setup:
             if n <= 100:
                 try:
                     qc, home = compile_ihva(n, blocks)
+                    qc = _lower_z_phases(qc)
                     qc.global_phase = 0
                     return qc, Architecture(home, spec=architecture_spec)
                 except Illegal:

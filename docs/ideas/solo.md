@@ -71,6 +71,15 @@ then for the best 3-5: simulation-guided round composition (EVAL), estimate-only
 initial layout derived from the candidate's own step order; then seeded cost perturbations of the
 best (fixed budgets by size, no wall clock). Score = distance + 3.06 x depth.
 
+**Hub rotations in band rounds.** Both endpoints already return to storage between the two CZs.
+The search also tries letting the hub take the middle rotation, using the normal S-frame form
+when that avoids basis changes. Dedicated hub sweeps still keep the hub stationary.
+
+**Phase lowering.** After routing, combine Rz gates between consecutive Rx gates on the same atom.
+Candidate rewrites also propagate local Pauli corrections through CZ, where an X adds a Z to
+its partner, and flip rotation signs through anticommuting corrections. Combined phases are
+placed at storage-safe points. The compiler keeps the output with the lowest depth.
+
 **Fallback.** Anything not iHVA-shaped (HEA, sanity circuits) goes to the naive scheme (valid; the
 portfolio covers HEA).
 
@@ -87,6 +96,7 @@ portfolio covers HEA).
 | + gravity hub strategy, S-frame | | +90.36 (fast) | |
 | + HEA path | 8f5366d | +90.86 (full, 20/20) | portfolio_po + solo est. 90.91; solo wins 18/20 |
 | + special-angle blocks (+-pi/2 one cz, pi local) | 682d68b | **+91.25 (full, 20/20)** | solo wins 20/20 vs portfolio_po |
+| + hub rotations in band rounds and phase lowering | | **+91.48 (full, 20/20)** | 50q tree p3 depth 418 → 367 at the same movement distance |
 
 Per circuit vs portfolio_po (dist/depth) at 8f5366d: solo wins 18/20, e.g. 50q stagger p3 4603/471
 -> 2664/341, tree p3 5742/554 -> 3278/418, 20q stagger p3 1164/189 -> 783/150, 12q HEA p3 44/28 ->
@@ -109,3 +119,14 @@ compile ~14 s (50q tree p3).
 - Lookahead term (next partner) in slot assignment: noise level (+-3 %).
 - Distance-aware matching keys alone: +-2 %.
 - Seeded perturbations: 0-3 %.
+- Direct lifts into preselected bands, non-rigid columns, reverse routing, separately executed
+  sub-bands, spectral starts, and physical line re-embedding gave small or inconsistent gains.
+
+## Cross-round residency
+
+On 50q tree p3, 55 transitions between different multi-pair CZ layers accounted for 1902.6 distance.
+The median transition shared nine atoms that needed no intervening one-qubit gate. At each new
+pulse, every resident needs its scheduled partner. A local experiment that varied the next round's
+zone slots and reconnected to the original storage layout found no savings over the fixed-endpoint
+replan. To exploit the overlap, scheduling and routing would need to choose matchings and storage
+layouts over several rounds together.
