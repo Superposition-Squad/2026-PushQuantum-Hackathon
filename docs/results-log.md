@@ -245,6 +245,7 @@ cuts distance 3.5 % (11 769.6 → 11 362.3) at unchanged depth, 18/20 circuits i
 | relay_plus (relay + Codex's later solo work, 3-way merged) | +92.16 (fast) | 20/20 | idea/l3abstract |
 | relay_plus2 (+ WIDE / HUB_PARK_NEAR variants) | +92.19 (fast) | 20/20 | idea/l3abstract |
 
-Slowest compile 228 s (3 jobs, laptop under load). The guards only fire on slow machines; the
-+92.39 run had a background mining job competing for the CPU.
+Rerun of the guarded relay_best_l3 on a quiet machine: **+92.45** again (identical distance and depth),
+slowest compile 195 s (3 jobs). The guards only fire on slow machines; the +92.39 run had a background
+mining job competing for the CPU.
 
