@@ -130,7 +130,9 @@ this round + the next round's cost).
 | solo_l3 (solo + peephole) | +91.63 | 11 497.3 | 1829 | 119 s (3 jobs) |
 | **solo_wide_l3** (band-width search + peephole) | **+91.72** | 11 368.6 | 1815 | 88 s (3 jobs) |
 
-Both pass `--set sanity --mode full` (13/13).
+| **relay_l3** (relay from main + peephole) | **+92.21** | 11 362.3 | 1486 | 165 s (3 jobs) |
+
+All pass `--set sanity --mode full` (13/13). On relay the pass cuts distance 3.5 % (relay +92.01).
 
 Other per-round knobs (`l3/exp/knobs.py`, global overrides of solo_wide): EVICT 0.75 / 3.0 →
 +91.525 / +91.550, SHIFTS (0,) / (0,1) / (0..3) → +91.525 / +91.530 / +91.563 (base +91.553). No

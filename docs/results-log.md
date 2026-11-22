@@ -229,6 +229,8 @@ term of `docs/bounds.md` (two sequential hub pulses per hub block) no longer hol
 | solo_l3 (solo @b9a2a15 + l3 peephole pass) | +91.63 (distance 11 497.3, depth 1829) | full 20/20, sanity 13/13 | idea/l3abstract |
 | solo_wide_l3 (solo @b9a2a15 fork with band-width search + peephole) | **+91.72** (distance 11 368.6, depth 1815) | full 20/20, sanity 13/13; slowest compile 88 s (3 jobs) | idea/l3abstract |
 
-The peephole pass is compiler-agnostic (`python l3/make_l3.py <name>` builds `<name>_l3`); it was not
-yet applied to solo @d85a571, solo2 or relay. Details, dead ends and parked steps:
+| **relay_l3** (relay + l3 peephole pass) | **+92.21** (distance 11 362.3, depth 1486) | full 20/20, sanity 13/13; slowest compile 165 s (3 jobs) | idea/l3abstract |
+
+The peephole pass is compiler-agnostic (`python l3/make_l3.py <name>` builds `<name>_l3`). On relay it
+cuts distance 3.5 % (11 769.6 → 11 362.3) at unchanged depth, 18/20 circuits improved. Details, dead ends and parked steps:
 `docs/ideas/l3abstract.md`.
