@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@page{size:1280px 720px;margin:0}
+:root{--bg:#0a0f1e;--panel:#121a31;--line:#26324f;--fg:#eaeefa;--mut:#93a0c2;--blue:#4ea1ff;--orange:#ff9f43;--gold:#ffd166;--green:#3ddc97}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,"Segoe UI",system-ui,Arial,sans-serif;color:var(--fg)}
+.pg{width:1280px;height:720px;page-break-after:always;overflow:hidden;position:relative}
+.pg img.full{width:1280px;height:720px;display:block}
+.s{background:radial-gradient(900px 520px at 78% 8%,#17234a 0%,transparent 70%),var(--bg);padding:50px 72px}
+.k{font-size:15px;letter-spacing:.16em;text-transform:uppercase;color:var(--orange);font-weight:700;margin:0 0 10px}
+h2{font-size:42px;margin:0 0 22px;font-weight:750}h2 em{font-style:normal;color:var(--gold)}
+.row{display:flex;gap:28px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 20px}
+.t{display:flex;gap:14px;align-items:flex-start;margin-bottom:10px}.n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--gold);color:#0a0f1e;font-weight:800;display:flex;align-items:center;justify-content:center}
+.t b{font-size:18px}.t p{margin:3px 0 0;font-size:14px;color:#cdd5ec;line-height:1.35}.v{margin-left:auto;color:var(--green);font-weight:700;white-space:nowrap;font-size:15px}
+.mut{color:var(--mut);font-size:14px;line-height:1.4}.punch{border-left:4px solid var(--orange);padding:4px 0 4px 16px;font-size:19px;color:#cdd5ec;margin-top:14px}
+</style></head><body>
+<div class="pg"><img class="full" src="hi/p-01.png"></div>
+<div class="pg"><img class="full" src="hi/p-08.png"></div>
+<div class="pg"><img class="full" src="hi/p-03.png"></div>
+<div class="pg"><img class="full" src="hi/p-04.png"></div>
+<div class="pg s"><p class="k">The geometry</p><h2>Moving atoms: <em>one rigid move</em> for many atoms</h2>
+<div class="row"><div class="panel" style="width:470px">
+<svg width="430" height="300"><rect x="0" y="0" width="430" height="80" rx="8" fill="#1d1626" stroke="#4a3140"/><text x="10" y="18" font-size="11" fill="#6f7ca3">ENTANGLING ZONE · ROW 10</text>
+<rect x="0" y="92" width="430" height="200" rx="8" fill="#0f1a35" stroke="#22335e"/>
+<circle cx="180" cy="48" r="15" fill="#ffd166"/><circle cx="214" cy="48" r="15" fill="#4ea1ff"/>
+<line x1="214" y1="68" x2="214" y2="112" stroke="#ff5ec4" stroke-width="2.5" stroke-dasharray="6 5"/>
+<g fill="#4ea1ff"><circle cx="34" cy="128" r="13"/><circle cx="74" cy="128" r="13"/><circle cx="114" cy="128" r="13"/><circle cx="154" cy="128" r="13"/><circle cx="214" cy="128" r="13" opacity=".25"/><circle cx="254" cy="128" r="13"/></g>
+<g fill="#7f9fd0"><circle cx="34" cy="188" r="13"/><circle cx="74" cy="188" r="13"/><circle cx="114" cy="188" r="13"/><circle cx="154" cy="188" r="13"/><circle cx="194" cy="188" r="13"/><circle cx="234" cy="188" r="13"/></g>
+<g fill="#3b4e7a"><circle cx="34" cy="248" r="13"/><circle cx="74" cy="248" r="13"/><circle cx="114" cy="248" r="13"/><circle cx="154" cy="248" r="13"/><circle cx="194" cy="248" r="13"/><circle cx="234" cy="248" r="13"/></g>
+<text x="300" y="133" font-size="13" fill="#ffd166">row 9 · staging</text><text x="300" y="193" font-size="13" fill="#93a0c2">row 8</text><text x="300" y="253" font-size="13" fill="#93a0c2">row 7</text></svg>
+<p class="mut">Hub waits in the zone; partners rise one by one from row 9 (≈1.1 each). Row used up: one move shifts all rows down, one move lifts the next row into row 9: ≈6 per row of 10 at 50 qubits.</p></div>
+<div style="flex:1">
+<div class="t"><span class="n">1</span><div><b>Rigid band rounds</b><p>a round's pairs sit as one band; one lift carries them all</p></div><span class="v">≈2.1 / move</span></div>
+<div class="t"><span class="n">2</span><div><b>Hub slot hopping</b><p>hub moves between its pair's two sites; partners rise straight up</p></div><span class="v">0.3 / hop</span></div>
+<div class="t"><span class="n">3</span><div><b>Gather lifts</b><p>small rounds: row segments go straight to their pair slots</p></div><span class="v">no shuffle</span></div>
+<div class="t"><span class="n">4</span><div><b>Dip trimming</b><p>only atoms that owe a rotation go down, straight down</p></div><span class="v">1.22→1.04</span></div>
+<div class="t"><span class="n">5</span><div><b>Exact solver → fast pass</b><p>MILP on 3-move windows; patterns became rewrite rules</p></div><span class="v">−4.1 % travel</span></div>
+</div></div></div>
+<div class="pg s"><p class="k">How we worked</p><h2>Iterate, measure, <em>merge</em></h2>
+<div class="row"><div style="width:520px">
+<div class="t"><span class="n">1</span><div><b>One harness</b><p>official validator + transversal-CZ and zone checks; every idea validated on 20 + 13 circuits</p></div></div>
+<div class="t"><span class="n">2</span><div><b>Parallel lines of work</b><p>team and AI coding agents on separate branches; a 3-way merge combined them</p></div></div>
+<div class="t"><span class="n">3</span><div><b>Exact solver as a teacher</b><p>optimal windows showed which move patterns were missing</p></div></div>
+<div class="t"><span class="n">4</span><div><b>Visualiser with diff mode</b><p>two plans aligned on their pulses; differences in red / green; click jumps both</p></div></div>
+<p class="punch">We judged ideas by watching both plans side by side.</p></div>
+<div class="panel" style="flex:1;padding:8px"><img src="viz.png" style="width:100%;border-radius:8px"><div style="display:flex;align-items:center;gap:18px;padding:10px 6px 4px"><img src="qr.png" style="width:110px;height:110px;border-radius:6px"><div><b style="font-size:20px">Try the visualiser</b><div style="color:var(--blue);font-size:13px;margin-top:6px">superposition-squad.github.io/2026-PushQuantum-Hackathon/</div></div></div></div></div></div>
+<div class="pg"><img class="full" src="hi/p-06.png"></div>
+<div class="pg s" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px"><h2 style="color:var(--gold);margin:0">Try the visualiser</h2><img src="qr.png" style="width:340px;height:340px;border-radius:10px;background:#fff"><div style="color:var(--blue);font-size:24px;font-weight:700">superposition-squad.github.io/2026-PushQuantum-Hackathon/</div></div>
+</body></html>
