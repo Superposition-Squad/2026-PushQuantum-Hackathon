@@ -1,0 +1,34 @@
+{
+ "name": "solo",
+ "label": "metric_circuit_08",
+ "family": "ihva",
+ "qubits": 12,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/solo/compiler.py",
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 261,
+  "move_steps": 261,
+  "move_distance": 407.250337,
+  "move_time": 567.691156,
+  "depth": 103,
+  "num_operations": 327,
+  "spacing_warnings": 109
+ },
+ "cz": 192,
+ "naive": {
+  "num_moves": 576,
+  "move_steps": 576,
+  "move_distance": 5869.560663,
+  "move_time": 5869.560663,
+  "depth": 501,
+  "num_operations": 1527,
+  "spacing_warnings": 0
+ },
+ "equivalence": "equivalent_up_to_global_phase",
+ "compile_s": 31.046,
+ "page": "metric_circuit_08.html",
+ "page_bytes": 226961,
+ "generated": "2026-11-22T15:41:27Z"
+}

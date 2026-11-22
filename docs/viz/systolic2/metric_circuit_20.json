@@ -1,0 +1,34 @@
+{
+ "name": "systolic2",
+ "label": "metric_circuit_20",
+ "family": "ihva",
+ "qubits": 50,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/systolic2/compiler.py",
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 2067,
+  "move_steps": 2066,
+  "move_distance": 5366.099469,
+  "move_time": 5609.986909,
+  "depth": 471,
+  "num_operations": 4007,
+  "spacing_warnings": 60
+ },
+ "cz": 882,
+ "naive": {
+  "num_moves": 2988,
+  "move_steps": 2988,
+  "move_distance": 24906.909717,
+  "move_time": 24906.909717,
+  "depth": 2139,
+  "num_operations": 7697,
+  "spacing_warnings": 0
+ },
+ "equivalence": "interaction pairs only (> 19 qubits)",
+ "compile_s": 47.259,
+ "page": "metric_circuit_20.html",
+ "page_bytes": 766915,
+ "generated": "2026-11-22T15:46:31Z"
+}

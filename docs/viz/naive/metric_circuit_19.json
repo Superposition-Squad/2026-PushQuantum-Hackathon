@@ -1,0 +1,34 @@
+{
+ "name": "naive",
+ "label": "metric_circuit_19",
+ "family": "ihva",
+ "qubits": 50,
+ "compiler": "/home/anton/Documents/code/PushQuantumHackathon2026/2026-PushQuantum-Hackathon/compilers/naive/compiler.py",
+ "ok": true,
+ "stage": null,
+ "error": null,
+ "metrics": {
+  "num_moves": 996,
+  "move_steps": 996,
+  "move_distance": 8302.303239,
+  "move_time": 8302.303239,
+  "depth": 837,
+  "num_operations": 2699,
+  "spacing_warnings": 0
+ },
+ "cz": 294,
+ "naive": {
+  "num_moves": 996,
+  "move_steps": 996,
+  "move_distance": 8302.303239,
+  "move_time": 8302.303239,
+  "depth": 837,
+  "num_operations": 2699,
+  "spacing_warnings": 0
+ },
+ "equivalence": "interaction pairs only (> 19 qubits)",
+ "compile_s": 0.863,
+ "page": "metric_circuit_19.html",
+ "page_bytes": 431313,
+ "generated": "2026-11-22T15:50:45Z"
+}
