@@ -199,3 +199,15 @@ Solo passed 13/13 full sanity circuits and 6/6 strict 20q statevector checks. Th
 variants matched exact tableaux with special-angle synthesis enabled and with it forced off.
 The longest compile observed during the parallel runs was 149.5 s for solo and 106.4 s for the
 packaged portfolio.
+
+## Solo storage-aware phase retiming and boundary moves
+
+Solo and the packaged portfolio both scored **+91.5548%** locally in full mode, passing all 20
+scored circuits. The gain over +91.4753% was 0.0795 percentage points, with total movement
+distance down from 11818.3 to 11711.0 and total depth down from 1829 to 1811. The 50q tree p3
+improved on both metrics, from 3278.4 to 3248.0 distance and from 367 to 362 depth.
+
+Solo passed 13/13 full sanity circuits and 6/6 strict 20q statevector checks. The six 50q Clifford
+variants matched exact tableaux in both synthesis modes. Two 50q solo compiles hit the 300 s
+limit during overlapping experiments. The two-worker full rerun passed, with a slowest compile
+of 75.9 s. The packaged portfolio passed its parallel run with a slowest compile of 216.3 s.
